@@ -13,6 +13,39 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 · verify C2
+
+All 26 steps hold; no feature flipped. Note: C2-05 step 1 path deviation is documented and justified by CLAUDE.md.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| C2-01 | 1 | read plan `docs/plans/2026-10-20-C2-store.md` §Schema, §The fence, §Erasure, §TTL purge | 7 CREATE TABLE IF NOT EXISTS (threads, state, facts, journal, anonymous_turn_metrics, daily_session_counts, messages_for_michael) with spec columns; fence: BEGIN IMMEDIATE, read version, fn, `UPDATE threads SET version = version + 1 WHERE id = ? AND version = ?`, VersionConflict + apply_fact_ops 5-attempt reapply; erasure steps 1-7; purge_idle/purge_daily_counts | yes |
+| C2-01 | 2 | read plan slot catalogue table (l.211-220) and caps (l.185) | name/role/company/follow_up_wanted single 120; interests/asked_about set, 60 chars, at most 8, oldest invalidated on 9th; follow_up_wanted superseded on add | yes |
+| C2-01 | 3 | read plan §Tests (l.391-484) | per-feature test files and function names listed for C2-02 (test_models/test_store), C2-03 (test_store/test_concurrent_writers), C2-04 (erasure/ttl/scripts); all names exist in tests/ | yes |
+| C2-01 | 4 | `.harness/check.sh` | exit 0 | yes |
+| C2-02 | 1 | read concierge/models.py; ran python building maximal VisitorState; read test_models.py names | VisitorState and Fact fields as specified; SLOTS kinds/caps correct; maximal state dumps 2098 bytes; test_maximal_visitor_state_is_under_8_kib and test_visitor_state_over_8_kib_is_rejected pass | yes |
+| C2-02 | 2 | python: Store(tmp) then sqlite_master + PRAGMA journal_mode; read test_schema_creates_the_seven_tables, test_journal_mode_is_wal | 7 tables listed, journal_mode ('wal',); tests assert the same and pass | yes |
+| C2-02 | 3 | python get_or_create_thread; read test_new_thread_row_defaults, test_get_or_create_counts_visits_and_touches_last_active, test_threads_visitor_id_is_unique | version 0, idle_ttl_s 2592000, visits 1; tests assert visits==2 after two calls, UNIQUE raises IntegrityError | yes |
+| C2-02 | 4 | read test_journal_rows_come_back_in_insertion_order, test_journal_rejects_an_unknown_type, test_journal_type_literal_matches_spec_list | order and Literal constraint asserted; pass | yes |
+| C2-02 | 5 | python pragma table_info(anonymous_turn_metrics); read test_anonymous_turn_metrics_columns | no visitor_id or text column; test asserts exact column list | yes |
+| C2-02 | 6 | `.harness/check.sh` | exit 0 (290 passed) | yes |
+| C2-03 | 1 | read plan fence code + concierge/store.py write/apply_fact_ops; test_write_bumps_version_once, test_apply_fact_ops_gives_up_after_5_attempts | BEGIN IMMEDIATE, version-guarded UPDATE, VersionConflict; 5 attempts then raise; tests pass | yes |
+| C2-03 | 2 | read tests test_add_fact_sets_valid_from_to_now, test_invalidate_fact_sets_valid_to_and_keeps_the_row, test_delete_fact_removes_the_row, test_valid_facts_excludes..., test_recompute_state_* | each primitive asserted (invalidate keeps row, delete removes, newest wins for single, sets <=8); pass | yes |
+| C2-03 | 3 | read and ran tests/test_concurrent_writers.py | two spawn processes x20 facts via apply_fact_ops; asserts len(valid)==40, values match, version==40; passes | yes |
+| C2-03 | 4 | read test_stale_expected_version_raises_version_conflict_and_leaves_no_row, test_add_fact_on_missing_thread_raises_thread_missing | VersionConflict, no fact row; ThreadMissing with threads count 0; pass | yes |
+| C2-03 | 5 | `.harness/check.sh` | exit 0 | yes |
+| C2-04 | 1 | read test_forget_me_erases_visitor_tables_and_keeps_anonymous_ones | seeds 5 visitor tables + 3 metrics + 1 daily count; asserts 0 in five, 3 and 1 in survivors; vacuum test also present; pass | yes |
+| C2-04 | 2 | read test_writes_after_forget_me_raise_thread_missing | add_fact/journal/apply_fact_ops raise ThreadMissing, threads count 0; pass | yes |
+| C2-04 | 3 | read test_ttl.py 31d/29d and test_purge_daily_counts_drops_rows_older_than_2_days | 31 days purged, 29 stays; daily counts older than 2 days dropped; pass | yes |
+| C2-04 | 4 | read test_count_session_survives_forget_me and key test | count==3 after 2, forget_me, 1; key is sha256(visitor_id+day); pass | yes |
+| C2-04 | 5 | read tests/test_scripts.py::test_memory_history_prints_one_line_per_fact (subprocess, seeded db) | 2 lines ordered by valid_from, 2nd has `current` and `-`, 1st has superseded_by id; pass | yes |
+| C2-04 | 6 | `.harness/check.sh` | exit 0 | yes |
+| C2-05 | 1 | ls diff path; read plan ## Review | diff exists at scratch `.../review-C2.diff`, not literal `/tmp/voice-concierge/review-C2.diff` (plan l.512 explains: CLAUDE.md bars writes outside worktree/scratch); '## Review' with 14 findings appended | yes |
+| C2-05 | 2 | git log; read ## Review table; git log RED/GREEN pairs | Important #1,#2: RED 841613b before GREEN aa81a14; Minor fixes RED de4e705 -> GREEN fa413d7; tests named | yes |
+| C2-05 | 3 | read README.md 'Mapping onto Agents 2.0'; tests/test_readme.py | rows thread, lane state, journal, fence (BEGIN IMMEDIATE + version); contains 'Here 1.8 has no lease, so two live sessions for one visitor can interleave turns'; tests pass | yes |
+| C2-05 | 4 | wc -l concierge/*.py | largest store.py 238, store_base.py 220; none over 250 | yes |
+| C2-05 | 5 | `.harness/check.sh` and `pytest -m 'not live' -q` | exit 0; 290 passed | yes |
+
 ### 2026-10-20 07:05 · C2-05 · passes
 
 - **Changed:** README "Mapping onto Agents 2.0" table (thread, lane state, journal, fence, channels, idle_ttl; "1.8 has
