@@ -19,7 +19,7 @@ from pydantic import BaseModel
 
 from concierge.evals.script import MemoryScript, ScriptTurn
 from concierge.extractor import extract, extraction_window
-from concierge.fact_ops import _key
+from concierge.fact_ops import value_key
 from concierge.merge import merge
 from concierge.models import Fact
 from concierge.store import Store
@@ -65,23 +65,23 @@ def check(script: MemoryScript, *, valid: Sequence[Fact], history: Sequence[Fact
     """(missing_expected, forbidden_hits) for the facts at the end. Values compare casefolded with whitespace
     collapsed (an expected fact by its value or any `also` spelling); a forbidden value is a substring match against
     every row, invalidated ones included. A `gone` value must have been stored and be valid no more."""
-    have = {(f.slot, _key(f.value)) for f in valid}
-    ever = {(f.slot, _key(f.value)) for f in history}
+    have = {(f.slot, value_key(f.value)) for f in valid}
+    ever = {(f.slot, value_key(f.value)) for f in history}
     missing = [f"{e.slot}: {e.value}" for e in script.expected
-               if not any((e.slot, _key(v)) in have for v in (e.value, *e.also))]
+               if not any((e.slot, value_key(v)) in have for v in (e.value, *e.also))]
     hits: list[str] = []
     for fact in history:
         if any((x.slot is None or x.slot == fact.slot) and x.value_contains.casefold() in fact.value.casefold()
                for x in script.forbidden):
             hits.append(f"forbidden {fact.slot}: {fact.value}")
     for g in script.gone:
-        if (g.slot, _key(g.value)) in have:
+        if (g.slot, value_key(g.value)) in have:
             hits.append(f"still valid {g.slot}: {g.value}")
-        elif (g.slot, _key(g.value)) not in ever:
+        elif (g.slot, value_key(g.value)) not in ever:
             hits.append(f"never stored {g.slot}: {g.value}")
     seen: set[tuple[str, str]] = set()
     for fact in valid:
-        key = (fact.slot, _key(fact.value))
+        key = (fact.slot, value_key(fact.value))
         if key in seen:
             hits.append(f"duplicate {fact.slot}: {key[1]}")
         seen.add(key)

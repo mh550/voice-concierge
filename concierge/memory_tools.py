@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 
-from concierge.fact_ops import _key
+from concierge.fact_ops import value_key
 from concierge.forget_match import select
 from concierge.grounding import shares_a_word
 from concierge.memory_writer import MemoryWriter
@@ -102,7 +102,7 @@ def _forget(writer: MemoryWriter, about: str, asked_at: int) -> list[Fact]:
     deletes = [DeleteFact(fact_id=i) for i in sorted(doomed)]
     deleted = set(writer.store.apply_fact_ops(writer.thread_id, deletes, session_id=writer.session_id).deleted)
     gone = [f for f in history if f.id in deleted]
-    writer.forgotten.extend((f.slot, _key(f.value), asked_at) for f in gone)  # here, before any later merge
+    writer.forgotten.extend((f.slot, value_key(f.value), asked_at) for f in gone)  # here, before any later merge
     return gone
 
 

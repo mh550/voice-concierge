@@ -70,7 +70,8 @@ def snapshot(conn: sqlite3.Connection, thread_id: str) -> ThreadSnapshot | None:
     )
 
 
-def _key(value: str) -> str:
+def value_key(value: str) -> str:
+    """The form two values compare in: casefolded, whitespace collapsed."""
     return " ".join(value.casefold().split())
 
 
@@ -90,8 +91,8 @@ def derive_state(valid: list[Fact], previous: VisitorState) -> VisitorState:
         else:
             newest: dict[str, str] = {}
             for v in values:  # a later equal value replaces the earlier one, at the later position
-                newest.pop(_key(v), None)
-                newest[_key(v)] = v
+                newest.pop(value_key(v), None)
+                newest[value_key(v)] = v
             fields[slot] = list(newest.values())[-spec.max_items :]
     return VisitorState.model_validate(fields)
 

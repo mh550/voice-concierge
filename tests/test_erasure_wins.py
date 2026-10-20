@@ -83,12 +83,12 @@ async def _erase_during_extraction(
         assert writer is not None
         await started.session.run(user_input="I work at Acme.")
         await until(lambda: len(extractor.calls) == 1, 3)  # the extraction is in its 1 s LLM call
-        assert await asyncio.to_thread(db.forget_me, VISITOR)
-        if cancel:
-            writer.cancel_all()
+        if cancel:  # the real "Forget me" path: cancel first, then erase on the writer's store thread
+            assert await forget_visitor(writer, VISITOR)
             await until(lambda: writer._run is None, 0.2)  # cancelled now, not after the 1 s call
             assert extractor.cancelled
         else:
+            assert await asyncio.to_thread(db.forget_me, VISITOR)
             await until(lambda: writer.erased, 2)  # nothing cancelled: the run's merge hits the fence (ThreadMissing)
         await shutdown(ctx, started)
         await asyncio.sleep(1.2)  # past the point the extraction would have finished

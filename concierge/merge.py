@@ -15,7 +15,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from concierge.fact_ops import _key
+from concierge.fact_ops import value_key
 from concierge.gate import check_value
 from concierge.grounding import is_confirmed_name, shares_a_word
 from concierge.models import SLOTS, AddFact, Fact, FactOp, InvalidateFact, Note, SlotName, Source, VisitorState
@@ -144,7 +144,7 @@ class _Decision:
 
     def _add(self, index: int, new: AddFact) -> None:
         same = [e for e in self.live if e.slot == new.slot]
-        if any(_key(e.value) == _key(new.value) for e in same):
+        if any(value_key(e.value) == value_key(new.value) for e in same):
             self.skipped.append(Skip(index=index, reason="duplicate"))
             return
         spec = SLOTS[new.slot]
@@ -154,20 +154,20 @@ class _Decision:
         else:  # an item is its spellings, at its newest one (as derive_state shows it); the oldest items go
             items: dict[str, None] = {}
             for entry in same:  # stored facts by id, then this batch's
-                items.pop(_key(entry.value), None)
-                items[_key(entry.value)] = None
+                items.pop(value_key(entry.value), None)
+                items[value_key(entry.value)] = None
             gone = set(list(items)[: max(0, len(items) - spec.max_items + 1)])
             for entry in same:
-                if _key(entry.value) in gone:
+                if value_key(entry.value) in gone:
                     self._supersede(entry, new)
         self._emit(index, new)
 
     def _update(self, index: int, target: _Live, new: AddFact) -> None:
-        if _key(target.value) == _key(new.value):
+        if value_key(target.value) == value_key(new.value):
             self.skipped.append(Skip(index=index, reason="duplicate"))
             return
         others = [e for e in self.live if e.slot == new.slot and e is not target]
-        if SLOTS[new.slot].kind == "set" and any(_key(e.value) == _key(new.value) for e in others):
+        if SLOTS[new.slot].kind == "set" and any(value_key(e.value) == value_key(new.value) for e in others):
             assert target.fact_id is not None  # _target only finds stored facts
             self.live.remove(target)  # corrected to an item the set already holds
             self.out.append(InvalidateFact(fact_id=target.fact_id, reason="corrected"))

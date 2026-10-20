@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from concierge.fact_ops import _key
+from concierge.fact_ops import value_key
 from concierge.grounding import words
 from concierge.models import Fact, SlotName
 from concierge.ops import AddOp, Op, UpdateOp
@@ -30,7 +30,7 @@ def value_matches(value: str, about: str) -> bool:
     """Every word of one is a word of the other; a value with no word tokens ("C++") must equal `about`."""
     have, asked = words(value), words(about)
     if not have:
-        return _key(value) == _key(about)
+        return value_key(value) == value_key(about)
     return bool(asked) and (have <= asked or asked <= have)
 
 
@@ -67,7 +67,7 @@ def was_forgotten(
     position = positions.get(op.turn_id)
     if not isinstance(op, AddOp | UpdateOp) or position is None:
         return False
-    key = _key(op.value)
+    key = value_key(op.value)
     deleted = any(
         position < asked_at and k == key and (op.slot is None or op.slot == slot) for slot, k, asked_at in forgotten
     )
