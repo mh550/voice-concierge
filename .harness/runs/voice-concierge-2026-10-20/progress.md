@@ -13,6 +13,31 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 · verify C5
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| C5-01 | 1 | Read docs/plans/2026-10-20-C5-compaction.md; grepped `shutdown_process_timeout` in concierge/worker.py:49 | Plan has shutdown sequence, 30 s timeout (worker.py:49 = 30), summarizer prompt (3 sentences/400 chars), 24 items/4,000 tokens trigger, last 6 turns, listening apply via update_chat_ctx, 5 s timeout, fallback 12 | yes |
+| C5-01 | 2 | Read plan lines ~170-210; checked `def update_chat_ctx` in .venv voice/agent.py:250 | Plan quotes AgentStateChangedEvent (events.py:309-323) and the update_chat_ctx signature, matching the installed source | yes |
+| C5-01 | 3 | Read plan "Tests" section (lines ~385-410) | Lists test functions for C5-02 (test_summary, test_summary_of_summary, test_session) and C5-03; names exist in tests/ | yes |
+| C5-01 | 4 | `/home/mh550/projects/agent-harness/lib/check.sh` and `.harness/check.sh` | Green; 711 passed | yes |
+| C5-02 | 1 | Read tests/test_summary.py (trim to 3, 400 chars, LLM error, 6 s timeout) | test_five_sentence_output_is_trimmed_to_three, test_long_output_is_cut_to_400_chars_at_a_space, test_llm_error_returns_the_previous_summary_unchanged, test_timeout_returns_the_previous_summary_within_5_5_s all pass | yes |
+| C5-02 | 2 | Read concierge/session.py shutdown (lines 126-165); ran tests/test_session.py incl. test_no_summary_llm_call_after_forget_me | Flush then summary then store write; after forget_me summarizer.calls == [] and extractor.calls == [], all tables empty; pass | yes |
+| C5-02 | 3 | Ran tests/test_summary_of_summary.py | test_second_visit_summary_keeps_the_first_visits_key_point asserts "clinic" in after_second; test_summarizer_context_contains_the_previous_summary asserts previous_summary == FIRST_SUMMARY; pass | yes |
+| C5-02 | 4 | Ran tests/test_summary.py | 5-sentence trimmed to 3; test_failed_summary_journals_an_error_row_and_keeps_the_previous passes | yes |
+| C5-02 | 5 | `.harness/check.sh` | 711 passed | yes |
+| C5-03 | 1 | Read concierge/compaction.py (234 lines); ran test_compaction.py tests for needs_compaction, plan (last 6, tool pair), build_compacted, fallback | needs_compaction past 24 items/4000 tokens, plan keeps last 6, tool pair both-or-neither, summary cap 120 words, fallback keeps 12; pass | yes |
+| C5-03 | 2 | Read session.py:189-197 wiring; tests/test_critical_path.py:152 | on_item_added and on_state_changed registered on Compactor; AST test asserts update_chat_ctx is not called from turn hook or item handlers; pass | yes |
+| C5-03 | 3 | Read test_thirty_turns_compact_at_the_next_listening_transition (test_compaction.py:312) | asserts len(items) <= 8, one summary message holding the FakeLLM text, 30 turns journaled (31 with greeting), tool pair test present; pass | yes |
+| C5-03 | 4 | Read test_slow_summarizer_falls_back_within_5_5_s (:437) and test_existing_summary_survives_a_second_compaction | FakeLLM delay 6 s: ready under 5.5 s, last 12 turns (t18-t29) kept; existing summary survives second compaction; pass | yes |
+| C5-03 | 5 | `.harness/check.sh` | 711 passed | yes |
+| C5-04 | 1 | `wc -l` on /tmp/harness/.../review-C5.diff; read plan `## Review` (line 573) | Diff (3365 lines, 0c365fa = C4-06) and notes exist, but in the scratch dir, not /tmp/voice-concierge/ (plan explains: CLAUDE.md bars writes outside worktree/scratch). Accepted as equivalent | yes |
+| C5-04 | 2 | Read Review table; ran 13 new tests in test_session/test_summary/test_compaction | 4 Important all marked fixed with tests committed first (per commit log); tests pass | yes |
+| C5-04 | 3 | grep README.md lines 24-26; looped over every backticked test name in README against `def test_` in tests/ | All three rows present; no missing test names; test_readme.py passes | yes |
+| C5-04 | 4 | `find concierge -name '*.py' \| xargs wc -l \| awk '$1>250'` | No module over 250 (max 250) | yes |
+| C5-04 | 5 | `.harness/check.sh` | 711 passed | yes |
+
+
 ### 2026-10-20 10:05 · C5-04 · passes
 
 - **Changed:**
