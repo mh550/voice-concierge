@@ -128,6 +128,13 @@ async def test_new_visitor_preload_has_no_block(store, visitor_id) -> None:
     assert pre.block is None and pre.facts == [] and pre.state == VisitorState()
 
 
+async def test_preload_shows_only_this_visitors_memory(store, visitor_id) -> None:
+    seed_returning(store)
+    pre = await preload(store, visitor_id, SESSION_ID)
+    assert pre.block is None and pre.facts == [] and pre.state == VisitorState()
+    assert pre.thread_id != store.thread_for(VISITOR).id
+
+
 # --- the entrypoint ------------------------------------------------------------------------------------------
 
 
