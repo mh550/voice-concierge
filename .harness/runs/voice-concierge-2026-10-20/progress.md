@@ -13,6 +13,21 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 01:20 · C1-06 · passes
+
+- **Changed:** `concierge/dispatch.py` (`UUID4_RE.fullmatch`), `concierge/text_input.py` (`on_dropped`,
+  `ChannelTags.on_dropped`), `concierge/worker.py` (wires it), `concierge/testing/fake_llm.py` (deep snapshots).
+  `pyproject.toml` turns on ruff `ANN` for `concierge/` only; README gains "How to run"; the C1 plan gains `## Review`. Tests 95 → 99.
+- **Verified:** `check.sh` green, 99 tests. The Important finding has a RED commit (0aaa6ee) before its GREEN (1b8326a).
+  Mutants, each caught: an unwired `on_dropped`, `turn_handlin=`, `room_input_options=`, a changed year and a changed
+  `$` figure in the pack, and a dropped return hint (ANN201). The largest module is 138 lines. CLAUDE.md is unchanged.
+- **Opus review:** 1 Important (a trailing newline passed the UUID check), fixed. 7 Minor: 4 fixed, 3 deferred with
+  reasons in the plan (`speech_classes`, the private `_default_text_input_cb` import, re-checking the OpenRouter model id in MORNING.md for C7).
+- **Next session:** `make_text_input_cb` now takes `on_dropped=`. Wire it to whatever `ChannelTags` C4 uses.
+- **Proposed change (C1-06 step 1):** the diff path `/tmp/voice-concierge/review-C1.diff` is outside this session's
+  scratch directory, and `/tmp/voice-concierge/` is shared with other runs. I wrote it to
+  `/tmp/harness/voice-concierge/voice-concierge-2026-10-20/review-C1.diff` instead; later review steps should name the scratch dir.
+
 ### 2026-10-20 00:46 · C1-05 · passes
 
 - **Added:** `concierge/worker.py` (`server = AgentServer(shutdown_process_timeout=30, setup_fnc=prewarm)`,

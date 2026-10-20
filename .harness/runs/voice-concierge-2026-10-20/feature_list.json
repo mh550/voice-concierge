@@ -76,7 +76,7 @@
         "README.md's 'how to run' paragraph names scripts/run-worker.sh and the env file ~/.config/voice-concierge/env (names only, no values); CLAUDE.md is unchanged unless a rule had to change",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
 
     {
