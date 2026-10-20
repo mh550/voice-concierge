@@ -450,9 +450,9 @@
       "id": "C7-05", "milestone": "C7", "kind": "review", "model": "opus",
       "description": "C7 is reviewed: the README's claims are checked against the code line by line, overclaims are removed, scripts are simplified, and the public-repo rules are verified.",
       "steps": [
-        "git diff <C6-05 commit>..HEAD -- . ':!.harness' is written to /tmp/voice-concierge/review-C7.diff and review notes are appended to docs/plans/2026-10-20-C7-ops-docs.md under '## Review', including a table of every README claim about behaviour with the file:line that implements it",
+        "git diff <C6-05 commit>..HEAD -- . ':!.harness' is written to the run's scratch dir ($HARNESS_SCRATCH/review-C7.diff) and review notes are appended to docs/plans/2026-10-20-C7-ops-docs.md under '## Review', including a table of every README claim about behaviour with the file:line that implements it",
         "Every Critical or Important finding is fixed (test-first where it is code)",
-        "`git grep -n -E '(192\\.168|10\\.[0-9]+\\.[0-9]+\\.|sk-[A-Za-z0-9]{8}|LIVEKIT_API_SECRET=.+)' -- . ':!.env.example' ':!docs/spec.md'` returns nothing; `git grep -n -i 'hostname' README.md MORNING.md` shows no internal hostname; *.db is gitignored and `git ls-files '*.db'` is empty",
+        "`git grep -n -E '(192\\.168|10\\.[0-9]+\\.[0-9]+\\.|sk-[A-Za-z0-9]{8}|LIVEKIT_API_SECRET=.+)' -- . ':!.env.example' ':!docs/spec.md' ':!.harness' ':!tests/test_gate.py' ':!docs/plans/2026-10-20-C4-extraction.md'` returns nothing; `git grep -n -i 'hostname' README.md MORNING.md` shows no internal hostname; *.db is gitignored and `git ls-files '*.db'` is empty",
         "`.venv/bin/pytest -m 'not live' -q` reports 0 skipped except the live file's module skip, and the whole suite runs in under 120 s",
         ".harness/check.sh exits 0"
       ],

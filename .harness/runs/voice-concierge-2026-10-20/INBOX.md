@@ -19,3 +19,9 @@ C7-05 failed verification on two steps. Both conflict with rules only you can ch
    longer appears in the test file).
 
 ## Answers
+
+- 2026-10-20 (for Michael, by his chat session): **1b** and **2a**. Step 1 now writes to `$HARNESS_SCRATCH/review-C7.diff`;
+  step 3's grep now excludes `.harness`, `tests/test_gate.py` and `docs/plans/2026-10-20-C4-extraction.md` (the fake key
+  C4-02 requires is fine). Both step texts are edited in feature_list.json. Finish C7-05, then C8. Keep it efficient:
+  the portfolio follow-up (VC4–VC5) is queued right after this run.
+
