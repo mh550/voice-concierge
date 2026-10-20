@@ -237,6 +237,34 @@ def test_in_batch_replacement_inherits_the_stored_supersedes(store, tid) -> None
     assert now.value == "Globex" and acme.superseded_by == now.id and acme.valid_to is not None
 
 
+def test_delete_citing_an_agent_turn_is_agent_attributed(store, tid) -> None:
+    """Review C4-06 M1: the agent's "so you've stopped using Rust?" is not the visitor saying so."""
+    rust = seed(store, tid, "interests", "Rust")
+    turns = (agent("a1", "So you've stopped using Rust?"), user("u2", "Hmm, what's Michael's stack?"))
+    result = run(store, tid, [DeleteOp(op="DELETE", fact_id=rust, turn_id="a1")], *turns)
+    assert [r.reason for r in result.rejected] == ["agent_attributed"]
+    assert [f.value for f in store.valid_facts(tid)] == ["Rust"]
+
+
+def test_update_to_an_item_the_set_holds_invalidates_with_corrected(store, tid) -> None:
+    seed(store, tid, "interests", "Rust")
+    rag = seed(store, tid, "interests", "rag")
+    op = UpdateOp(op="UPDATE", fact_id=rag, value="rust", turn_id="u1")
+    result = run(store, tid, [op], user("u1", "I meant Rust, not RAG"))
+    assert [f.value for f in store.valid_facts(tid)] == ["Rust"] and result.invalidated == [rag]
+    (row,) = [r for r in store.journal_rows(tid) if r.type == "fact_invalidated"]
+    assert row.payload["reason"] == "corrected"
+
+
+def test_two_spellings_in_one_batch_store_one_item(store, tid) -> None:
+    ops = [add("interests", "Rust"), add("interests", "rust")]
+    result = run(store, tid, ops, user("u1", "Rust, yes, rust"), extraction={"ms": 1})
+    assert [f.value for f in store.valid_facts(tid)] == ["Rust"]
+    assert [(s.index, s.reason) for s in result.skipped] == [(1, "duplicate")]
+    ran = store.journal_rows(tid)[-1]
+    assert ran.payload == {"ms": 1, "ops": 2, "applied": 1, "rejected": 0, "skipped": 1}
+
+
 def test_value_only_the_agent_said_is_agent_attributed(store, tid) -> None:
     guess = agent("a1", "So you're a recruiter?")
     reply = user("u1", "Anyway, what has he built?")
@@ -266,6 +294,13 @@ def test_stop_words_never_ground_a_value(store, tid) -> None:
     # "was"/"this"/"has" lose their trailing s; they must still be stop words.
     result = run(store, tid, [add("role", "was a recruiter")], user("u1", "Ha, this was a long day, he has a dog"))
     assert [r.reason for r in result.rejected] == ["ungrounded"]
+    # Common two-letter words never ground one either (review C4-06 M2): "an" alone made the agent's guess stick.
+    guess = agent("a1", "Are you an investor?")
+    result = run(store, tid, [add("role", "an investor", "u2")], guess, user("u2", "No, I'm just an observer here"))
+    assert [r.reason for r in result.rejected] == ["agent_attributed"]
+    for word in ("an", "us", "no", "up", "if", "oh", "ok", "hi"):
+        result = run(store, tid, [add("role", f"{word} recruiter")], user("u1", f"{word.title()}, I build things"))
+        assert [r.reason for r in result.rejected] == ["ungrounded"], word
 
 
 def test_asked_about_and_follow_up_are_exempt_from_grounding(store, tid) -> None:
