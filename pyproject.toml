@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voice-concierge"
+version = "0.1.0"
+description = "A portfolio voice agent that remembers returning visitors (LiveKit Agents 1.8)"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "livekit-agents==1.8.8",
+  "livekit-plugins-openai==1.8.8",
+  "livekit-plugins-silero==1.8.8",
+  "livekit-plugins-deepgram==1.8.8",
+  "pydantic>=2,<3",
+  "pydantic-settings>=2,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.6",
+]
+
+[tool.setuptools]
+packages = ["concierge", "concierge.testing"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = ["live: needs LiveKit keys; Michael runs these"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ANN"]
+
+[tool.ruff.lint.per-file-ignores]
+# Type hints are required in concierge/ (C1-06); tests and scripts may use bare fakes.
+"tests/**" = ["ANN"]
+"scripts/**" = ["ANN"]
