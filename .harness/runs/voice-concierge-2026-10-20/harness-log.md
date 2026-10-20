@@ -11,3 +11,4 @@
 - 2026-10-20 01:26 · P1-01 · claude-opus-5-5 · passes=true · 14 min · 8/38 passing
 - 2026-10-20 01:26 · merged main into harness/voice-concierge-2026-10-20
 - 2026-10-20 01:27 · P1 verified and tagged run/voice-concierge-2026-10-20/P1 (contains unverified work of C2-01: held until that is verified)
+- 2026-10-20 01:27 · held: P1 (its tag contains another milestone's unverified work, or main has changes it wasn't verified with); it merges with the next verified milestone
