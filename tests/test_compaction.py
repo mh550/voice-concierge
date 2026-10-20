@@ -342,6 +342,28 @@ async def test_thirty_turns_compact_at_the_next_listening_transition(
     assert summarizer.calls[0].chat_ctx.items[0].text_content == COMPACTION_SYSTEM
 
 
+async def test_the_visit_summary_after_a_compaction_reads_every_turn(
+    db: Store, fakes: list[FakeLLM], summarizer: FakeLLM
+) -> None:
+    """Compaction edits only the agent's context: the session-end summary reads the writer's history, folded turns
+    included (plan C5, 'Nothing is lost')."""
+    with fake_job_context(job_metadata=METADATA) as ctx:
+        started = await start(ctx, db)
+        session, compactor = started.session, started.compactor
+        assert compactor is not None
+        agent = session.current_agent
+        add_turns(session, agent, range(30))
+        await until(lambda: compactor.ready is not None)
+        listening(session)
+        await until(lambda: compactor.applied == 1)
+        assert "t0" not in turn_ids(agent)  # folded out of the agent's context
+        await shutdown(ctx, started)
+    compaction_call, visit_call = summarizer.calls
+    assert compaction_call.chat_ctx.items[0].text_content == COMPACTION_SYSTEM
+    visit_input = visit_call.chat_ctx.items[-1].text_content or ""
+    assert all(f'"turn {n}"' in visit_input for n in range(30))
+
+
 async def test_turns_added_while_compacting_trigger_another_compaction() -> None:
     replies = iter(["First summary.", "Second summary."])
 
