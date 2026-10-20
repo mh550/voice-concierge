@@ -33,3 +33,4 @@
 - 2026-10-20 04:56 · C4-05 · claude-opus-5-5 · passes=true · 14 min · 21/38 passing
 - 2026-10-20 05:12 · C4-06 · claude-opus-5-5 · passes=true · 15 min · 22/38 passing
 - 2026-10-20 05:12 · merged main into harness/voice-concierge-2026-10-20
+- 2026-10-20 05:14 · C4 verified and tagged run/voice-concierge-2026-10-20/C4
