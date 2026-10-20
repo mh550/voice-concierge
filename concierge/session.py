@@ -11,10 +11,8 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
-import sqlite3
 import time
 import uuid
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -22,7 +20,6 @@ from livekit.agents import AgentSession, JobContext, llm
 from livekit.agents.voice import SpeechHandle
 from livekit.agents.voice.agent_session import RecordingOptions
 from livekit.agents.voice.room_io import RoomOptions, TextInputOptions
-from pydantic import ValidationError
 
 from concierge.agent import ConciergeAgent
 from concierge.config import Settings, build_llm, build_stt, build_tts
@@ -30,10 +27,9 @@ from concierge.dispatch import DispatchInfo, parse_dispatch
 from concierge.greeting import greeting_instructions
 from concierge.knowledge import load_pack
 from concierge.memory_writer import MemoryWriter
-from concierge.models import JournalType
 from concierge.preload import Preloaded, preload
-from concierge.store import Store, StoreError, ThreadMissing
-from concierge.summary import SummaryOutcome, summarize
+from concierge.session_end import journal_row, write_summary
+from concierge.store import Store
 from concierge.tasks import track
 from concierge.text_input import ChannelTags, make_text_input_cb
 
@@ -46,9 +42,6 @@ EXTRACTION_DEBOUNCE_S = 2.0  # spec §4.4: a run starts 2 s after the first user
 # The shutdown's own deadline (plan C5 "Timing"): the flush (15 s), the summary (5 s) and a busy wait (5 s) fit, and
 # it leaves the worker's shutdown_process_timeout=30 room for the session close before the callbacks.
 SHUTDOWN_WORK_S = 25.0
-
-_STORE_ERRORS = (StoreError, sqlite3.Error, ValidationError)
-
 
 @dataclass
 class Started:
@@ -124,53 +117,6 @@ def _agent_or_memoryless(
         return ConciergeAgent(pack, memory=writer)
 
 
-async def _journal(
-    store: Store, thread_id: str, session_id: str, kind: JournalType, payload: dict[str, Any],
-    writer: MemoryWriter | None = None,
-) -> None:
-    """One journal row, off the loop (on the writer's store thread when given, in order with its writes). A failure
-    is logged by type and never raised: the session goes on."""
-    try:
-        if writer is not None:
-            await writer.call(store.journal, thread_id, session_id, kind, payload)
-        else:
-            await asyncio.to_thread(store.journal, thread_id, session_id, kind, payload)
-    except ThreadMissing:
-        logger.info("not journaling %s: the visitor's memory was erased", kind)
-    except _STORE_ERRORS as exc:
-        logger.warning("could not journal %s (%s)", kind, type(exc).__name__)
-
-
-async def _write_summary(writer: MemoryWriter, previous: str | None, summarizer: Callable[[], llm.LLM]) -> None:
-    """The visit summary after the final extraction: a failure (building the LLM included) journals `error` and keeps
-    the previous summary (or clears it, when it names a value forgotten this visit); a new one is stored (on the
-    writer's store thread) and journaled as counts, never text."""
-    store, thread_id, session_id = writer.store, writer.thread_id, writer.session_id
-    forgotten = {"forgotten_about": [about for about, _ in writer.forget_requests],
-                 "forgotten_values": [key for _, key, _ in writer.forgotten]}
-    try:
-        outcome = await summarize(summarizer(), previous, writer.history, **forgotten)
-    except Exception as exc:  # e.g. the provider can't be built: no key
-        outcome = SummaryOutcome(text=previous, changed=False, ms=0, error=type(exc).__name__)
-    if writer.erased:  # forget_me landed during the call
-        return
-    if outcome.error is not None:
-        logger.warning("the visit summary failed (%s)", outcome.error)
-        await _journal(store, thread_id, session_id, "error", {"stage": "summary", "type": outcome.error}, writer)
-    if not outcome.changed:
-        return
-    try:
-        await writer.call(store.set_summary, thread_id, None, outcome.text)
-    except ThreadMissing:
-        logger.info("not storing the visit summary: the visitor's memory was erased")
-        return
-    except _STORE_ERRORS as exc:
-        logger.warning("could not store the visit summary (%s)", type(exc).__name__)
-        return
-    written = {"chars": len(outcome.text or ""), "sentences": outcome.sentences, "ms": outcome.ms}
-    await _journal(store, thread_id, session_id, "summary_written", written, writer)
-
-
 async def start_session(ctx: JobContext, store: Store | None, settings: Settings) -> Started:
     """Preload (concurrent with ctx.connect()) → ConciergeAgent → session.start → the greeting, then
     session_started in the background. With memory, a MemoryWriter sees every conversation item. The shutdown
@@ -201,11 +147,11 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
                     await writer.flush()  # the final extraction; nothing when erased
                     # Checked after the flush too: forget_me can land during it. No visitor turn: nothing new.
                     if not writer.erased and preloaded is not None and any(t.role == "user" for t in writer.history):
-                        await _write_summary(writer, preloaded.state.last_visit_summary, build_summarizer)
+                        await write_summary(writer, preloaded.state.last_visit_summary, build_summarizer)
                 if preloaded is not None and not (writer is not None and writer.erased):
                     ended = {"reason": reason, "duration_s": round(time.monotonic() - began, 1)}
                     # On the writer's thread: after a cancelled run's last store call (review M7).
-                    await _journal(store, preloaded.thread_id, session_id, "session_ended", ended, writer)
+                    await journal_row(store, preloaded.thread_id, session_id, "session_ended", ended, writer)
         except TimeoutError:
             logger.warning("the shutdown work missed its %.0f s deadline; the rest was skipped", SHUTDOWN_WORK_S)
         finally:
@@ -240,5 +186,5 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
 
     if store is not None and preloaded is not None:
         started = {"visits": preloaded.visits, "preload_ms": preloaded.ms, "returning": preloaded.block is not None}
-        track(tasks, _journal(store, preloaded.thread_id, session_id, "session_started", started), log=logger)
+        track(tasks, journal_row(store, preloaded.thread_id, session_id, "session_started", started), log=logger)
     return Started(session, preloaded, session_id, greeting, tasks, writer)
