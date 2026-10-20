@@ -13,6 +13,25 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 11:40 · C6-02 · passes
+
+- **Changed:**
+  - New `concierge/contract.py`: the four §6 names, `MAX_BODY_BYTES`, `MemoryPayload`/`FactView`/`VisitorView`, `MetricsPayload = TurnMetrics`, and `build_memory_payload` (valid facts only, oldest first, drops the oldest facts to fit 15 KiB in bytes).
+  - New `concierge/publish.py`: `publish`, `PayloadTooLarge`, and `MemoryPublisher` (serialized sends; `final` closes; `aclose` also drops a waiting `final`).
+  - `Store.memory_view`; `concierge/testing/fake_room.py`; the two schema files in `tests/contract/`; `jsonschema` added to the `dev` extra.
+  - `session.py` publishes `concierge.memory` after `session.start` and from `on_merged`; `publisher.aclose()` runs first in `on_shutdown`.
+  - Tests 711 → 738.
+- **Verified:**
+  - `test_two_memory_publishes_after_one_merged_extraction` fails with the `on_merged` line removed and passes with it.
+  - The trim test passes with é, 語 and 🙂: 80 facts → fits, newest kept, one more would overflow.
+  - `check.sh` is green with 738 tests.
+- **Opus review:** 1 Important, fixed test-first (`final` could send after `aclose`; `test_final_waiting_on_a_send_sends_nothing_after_aclose`). Of the 3 Minor, 1 is fixed (`test_a_merge_in_the_shutdown_flush_publishes_nothing`), 1 is noted for C6-03 and 1 is accepted (`memory_view` takes the write lock, like `load`).
+- **Next session (C6-03) must know:**
+  - `TurnMetrics` has no `ge` bounds, but `metrics.schema.json` requires `turn` ≥ 1 and the other numbers ≥ 0. Add them, or clamp negatives to null.
+  - I did not do the plan's `session_setup.py` move: `build_session` reads `build_llm`/`build_stt` from `session`'s globals, which the `recording_session` fixture patches, so the move is not a pure move. `session.py` is at 220 lines.
+  - Existing session tests still use an unconnected `rtc.Room`; their start publish is logged and dropped. New tests pass `fake_job_context(room=FakeRoom())`.
+- **Questions for Michael:** none new (D13 is still open).
+
 ### 2026-10-20 06:57 · C6-01 · passes
 
 - **Changed:**

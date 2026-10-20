@@ -18,11 +18,13 @@ VISIT_SUMMARY = "The visitor works at Acme and asked what Michael builds."  # th
 
 
 async def start(ctx: Any, store: Store | None) -> Started:  # noqa: ANN401 (fake_job_context's JobContext)
-    """One session to its first reply, with session_started written."""
+    """One session to its first reply, with session_started written and the start concierge.memory sent."""
     started = await start_session(ctx, store, Settings())
     await started.greeting
     for task in list(started.tasks):
         await task
+    if started.publisher is not None:
+        await started.publisher.idle()
     return started
 
 

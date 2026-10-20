@@ -357,7 +357,7 @@
         "concierge/session.py publishes concierge.memory once after session.start and the MemoryWriter's on_merged callback publishes again after every merge; tests/test_publish.py asserts two sends on topic concierge.memory after one merged extraction, both bodies validating against memory.schema.json",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C6-03", "milestone": "C6", "kind": "build", "model": "opus",

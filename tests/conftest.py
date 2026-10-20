@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import uuid
 from collections.abc import Iterator
@@ -5,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from jsonschema import Draft202012Validator
 from livekit.agents import AgentSession
 
 from concierge import session
@@ -116,3 +118,25 @@ def db(tmp_path: Path) -> Iterator[Store]:
         s.close()
     except sqlite3.ProgrammingError:  # the shutdown callback closed it
         pass
+
+
+# --- the §6 JSON schemas (tests/contract/, tests/test_publish.py) ----------------------------------------------
+
+CONTRACT_DIR = Path(__file__).parent / "contract"
+
+
+def contract_validator(name: str) -> Draft202012Validator:
+    """`tests/contract/<name>.schema.json`, checked as a draft 2020-12 schema first."""
+    schema = json.loads((CONTRACT_DIR / f"{name}.schema.json").read_text())
+    Draft202012Validator.check_schema(schema)
+    return Draft202012Validator(schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
+
+
+@pytest.fixture
+def memory_validator() -> Draft202012Validator:
+    return contract_validator("memory")
+
+
+@pytest.fixture
+def metrics_validator() -> Draft202012Validator:
+    return contract_validator("metrics")

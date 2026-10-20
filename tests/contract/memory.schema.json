@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "concierge.memory",
+  "title": "concierge.memory (spec §6): the visitor's memory, sent at session start and after every merge",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["visitor", "facts", "summary", "updated_at"],
+  "properties": {
+    "visitor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "visits"],
+      "properties": {
+        "name": {"type": ["string", "null"]},
+        "visits": {"type": "integer", "minimum": 0}
+      }
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "slot", "value", "channel", "source", "learned_at", "confidence"],
+        "properties": {
+          "id": {"type": "integer"},
+          "slot": {"enum": ["name", "role", "company", "follow_up_wanted", "interests", "asked_about"]},
+          "value": {"type": "string"},
+          "channel": {"enum": ["voice", "text"]},
+          "source": {"enum": ["user_said", "user_typed", "user_asked_to_remember"]},
+          "learned_at": {"type": "string", "format": "date-time"},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      }
+    },
+    "summary": {"type": ["string", "null"]},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

@@ -2,7 +2,8 @@
 plan C3 "The preload sequence", "Session start and end").
 
 Every store call runs in a thread (the store blocks up to 5 s), and none sits between the preload and the greeting:
-`session_started` is written by a background task after the greeting is queued. At the end (plan C5 "The shutdown
+`session_started` is written by a background task after the greeting is queued, and the page gets the visitor's
+memory (`concierge.memory`, spec §6) after `session.start` and after every merge. At the end (plan C5 "The shutdown
 sequence"): the final extraction, then the visit summary, unless the visitor was erased.
 """
 
@@ -24,12 +25,14 @@ from livekit.agents.voice.room_io import RoomOptions, TextInputOptions
 from concierge.agent import ConciergeAgent
 from concierge.compactor import Compactor
 from concierge.config import Settings, build_llm, build_stt, build_tts
+from concierge.contract import MemoryPayload, build_memory_payload, empty_memory_payload
 from concierge.dispatch import DispatchInfo, parse_dispatch
 from concierge.erasure_hooks import add_erase_hook
 from concierge.greeting import greeting_instructions
 from concierge.knowledge import load_pack
 from concierge.memory_writer import MemoryWriter
 from concierge.preload import Preloaded, preload
+from concierge.publish import MemoryPublisher
 from concierge.session_end import journal_row, write_summary
 from concierge.store import Store
 from concierge.tasks import track
@@ -57,6 +60,7 @@ class Started:
     tasks: set[asyncio.Task[Any]] = field(default_factory=set)
     writer: MemoryWriter | None = None  # None: no memory this session (no store, or the preload failed)
     compactor: Compactor | None = None
+    publisher: MemoryPublisher | None = None
 
 
 def recording_options(settings: Settings | None = None) -> RecordingOptions:
@@ -133,6 +137,13 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     preloaded: Preloaded | None = None
     writer: MemoryWriter | None = None
     compactor: Compactor | None = None
+    publisher: MemoryPublisher | None = None
+
+    async def memory_payload() -> MemoryPayload:
+        """What `concierge.memory` carries now: read on the writer's store thread, in order with its writes."""
+        if writer is None:
+            return empty_memory_payload()
+        return await writer.call(build_memory_payload, writer.store, writer.thread_id)
 
     async def on_shutdown(reason: str) -> None:  # a plain async def: add_shutdown_callback reads its __code__
         # One ordered callback: the job runs its shutdown callbacks concurrently, so a separate close could
@@ -143,6 +154,8 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
             summarizer.append(build_llm("summarizer", settings))
             return summarizer[-1]
 
+        if publisher is not None:  # first: the room is disconnected before the callbacks run (plan C6)
+            await publisher.aclose()
         try:
             async with asyncio.timeout(SHUTDOWN_WORK_S):
                 await asyncio.gather(*tasks, return_exceptions=True)  # errors are logged by track's callback
@@ -178,10 +191,12 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
 
     session = build_session(ctx, settings)
     channels = ChannelTags()
+    publisher = MemoryPublisher(ctx.room, memory_payload)
     if store is not None and preloaded is not None:  # no thread, no writer: nothing is ever scheduled
         extractor = functools.partial(build_llm, "extractor", settings)
         writer = MemoryWriter(
-            store, preloaded.thread_id, session_id, extractor, EXTRACTION_DEBOUNCE_S, channels=channels
+            store, preloaded.thread_id, session_id, extractor, EXTRACTION_DEBOUNCE_S, channels=channels,
+            on_merged=lambda _result: publisher.schedule(),  # a fresh concierge.memory after every merge
         )
         session.on("conversation_item_added", writer.on_item_added)  # before start: the greeting is seen too
     agent = _agent_or_memoryless(load_pack(), preloaded, writer)
@@ -197,8 +212,9 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     session.on("agent_state_changed", compactor.on_state_changed)  # the apply point, never the turn hook
     await session.start(agent=agent, **room_start_kwargs(ctx, info, settings, channels))
     greeting = session.generate_reply(instructions=greeting_instructions(preloaded))
+    publisher.schedule()  # after the greeting is queued: the read waits behind the writer's thread, not the reply
 
     if store is not None and preloaded is not None:
         started = {"visits": preloaded.visits, "preload_ms": preloaded.ms, "returning": preloaded.block is not None}
         track(tasks, journal_row(store, preloaded.thread_id, session_id, "session_started", started), log=logger)
-    return Started(session, preloaded, session_id, greeting, tasks, writer, compactor)
+    return Started(session, preloaded, session_id, greeting, tasks, writer, compactor, publisher)

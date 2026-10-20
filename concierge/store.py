@@ -106,6 +106,17 @@ class Store(JournalStore):
             raise ThreadMissing(thread_id)
         return snapshot
 
+    def memory_view(self, thread_id: str) -> tuple[Thread, ThreadSnapshot, int]:
+        """The thread (for `visits`), its snapshot and the store's clock, in one transaction: what `concierge.memory`
+        shows (C6, `contract.build_memory_payload`). ThreadMissing when the thread is gone."""
+        with self._transaction() as conn:
+            row = conn.execute(f"SELECT {_THREAD_COLUMNS} FROM threads WHERE id = ?", (thread_id,)).fetchone()
+            snapshot = fact_ops.snapshot(conn, thread_id) if row is not None else None
+            now = self._clock()
+        if row is None or snapshot is None:
+            raise ThreadMissing(thread_id)
+        return _thread(row), snapshot, now
+
     # Facts (the ops themselves run in concierge/fact_ops.py, inside the fence)
 
     def apply_fact_ops(
