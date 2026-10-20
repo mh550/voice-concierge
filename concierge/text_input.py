@@ -24,16 +24,23 @@ Channel = Literal["voice", "text"]
 
 def make_text_input_cb(
     on_text: Callable[[TextInputEvent], None],
+    on_dropped: Callable[[TextInputEvent], None] | None = None,
 ) -> Callable[[AgentSession, TextInputEvent], Coroutine[None, None, None]]:
     """A `TextInputOptions.text_input_cb` that calls `on_text` (synchronously, so it can't stall the turn) and
-    then awaits the default callback, keeping the framework's turn handling. A failing tag never drops the turn."""
+    then awaits the default callback, keeping the framework's turn handling. A failing tag never drops the turn; a
+    turn the default drops (it raises, e.g. `interrupt()` during uninterruptible speech) is passed to `on_dropped`."""
 
     async def text_input_cb(sess: AgentSession, ev: TextInputEvent) -> None:
         try:
             on_text(ev)
         except Exception:
             logger.exception("tagging a typed turn failed")  # no text: it's the visitor's words
-        await _default_text_input_cb(sess, ev)
+        try:
+            await _default_text_input_cb(sess, ev)
+        except Exception:
+            if on_dropped is not None:
+                on_dropped(ev)
+            raise
 
     return text_input_cb
 
@@ -51,6 +58,13 @@ class ChannelTags:
 
     def on_text(self, ev: TextInputEvent) -> None:
         self._typed.append(ev.text)
+
+    def on_dropped(self, ev: TextInputEvent) -> None:
+        """The typed turn never reached the chat, so no user message will match its tag."""
+        for i in range(len(self._typed) - 1, -1, -1):
+            if self._typed[i] == ev.text:
+                del self._typed[i]
+                return
 
     def channel_of(self, user_text: str) -> Channel:
         if user_text in self._typed:

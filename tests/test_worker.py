@@ -1,5 +1,6 @@
 import ast
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -183,6 +184,20 @@ async def test_text_cb_still_delegates_when_on_text_raises() -> None:
     assert order == ["claim", "interrupt", "generate_reply:hello"]
 
 
+async def test_text_cb_untags_a_turn_the_default_drops() -> None:
+    # interrupt() raises during uninterruptible speech; RoomIO then drops the typed turn, so its tag must go too,
+    # or the same words spoken later would be recorded as typed.
+    class Uninterruptible(FakeTextSession):
+        async def interrupt(self) -> None:
+            raise RuntimeError("speech is not interruptible")
+
+    tags = ChannelTags()
+    cb = make_text_input_cb(tags.on_text, on_dropped=tags.on_dropped)
+    with pytest.raises(RuntimeError):
+        await cb(Uninterruptible([]), TextInputEvent(text="my name is Ada"))  # type: ignore[arg-type]
+    assert tags.channel_of("my name is Ada") == "voice"
+
+
 async def test_typed_turn_through_a_real_session_is_tagged_text() -> None:
     tags = ChannelTags()
     cb = make_text_input_cb(tags.on_text)
@@ -218,11 +233,13 @@ class RecordingSession:
     tags: list[ChannelTags] = []
 
     def __init__(self, **kwargs: Any) -> None:
+        inspect.signature(AgentSession.__init__).bind(None, **kwargs)  # the real constructor takes these
         self.kwargs = kwargs
         self.started: dict[str, Any] | None = None
         RecordingSession.instances.append(self)
 
     async def start(self, agent: Any = None, **kwargs: Any) -> None:
+        inspect.signature(AgentSession.start).bind(None, agent, **kwargs)
         self.started = {"agent": agent, **kwargs}
 
 
@@ -275,6 +292,15 @@ async def test_entrypoint_starts_the_session(recording_session: type[RecordingSe
     assert order == ["claim", "interrupt", "generate_reply:typed hello"]
     (tags,) = recording_session.tags
     assert tags.channel_of("typed hello") == "text"
+
+    # A typed turn the default drops is untagged (on_dropped is wired to the same tags).
+    class Uninterruptible(FakeTextSession):
+        async def interrupt(self) -> None:
+            raise RuntimeError("speech is not interruptible")
+
+    with pytest.raises(RuntimeError):
+        await options.text_input.text_input_cb(Uninterruptible([]), TextInputEvent(text="dropped"))
+    assert tags.channel_of("dropped") == "voice"
 
 
 @pytest.mark.parametrize("metadata", ["", '{"visitor_id": "nope"}'])

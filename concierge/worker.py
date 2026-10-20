@@ -64,7 +64,9 @@ async def entrypoint(ctx: JobContext) -> None:
         room=ctx.room,
         room_options=RoomOptions(
             participant_identity=f"visitor-{info.visitor_id}",
-            text_input=TextInputOptions(text_input_cb=make_text_input_cb(channels.on_text)),
+            text_input=TextInputOptions(
+                text_input_cb=make_text_input_cb(channels.on_text, on_dropped=channels.on_dropped),
+            ),
         ),
         record=recording_options(settings),
     )
