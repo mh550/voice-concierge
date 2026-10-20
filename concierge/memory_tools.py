@@ -13,7 +13,7 @@ import logging
 import sqlite3
 
 from concierge.fact_ops import value_key
-from concierge.forget_match import select
+from concierge.forget_match import names_any, select, value_requests
 from concierge.grounding import shares_a_word
 from concierge.memory_writer import MemoryWriter
 from concierge.merge import merge
@@ -88,22 +88,29 @@ async def do_remember(writer: MemoryWriter | None, fact: str) -> str:
     return ALREADY_KNOWN if result.skipped else REMEMBERED
 
 
-def _forget(writer: MemoryWriter, about: str, asked_at: int) -> list[Fact]:
-    """On the store thread: the matching facts (valid or not) and every row they superseded, deleted in one batch."""
-    history = writer.store.fact_history(writer.thread_id)
+def _forget(writer: MemoryWriter, about: str, asked_at: int) -> tuple[list[Fact], bool]:
+    """On the store thread: the matching facts (valid or not) and every row they superseded, deleted in one batch;
+    then the stored visit summary is cleared if it names a deleted value or the value `about` names, at once rather
+    than at the shutdown, which may never finish (C5 review A-I1). Returns the deleted facts and whether it was."""
+    store, thread_id = writer.store, writer.thread_id
+    history = store.fact_history(thread_id)
     doomed = select(history, about)
     grew = True
     while grew:  # back through superseded_by: the rows a matched fact replaced
         older = {f.id for f in history if f.superseded_by in doomed} - doomed
         doomed |= older
         grew = bool(older)
-    if not doomed:
-        return []
-    deletes = [DeleteFact(fact_id=i) for i in sorted(doomed)]
-    deleted = set(writer.store.apply_fact_ops(writer.thread_id, deletes, session_id=writer.session_id).deleted)
-    gone = [f for f in history if f.id in deleted]
-    writer.forgotten.extend((f.slot, value_key(f.value), asked_at) for f in gone)  # here, before any later merge
-    return gone
+    gone: list[Fact] = []
+    if doomed:
+        deletes = [DeleteFact(fact_id=i) for i in sorted(doomed)]
+        deleted = set(store.apply_fact_ops(thread_id, deletes, session_id=writer.session_id).deleted)
+        gone = [f for f in history if f.id in deleted]
+        writer.forgotten.extend((f.slot, value_key(f.value), asked_at) for f in gone)  # here, before any later merge
+    summary = store.state(thread_id).last_visit_summary
+    if summary is None or not names_any(summary, [value_key(f.value) for f in gone] + value_requests([about])):
+        return gone, False
+    store.set_summary(thread_id, None, None)
+    return gone, True
 
 
 async def do_forget(writer: MemoryWriter | None, about: str) -> str:
@@ -111,11 +118,11 @@ async def do_forget(writer: MemoryWriter | None, about: str) -> str:
         return CANT_SAVE
     asked_at = writer.note_forget(about)  # first: a run filtering its ops after this sees it, even with nothing stored
     try:
-        gone = await writer.call(_forget, writer, about, asked_at)
+        gone, cleared = await writer.call(_forget, writer, about, asked_at)
     except ThreadMissing:
         writer.erased = True
         return CANT_SAVE
     except _FAILURES as exc:
         logger.warning("forget failed (%s)", type(exc).__name__)
         return STORE_FAILED
-    return FORGOTTEN if gone else NOTHING_TO_FORGET
+    return FORGOTTEN if gone or cleared else NOTHING_TO_FORGET

@@ -151,7 +151,7 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
                     await writer.flush()  # the final extraction; nothing when erased
                     # Checked after the flush too: forget_me can land during it. No visitor turn: nothing new.
                     if not writer.erased and preloaded is not None and any(t.role == "user" for t in writer.history):
-                        await write_summary(writer, preloaded.state.last_visit_summary, build_summarizer)
+                        await write_summary(writer, build_summarizer)
                 if preloaded is not None and not (writer is not None and writer.erased):
                     ended = {"reason": reason, "duration_s": round(time.monotonic() - began, 1)}
                     # On the writer's thread: after a cancelled run's last store call (review M7).

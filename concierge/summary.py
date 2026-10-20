@@ -22,7 +22,7 @@ from livekit.agents import llm
 from livekit.agents.types import APIConnectOptions
 from pydantic import BaseModel
 
-from concierge.fact_ops import value_key
+from concierge.forget_match import names_any
 from concierge.gate import check_text
 from concierge.turns import Turn, visible_text
 
@@ -109,12 +109,6 @@ def trim_summary(text: str) -> str:
     return (head[:cut] if cut > 0 else head).rstrip() + "…"
 
 
-def names_any(text: str, value_keys: Sequence[str]) -> bool:
-    """Whether `text` contains one of the values (compared as `value_key`s, as whole words)."""
-    key = value_key(text)
-    return any(v and re.search(rf"(?<!\w){re.escape(v)}(?!\w)", key) for v in value_keys)
-
-
 def rejection(text: str, forgotten_values: Sequence[str] = ()) -> str | None:
     """Why a trimmed reply can't be stored, or None."""
     if not any(ch.isalnum() for ch in text):
@@ -137,8 +131,8 @@ async def summarize(
     timeout_s: float = SUMMARY_TIMEOUT_S,
 ) -> SummaryOutcome:
     """The new summary; on a failure the previous one with the error's type (cleared if it names a forgotten value).
-    `forgotten_about` are this visit's forget requests, `forgotten_values` the value_keys the forget tool deleted.
-    Never raises (but a cancel)."""
+    `forgotten_about` are this visit's forget requests, `forgotten_values` the value_keys forgotten this visit
+    (`session_end.forgotten_values`). Never raises (but a cancel)."""
     began = time.perf_counter()
     text: str | None = None
     try:
@@ -152,6 +146,11 @@ async def summarize(
     ms = round((time.perf_counter() - began) * 1000)
     if error is None and text is not None:
         return SummaryOutcome(text=text, changed=text != previous_summary, ms=ms, sentences=len(sentences(text)))
+    return failed(previous_summary, forgotten_values, error, ms)
+
+
+def failed(previous_summary: str | None, forgotten_values: Sequence[str], error: str, ms: int = 0) -> SummaryOutcome:
+    """A failure's outcome: the previous summary kept, or cleared when it names a forgotten value."""
     kept = None if previous_summary is not None and names_any(previous_summary, forgotten_values) else previous_summary
     return SummaryOutcome(text=kept, changed=kept != previous_summary, ms=ms, error=error)
 

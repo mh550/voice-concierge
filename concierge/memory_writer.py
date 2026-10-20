@@ -21,7 +21,7 @@ from livekit.agents import llm
 from livekit.agents.voice.events import ConversationItemAddedEvent
 
 from concierge.extractor import WINDOW_MAX_TURNS, extract, extraction_window
-from concierge.forget_match import was_forgotten
+from concierge.forget_match import split_forgotten
 from concierge.merge import MergeResult, merge
 from concierge.models import Channel, SlotName
 from concierge.store import Store, StoreError, ThreadMissing
@@ -57,6 +57,7 @@ class MemoryWriter:
         # (slot, key, len(history) when asked) for each value the forget tool deleted this session
         self.forgotten: list[tuple[SlotName, str, int]] = []
         self.forget_requests: list[tuple[str, int]] = []  # (about, len(history) when asked)
+        self.withheld: list[str] = []  # value_keys of extracted values a forget request dropped before they were stored
         self._closed = False
         self._llm_factory = llm_factory
         self._llm: llm.LLM | None = None
@@ -159,8 +160,8 @@ class MemoryWriter:
         facts = await self.call(self.store.valid_facts, self.thread_id)
         extraction = await extract(self._llm, window, facts)
         positions = {t.turn_id: i for i, t in enumerate(self.history)}
-        ops = [op for op in extraction.ops
-               if not was_forgotten(op, positions, self.forgotten, self.forget_requests)]
+        ops, withheld = split_forgotten(extraction.ops, positions, self.forgotten, self.forget_requests)
+        self.withheld.extend(withheld)
         meta = {
             "ms": extraction.ms,
             "prompt_tokens": extraction.prompt_tokens,

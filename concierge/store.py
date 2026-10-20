@@ -31,6 +31,7 @@ from concierge.models import (
 )
 from concierge.store_base import (  # noqa: F401 (the errors and now_ms are re-exported)
     FactMissing,
+    StaleSummary,
     StoreBase,
     StoreError,
     ThreadMissing,
@@ -191,3 +192,10 @@ class Store(JournalStore):
         session's own field, so a concurrent fact merge doesn't make it fail; an erased thread still raises
         ThreadMissing and is never re-created. Later merges carry it over (`derive_state`)."""
         return self.write(thread_id, version, lambda conn: fact_ops.store_summary(conn, thread_id, text, self._clock()))
+
+    def swap_summary(self, thread_id: str, expected: str | None, text: str | None) -> VisitorState:
+        """`set_summary` only if the stored summary is still `expected` (compare-and-set, spec §4.2: two sessions for
+        one visitor never overwrite each other's summary blindly); else StaleSummary and nothing is written."""
+        return self.write(
+            thread_id, None, lambda conn: fact_ops.store_summary(conn, thread_id, text, self._clock(), (expected,))
+        )

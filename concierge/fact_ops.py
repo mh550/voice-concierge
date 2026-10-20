@@ -25,6 +25,7 @@ from concierge.models import (
     ThreadSnapshot,
     VisitorState,
 )
+from concierge.store_base import StaleSummary
 
 _FIELDS = (
     "id", "thread_id", "slot", "value", "confidence", "source", "channel", "turn_id", "created_at", "valid_from",
@@ -105,10 +106,15 @@ def store_state(conn: sqlite3.Connection, thread_id: str, now: int) -> VisitorSt
     return state
 
 
-def store_summary(conn: sqlite3.Connection, thread_id: str, text: str | None, now: int) -> VisitorState:
-    """Replace the last-visit summary in the state row (C5); re-validated, so SUMMARY_CAP and 8 KB hold."""
+def store_summary(
+    conn: sqlite3.Connection, thread_id: str, text: str | None, now: int, expected: tuple[str | None] | None = None
+) -> VisitorState:
+    """Replace the last-visit summary in the state row (C5); re-validated, so SUMMARY_CAP and 8 KB hold. With
+    `expected=(summary,)`, only if the stored summary is still that one (else StaleSummary)."""
     row = conn.execute("SELECT state FROM state WHERE thread_id = ?", (thread_id,)).fetchone()
     previous = VisitorState.model_validate_json(row[0]) if row else VisitorState()
+    if expected is not None and previous.last_visit_summary != expected[0]:
+        raise StaleSummary(thread_id)
     state = VisitorState.model_validate({**previous.model_dump(), "last_visit_summary": text})
     _upsert_state(conn, thread_id, state, now)
     return state

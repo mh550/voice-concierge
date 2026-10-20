@@ -12,7 +12,7 @@ from concierge.memory_tools import do_forget
 from concierge.memory_writer import MemoryWriter
 from concierge.models import AddFact
 from concierge.session_end import write_summary
-from concierge.store import Store, StaleSummary
+from concierge.store import StaleSummary, Store
 from concierge.testing.fake_llm import FakeLLM
 from concierge.turns import Turn
 
