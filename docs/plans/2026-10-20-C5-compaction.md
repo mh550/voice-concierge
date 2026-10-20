@@ -569,3 +569,42 @@ Mutation checks (each turns its test red): rebase appending instead of inserting
 hook, the fallback dropping the summary, no tool-pair loop, the previous summary not passed, no `compactor.aclose`
 before the flush, the trigger rewriting the context, no backoff, a strong hook, and `update_chat_ctx` called from
 `_maybe_start` (the static test).
+
+## Review
+
+C5-04: the milestone review of all of C5. The step's diff (`git diff 0c365fa..HEAD -- . ':!.harness'`, 0c365fa
+being the C4-06 commit; 3,365 lines, 27 files) is `review-C5.diff` in the run's scratch directory, not
+`/tmp/voice-concierge/`: as in C1–C4's reviews, CLAUDE.md bars writes outside the worktree and the scratch directory.
+There were two Opus reviewers, each told not to repeat the per-feature reviews' findings. A covered the session-end
+summary (`summary`, `session_end`, the shutdown, `erasure_hooks`, the forget tool's interplay) with three probe tests
+and ten mutations. B covered compaction against the installed 1.8.8 source, with mutations and a real
+`AgentSession` run of 20 exchanges (a `remember` pair included) through the Compactor as `session.py` wires it.
+
+Totals: 0 Critical, 4 Important (all fixed, each test committed RED first or shown red under the mutation it
+targets), 3 Minor (1 fixed, 1 accepted, 1 a note for C6). Tests went from 694 to 711: 3 README row checks,
+`test_the_visit_summary_after_a_compaction_reads_every_turn` (for the "History vs journal" row), and 13 for the
+findings.
+
+| # | Sev. | Finding | Outcome |
+|---|---|---|---|
+| A-I1 | Important | A forgotten value in the *stored* summary was cleared only when the shutdown reached its normal end. A summarizer that could not be built kept it outright (`session_end` skipped the clearing), and so did the 25 s cut, a crash or a kill: the next visit's memory block read it back | Fixed RED→GREEN: `_forget` (memory_tools) clears a stored summary that names a deleted value or the value `about` names, in the same store-thread call, and "forget" then answers `FORGOTTEN` even when no fact matched; the factory-failure path uses `summary.failed`, the same clearing as `summarize` (`test_forget_clears_a_stored_summary_that_names_the_value`, `test_forget_by_slot_clears_a_summary_that_names_the_deleted_value`, `test_forget_of_a_value_only_the_summary_holds_clears_it`, `test_forget_keeps_a_summary_that_does_not_name_the_value`, `test_a_summarizer_that_cannot_be_built_still_clears_a_forgotten_value`) |
+| A-I2 | Important | The deterministic check saw only values the forget tool *deleted*. "I work at Acme … forget that" inside the 2 s debounce deletes nothing, so only the prompt rule kept "Acme" out of the summary | Fixed RED→GREEN: `forget_match.split_forgotten` returns the value_keys of the ops a forget request dropped; the writer keeps them (`withheld`), and `session_end.forgotten_values` = deleted + withheld + the values the requests name (`value_requests`). The final flush runs before the summary, so it catches them (`test_a_value_forgotten_before_extraction_stays_out_of_the_visit_summary[Acme]`, `[where I work]`) |
+| A-I3 | Important | The shutdown summarized from the *preloaded* summary and stored with `set_summary(version=None)`: a refresh or a second tab (spec §4.2) overwrote the other session's summary, and could bring back a value the other tab forgot | Fixed RED→GREEN: `write_summary(writer, summarizer)` reads the stored summary on the writer's thread and stores through `Store.swap_summary(thread_id, expected, text)` (compare-and-set inside the fence; `StaleSummary`). On a mismatch it summarizes once more from the newer summary, then gives up with `error` `StaleSummary` (`test_swap_summary_raises_stale_summary_when_the_stored_one_changed`, `test_the_visit_summary_starts_from_the_stored_summary`, `test_a_second_tab_never_brings_back_a_forgotten_value`, `test_a_summary_stored_during_the_call_is_carried_forward_not_overwritten`, `test_a_summary_that_keeps_changing_is_left_alone_after_one_retry`) |
+| B-I1 | Important | `test_forget_me_cancels_a_running_compaction` passed with `Compactor.cancel()` cancelling nothing: `_compact`'s `stopped` re-check dropped the late result either way | Test committed first: it asserts the in-flight call's task is gone 50 ms after "Forget me" (its fake call takes 3 s). Moving the cancel loop from `cancel()` to `aclose()` now fails it |
+| A-M1 | Minor | Nothing proved `session_ended` goes through `writer.call` (C5-02 review M7) | `test_session_ended_is_journaled_on_the_writers_store_thread`; journaling it directly fails it |
+| A-M2 | Minor | `test_shutdown_timeouts_fit_the_process_timeout` sums one busy wait; the `finally`'s closes (executor, checkpoint) run outside `SHUTDOWN_WORK_S`. In 1.8.8 the 30 s close timeout applies only when the supervisor starts the close (`ipc/supervised_proc.py`) | Accepted: the A-I3 retry runs only inside what is left of the 25 s, and a cut there leaves the other session's summary, never a partial one. A comment at `SHUTDOWN_WORK_S` says so |
+| A-M3 | Minor (for C6) | After `on_shutdown`'s `finally` closes the writer, `forget_visitor` → `writer.call` raises "the memory writer is closed": an erase RPC already in flight then never reaches `forget_me` (`erased` is set) | Note for C6: the "Forget me" RPC handler must track the erase in the session's tasks, or fall back to `asyncio.to_thread(store.forget_me)` before the store closes |
+
+B also checked, against 1.8.8, that the apply is atomic (`AgentActivity.update_chat_ctx` has no await on the
+non-realtime path), that the instructions keep their id as the cache breakpoint, that late items are inserted by
+`created_at` into the new context, and that `LLMStream.collect()` closes the stream on a timeout or cancel. A
+compaction that fires on the assistant's message is applied one exchange later (the `listening` comes before the
+snapshot task runs); that is expected.
+
+Mutation checks (each turns a test red): no forget-time clearing, no withheld values in the check, no value
+requests in the check, `set_summary` instead of the swap, one attempt, `failed` keeping the previous, the swap
+ignoring `expected`, the writer not recording withheld values, `session_ended` journaled off the writer, the cancel
+loop only in `aclose`, and the visit summary reading only the last 6 turns.
+
+Simplified: `names_any` moved to `forget_match` (the forget tool and the summary share it); `summary.failed` is the
+one failure outcome. No module under `concierge/` is over 250 lines (`memory_writer.py` and `merge.py` are at 250).

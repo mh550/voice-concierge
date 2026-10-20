@@ -104,6 +104,26 @@ async def test_shutdown_callback_journals_session_ended_and_closes_the_store(db:
     assert ended.payload["reason"] == "participant left" and isinstance(ended.payload["duration_s"], float)
 
 
+async def test_session_ended_is_journaled_on_the_writers_store_thread(
+    db: Store, fakes: list[FakeLLM], monkeypatch: pytest.MonkeyPatch
+) -> None:  # C5-02 review M7: after a cancelled run's last store call, so it goes through writer.call (C5 review A-M1)
+    with fake_job_context(job_metadata=METADATA) as ctx:
+        started = await start(ctx, db)
+        writer = started.writer
+        assert writer is not None
+        kinds: list[str] = []
+        real_call = writer.call
+
+        async def recording_call(fn: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            if getattr(fn, "__name__", "") == "journal":
+                kinds.append(args[2])
+            return await real_call(fn, *args, **kwargs)
+
+        monkeypatch.setattr(writer, "call", recording_call)
+        await shutdown(ctx, started)
+    assert kinds[-1] == "session_ended"
+
+
 async def test_shutdown_after_forget_me_journals_nothing_and_still_closes(db: Store, fakes: list[FakeLLM]) -> None:
     with fake_job_context(job_metadata=METADATA) as ctx:
         started = await start(ctx, db)

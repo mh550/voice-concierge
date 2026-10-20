@@ -42,7 +42,8 @@ logger = logging.getLogger("concierge.session")
 PRELOAD_TIMEOUT_S = 1.0
 EXTRACTION_DEBOUNCE_S = 2.0  # spec §4.4: a run starts 2 s after the first user turn it covers
 # The shutdown's own deadline (plan C5 "Timing"): the flush (15 s), the summary (5 s) and a busy wait (5 s) fit, and
-# it leaves the worker's shutdown_process_timeout=30 room for the session close before the callbacks.
+# it leaves the worker's shutdown_process_timeout=30 room for the session close before the callbacks. A second
+# summary attempt (another session stored one during the first) only runs in what is left of it.
 SHUTDOWN_WORK_S = 25.0
 
 @dataclass
