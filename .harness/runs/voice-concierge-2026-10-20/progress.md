@@ -13,6 +13,23 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 02:32 · C3-01 · passes
+
+- **Changed:** `docs/plans/2026-10-20-C3-preload.md` (414 lines, plan only, no code). Tests 290 → 290.
+- **Verified:** all 4 steps hold. The plan has the preload sequence (parse → `gather(ctx.connect(), preload)` → render → agent → `session.start` → greeting), the block template (`- name: "Ada" (voice, 2026-10-19)`, `Last visit: "…"`), the 1,500-char rule, both greetings, the B12 rule text plus the C4 extractor flow, and test names for C3-02/C3-03. `check.sh` is green. I checked the 1.8.8 APIs in source, then ran two prototypes in scratch: a real `AgentSession.start(room=ctx.room)` raises under `fake_job_context` (hence the `room_start_kwargs` seam), and the greeting reaches the LLM as a trailing system message, outside the cached prefix. An Opus plan review found 1 Critical, 6 Important and 7 Minor; all are applied (listed under `## Plan review`).
+- **Next session must know:**
+  - Render from the derived `VisitorState`, not from every valid fact: the store applies ops literally.
+  - `Store.load` uses `_transaction()`. No store write sits between the gather and the greeting.
+  - Shutdown callbacks run concurrently, so everything that touches the store goes in one ordered `on_shutdown`.
+  - An autouse conftest fixture must set `CONCIERGE_DB_PATH` to a temp file.
+  - C3-03 moves the gather into `session.start_session` and the test seams with it (listed in the plan).
+  - Name rule: 281 chars; static + pack goes to about 2,635 of 3,000 tokens.
+- **Proposed changes:**
+  - C3-02 step 3: allow the gather to sit "directly or through `start_session`".
+  - C3-02 step 1: the summary should be 500 chars (`SUMMARY_CAP`), not 600; the test uses `model_construct`.
+  - C3-04 diff path: the scratch dir, as C1-06 and C2-05 did.
+  - C4: a `name_unconfirmed` merge check.
+
 ### 2026-10-20 · verify C2
 
 All 26 steps hold; no feature flipped. Note: C2-05 step 1 path deviation is documented and justified by CLAUDE.md.
