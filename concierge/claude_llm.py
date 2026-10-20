@@ -47,6 +47,9 @@ TRAILING_USER_TEXT = "."
 # Request kwargs whose dicts combine (a caller's header doesn't drop the fallback beta, a caller's output format
 # doesn't drop the effort); any other key, such as the tagged union `thinking`, is replaced whole.
 MERGED_KEYS = frozenset({"extra_headers", "extra_body", "output_config"})
+# Dropped from a caller's kwargs: 5.x models reject sampling parameters, and the SDK's create() has no `temperature`
+# keyword. LiveKit's judge() (voice/run_result.py) always passes temperature=0.0.
+SAMPLING_KEYS = frozenset({"temperature", "top_k", "top_p"})
 
 
 def merge_kwargs(base: Mapping[str, Any], extra: Mapping[str, Any]) -> dict[str, Any]:
@@ -114,13 +117,14 @@ class ClaudeLLM(anthropic.LLM):
         tool_choice: NotGivenOr[llm.ToolChoice] = NOT_GIVEN,
         extra_kwargs: NotGivenOr[dict[str, Any]] = NOT_GIVEN,
     ) -> ClaudeLLMStream:
+        caller = {k: v for k, v in (extra_kwargs if is_given(extra_kwargs) else {}).items() if k not in SAMPLING_KEYS}
         stream = super().chat(
             chat_ctx=ends_on_user(chat_ctx),
             tools=tools,
             conn_options=conn_options,
             parallel_tool_calls=parallel_tool_calls,
             tool_choice=tool_choice,
-            extra_kwargs=merge_kwargs(self._stage_kwargs, extra_kwargs if is_given(extra_kwargs) else {}),
+            extra_kwargs=merge_kwargs(self._stage_kwargs, caller),
         )
         # The plugin's chat() builds its own LLMStream (llm.py:282). Its task is created in __init__ but hasn't run
         # yet (no await since), so switching the instance's class here takes effect before the first _run.

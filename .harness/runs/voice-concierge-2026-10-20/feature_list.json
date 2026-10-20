@@ -419,7 +419,7 @@
         "deploy/voice-concierge.service is a systemd user unit with EnvironmentFile=%h/.config/voice-concierge/env, WorkingDirectory=%h/projects/voice-concierge, ExecStart=%h/projects/voice-concierge/scripts/run-worker.sh start, Restart=on-failure, RestartSec=10, WantedBy=default.target; systemd is NOT invoked (build-only); tests/test_scripts.py checks the five keys are present",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C7-03", "milestone": "C7", "kind": "docs", "model": "opus",

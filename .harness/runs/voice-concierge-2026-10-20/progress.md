@@ -13,6 +13,26 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 13:05 · C7-02 · passes
+
+- **Changed:**
+  - New `scripts/eval_memory.py`, `scripts/latency_report.py`, `scripts/run-worker.sh` (755), `deploy/voice-concierge.service`, `tests/live/test_live.py` and `tests/test_live_layout.py`.
+  - New `Store.turn_metrics()` (R8). `tests/test_scripts.py` gains 27 tests.
+  - Tests 828 → 864.
+- **Fixed a real bug the review found (Critical):** LiveKit's `judge()` always passes `temperature=0.0` (`voice/run_result.py:1021-1024`). The anthropic SDK's `create()` has no such keyword, so both judged live tests would have failed with `TypeError` on Michael's run. `ClaudeLLM.chat` now drops `temperature`/`top_k`/`top_p` from a caller's kwargs. Test-first in `tests/test_claude_llm.py`: `test_caller_sampling_parameters_are_dropped` and `test_the_livekit_judge_runs_on_a_claude_llm` (the real `judge()` over the fake client). The live wrong-memory check now uses the merge's own `shares_a_word` and grounding-exempt slots.
+- **Verified:**
+  - `eval_memory.py --offline` prints 13 rows plus the total, `20/20 (100 %)`, harm 0, exit 0.
+  - With no key: `ANTHROPIC_API_KEY not set`, exit 2.
+  - Latency: 10…200 gives 105.0/190.5.
+  - `run-worker.sh` with an empty HOME: exit 1 naming `LIVEKIT_URL`. The exec path is tested against a stub `.venv/bin/python` in a temp copy.
+  - `pytest -m 'not live' -q tests/live`: 4 deselected.
+  - Each live test body was run once offline against FakeLLMs in a scratch file (deleted). `-m live` was never run.
+  - `lib/check.sh` is green in 88 s, 864 tests; ruff is clean.
+- **Next session must know:**
+  - The suite went from 65 s to 88 s (subprocess script tests cost about 3 s each). C7-05 has a 120 s budget.
+  - Minor, not fixed: under systemd the env file is read twice, by `EnvironmentFile=` and then by bash `.`. The file must stay plain `NAME=value` with no `$` or spaces in values. C7-04's MORNING.md should say so.
+- **Questions for Michael:** none new.
+
 ### 2026-10-20 12:10 · C7-01 · passes
 
 - **Changed:** new `docs/plans/2026-10-20-C7-ops-docs.md`. It plans:
