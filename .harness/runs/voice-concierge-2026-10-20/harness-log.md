@@ -69,3 +69,4 @@
 - 2026-10-20 16:27 · C7 merged into main · https://github.com/mh550/voice-concierge/pull/7
 - 2026-10-20 16:35 · C8-01 · claude-opus-5-5 · passes=true · 7 min · 37/38 passing
 - 2026-10-20 16:43 · C8-02 · claude-opus-5-5 · passes=true · 8 min · 38/38 passing
+- 2026-10-20 16:43 · merged main into harness/voice-concierge-2026-10-20

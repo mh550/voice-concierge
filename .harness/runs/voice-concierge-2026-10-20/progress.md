@@ -12,6 +12,20 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+### 2026-10-20 22:00 · verify C8
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| C8-01 | 1 | `ls docs/plans`; read `2026-10-20-C8-messages.md` | exists; sections: tool, gate exception, script, erasure (tests named) | yes |
+| C8-01 | 2 | `agent.py:49` signature; ran `pytest tests/test_messages.py tests/test_scripts.py tests/test_erasure.py` (87 pass); read `test_an_email_or_phone_contact_passes_the_gate`, `test_an_email_in_a_name_fact_is_still_rejected`, cap tests (500/120) | tool is `leave_message_for_michael(text, contact=None)`; row asserted; email contact passes; email in name fact rejected as `email`; caps tested; plan says write is `Store.add_message` under thread fence | yes |
+| C8-01 | 3 | read `test_messages_lists_newest_first` (tests/test_scripts.py:479) | seeds two messages; asserts exact order newest first, tab-separated created_at, contact or `-`, text | yes |
+| C8-01 | 4 | read `test_forget_me_deletes_the_visitors_messages`; grep README.md/MORNING.md | other visitor's message survives, mine gone; README:26 mentions tool and script; MORNING:59 and :118 mention both | yes |
+| C8-01 | 5 | `lib/check.sh` | green, 940 tests | yes |
+| C8-02 | 1 | scratch `review-C8.diff` (776 lines) vs fresh `git diff 7f5cb5c..HEAD`; plan `## Review` | diff in scratch dir per Michael's 1b; it predates the final MORNING D14/D15 lines (slightly stale snapshot, differs from fresh diff); `## Review` present | yes (stale snapshot noted) |
+| C8-02 | 2 | read `## Review`: 0 Critical/Important, 7 Minor | nothing required fixing; the per-reason reply and off-loop tests exist in test_messages | yes |
+| C8-02 | 3 | `wc -l concierge/*.py` | max 250 (memory_writer.py), session.py 246 | yes |
+| C8-02 | 4 | `lib/check.sh` | green, 940 tests | yes |
+
 ### 2026-10-20 21:30 · C8-02 · passes
 
 - **Changed:** review of `git diff 7f5cb5c..HEAD -- . ':!.harness'` (776 lines) in `$HARNESS_SCRATCH/review-C8.diff`, notes under `## Review` in `docs/plans/2026-10-20-C8-messages.md`. An Opus reviewer found 0 Critical, 0 Important and 7 Minor. Fixed: a rejected message text now gets a reply for its reason (`CONTACT_IN_TEXT` vs `CANT_TAKE`), and a new off-loop test for the message write (it fails when the write is forced onto the loop). `session.py` was 282 lines, now 246: `preload_or_none` → `preload.py`, `agent_or_memoryless` → `agent.py`, `recording_options` → `config.py`. Tests 935 → 940.
