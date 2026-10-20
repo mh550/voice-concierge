@@ -76,3 +76,15 @@ def test_pack_has_no_url_absent_from_the_sources() -> None:
     for url in URL.findall(PACK):
         url = url.rstrip(".,;:")
         assert url in SOURCES_TEXT, f"{url} is not in knowledge/sources/"
+
+
+DIGIT_TOKEN = re.compile(r"\S*\d\S*")
+SOURCES_FLAT = " ".join(SOURCES_TEXT.split())
+
+
+def test_every_number_and_date_in_the_pack_is_in_the_sources() -> None:
+    # §4.1: never guess numbers or dates. Each digit-bearing token, stripped of prose punctuation, must be sourced.
+    missing = sorted(
+        {t for t in (m.strip(".,;:()*`'\"") for m in DIGIT_TOKEN.findall(PACK)) if t and t not in SOURCES_FLAT}
+    )
+    assert not missing, f"not in knowledge/sources/: {missing}"

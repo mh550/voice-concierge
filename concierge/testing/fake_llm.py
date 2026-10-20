@@ -46,7 +46,8 @@ class FakeResponse(BaseModel):
 
 @dataclass
 class FakeLLMCall:
-    """What one chat() call received. chat_ctx is a copy, so later session changes can't rewrite it."""
+    """What one chat() call received. chat_ctx is a deep snapshot, so later session changes (in-place edits included)
+    can't rewrite it."""
 
     chat_ctx: llm.ChatContext
     tools: list[llm.Tool]
@@ -80,7 +81,7 @@ class FakeLLM(llm.LLM):
         index = len(self.calls)
         self.calls.append(
             FakeLLMCall(
-                chat_ctx=chat_ctx.copy(),
+                chat_ctx=llm.ChatContext([item.model_copy(deep=True) for item in chat_ctx.items]),
                 tools=list(tools or []),
                 tool_choice=tool_choice if utils.is_given(tool_choice) else None,
             )

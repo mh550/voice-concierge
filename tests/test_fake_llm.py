@@ -95,6 +95,15 @@ async def test_records_calls() -> None:
     assert len(second.chat_ctx.messages()) == 2
 
 
+async def test_recorded_calls_survive_in_place_edits() -> None:
+    # 1.8.8 edits stored history in place (voice/generation.py, _strip_assistant_markup sets item.content).
+    fake = FakeLLM(["a"])
+    ctx = _ctx("first")
+    await fake.chat(chat_ctx=ctx).collect()
+    ctx.items[0].content = ["rewritten"]  # type: ignore[union-attr]
+    assert [m.text_content for m in fake.calls[0].chat_ctx.messages()] == ["first"]
+
+
 async def test_running_past_script_fails_clearly() -> None:
     fake = FakeLLM(["only one"])
     await fake.chat(chat_ctx=_ctx()).collect()
