@@ -13,3 +13,4 @@
 - 2026-10-20 01:27 · P1 verified and tagged run/voice-concierge-2026-10-20/P1 (contains unverified work of C2-01: held until that is verified)
 - 2026-10-20 01:27 · held: P1 (its tag contains another milestone's unverified work, or main has changes it wasn't verified with); it merges with the next verified milestone
 - 2026-10-20 01:37 · C2-02 · claude-opus-5-5 · passes=true · 10 min · 9/38 passing
+- 2026-10-20 01:52 · C2-03 · claude-opus-5-5 · passes=true · 14 min · 10/38 passing
