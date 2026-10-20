@@ -22,3 +22,4 @@
 - 2026-10-20 02:43 · C3-02 · claude-opus-5-5 · passes=true · 10 min · 14/38 passing
 - 2026-10-20 02:57 · C3-03 · claude-opus-5-5 · passes=true · 13 min · 15/38 passing
 - 2026-10-20 03:06 · C3-04 · claude-opus-5-5 · passes=true · 8 min · 16/38 passing
+- 2026-10-20 03:06 · merged main into harness/voice-concierge-2026-10-20
