@@ -211,16 +211,30 @@ def test_name_needs_a_confirmed_exchange(store, tid) -> None:
 @pytest.mark.parametrize(
     ("question", "reply", "value"),
     [
-        ("So you're Adam, did I get that right?", "Yes", "Ada"),  # a substring of the asked name
-        ("So you're Adam, did I get that right?", "Yes", "Right"),  # a word of the question itself
+        # The prompt's form, so each case reaches the rule it names (review C4-06 I1)
+        ("Did I get that right, Adam?", "Yes", "Ada"),  # a substring of the asked name
+        ("Did I get that right, Adam?", "Yes", "Right"),  # a word of the question itself
+        ("Did I get that right, Adam?", "Yes, I mean no, it's Ada", "Adam"),  # a yes taken back
+        ("Did I get that right, Adam?", "Yes, actually it's Adam Smith", "Adam"),
+        ("Did I get that right, Adam?", "Yes but wait", "Adam"),
+        ("Did I get that right, Adam?", "Sure, whatever", "Adam"),  # not a yes the rule knows
+        ("So you're Adam, did I get that right?", "Yes", "Adam"),  # not the prompt's form
         ("You're at Acme, did I get that right?", "Yes", "Acme"),  # not a name question at all
-        ("So you're Adam, did I get that right?", "Yes, I mean no, it's Ada", "Adam"),  # a yes taken back
-        ("So you're Adam, did I get that right?", "Yes, actually it's Ada", "Ada"),
     ],
 )
 def test_name_confirmation_holes_are_closed(store, tid, question, reply, value) -> None:
     result = run(store, tid, [add("name", value, "u2")], agent("a1", question), user("u2", reply))
     assert [r.reason for r in result.rejected] == ["name_unconfirmed"]
+
+
+def test_in_batch_replacement_inherits_the_stored_supersedes(store, tid) -> None:
+    """Review C4-06 I2: the later ADD takes over what the replaced one superseded, so the stored fact is closed."""
+    run(store, tid, [add("company", "Acme", "u1")], user("u1", "I work at Acme"))
+    turns = (user("u2", "I moved to Initech"), user("u3", "No wait, Globex"))
+    run(store, tid, [add("company", "Initech", "u2"), add("company", "Globex", "u3")], *turns)
+    (now,) = store.valid_facts(tid)
+    acme = next(f for f in store.fact_history(tid) if f.value == "Acme")
+    assert now.value == "Globex" and acme.superseded_by == now.id and acme.valid_to is not None
 
 
 def test_value_only_the_agent_said_is_agent_attributed(store, tid) -> None:
