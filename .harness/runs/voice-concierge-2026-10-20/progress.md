@@ -13,6 +13,33 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 15:40 · C7-05 · passes
+
+- **Changed:** the C7 review is in `docs/plans/2026-10-20-C7-ops-docs.md` under `## Review`: a findings table and 61 README claims, each with its file:line. Two Opus reviewers read `review-C7.diff` (`5a59354..HEAD`) in scratch: 4 Critical, 9 Important, ~15 Minor, all fixed except the ones listed as not taken. Tests 902 → 909.
+- **Critical fixes:**
+  - LiveKit's `judge()` forces `tool_choice="required"` and Sonnet 5.5 rejects that with a 400, so 2 of the 4 live tests would have failed. `ClaudeLLM` now sends a forced choice as `auto` to Sonnet and Opus 5.5 (written test-first).
+  - `eval_memory.py` died on the first 400 or refusal. Now that case shows as an `error` row and the run goes on (test-first).
+  - The README overclaimed `memory_on_turn_path_ms`: it times only 1.8's hook, not the item handlers. Now said plainly.
+  - MORNING's systemd step pointed at a checkout without `scripts/`.
+- **Other fixes:**
+  - The Results test allows numbers only under a `Measured on <date>` line, so MORNING step 9's paste no longer turns the suite red.
+  - Live recall/wrong-memory tests are sharper.
+  - `.env.example` comments are on their own lines; `KillMode=mixed` is in the unit.
+  - README wording (forget leaves the journal turn text, per-session guard, D10's exempt slots, `source` values).
+- **Verified:**
+  - `lib/check.sh` is green in 88 s with 909 tests.
+  - `pytest -m 'not live' -q` gives 909 passed, 0 skipped, 4 deselected, in 84 s.
+  - `git ls-files '*.db'` is empty; the hostname grep is empty.
+- **Step 3 deviation:** the secret grep still matches 4 lines, all fake or self-referential:
+  - `feature_list.json` twice: C4-02's step, and C7-05's own step text, which matches its own regex;
+  - `tests/test_gate.py:12` and `docs/plans/2026-10-20-C4-extraction.md:388`: the fake key C4-02 step 2 names verbatim.
+  - `evals/memory/13-url-and-secret.yaml` now uses `sk-fake-1234-test-5678`.
+- **Questions for Michael:** the health-port bind (MORNING "Questions for you") is still open. Merge this branch into `~/projects/voice-concierge` before using the systemd unit.
+- **Proposed changes:**
+  - C7-05 step 3's grep should add `':!.harness'` (it matches itself), and C4-02 could name a fake key that doesn't look real.
+  - C7-02 steps 4–5: exit 78 plus `RestartPreventExitStatus=78`, and drop `EnvironmentFile=` (the script already sources the file).
+  - C1's `idle_ttl_days` setting is never read; remove it or wire it.
+
 ### 2026-10-20 14:30 · C7-04 · passes
 
 - **Changed:** new `MORNING.md` (12 numbered steps in the specified order, exact commands, Check and Undo per live step, "needs keys only Michael has, about 20 minutes" up front, "Questions for you" mirroring D7–D13 and the health-port question). `.env.example` now lists the six names (all empty; OPENROUTER and DEEPGRAM marked optional) and the four `CONCIERGE_*` switches as comments. New `tests/test_morning.py` (6 tests: step order, commands in order, Check/Undo, D-coverage, env names). Tests 896 → 902.

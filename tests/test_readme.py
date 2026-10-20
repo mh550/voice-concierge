@@ -166,15 +166,34 @@ def test_every_mention_of_livekit_agents_outside_the_mapping_says_1_8() -> None:
         assert not re.search(r"(?i)livekit agents(?! 1\.8)", block), block
 
 
-def test_results_number_cells_are_to_measure() -> None:
-    section = _section("Results")
-    rows = _table_rows(section)
-    assert len(rows) >= 10, "the latency table and the memory eval table"
-    for row in rows:
+MEASURED = re.compile(r"^Measured on \d{4}-\d{2}-\d{2}\b", re.M)
+
+
+def unmeasured_cells(section: str) -> list[list[str]]:
+    """Rows of the Results tables with a number cell that isn't `to measure`; once the section says
+    "Measured on <date>" (MORNING step 9 adds it with the pasted tables), any filled cell is allowed."""
+    measured = MEASURED.search(section) is not None
+    bad = []
+    for row in _table_rows(section):
         for cell in row[1:]:
             exempt = row[0] == "cached-token share" and cell == ""
-            assert cell == "to measure" or exempt, row
+            if not (exempt or cell == "to measure" or (measured and cell)):
+                bad.append(row)
+                break
+    return bad
+
+
+def test_results_number_cells_are_to_measure() -> None:
+    section = _section("Results")
+    assert len(_table_rows(section)) >= 10, "the latency table and the memory eval table"
+    assert unmeasured_cells(section) == []
     assert "`scripts/latency_report.py`" in section and "`scripts/eval_memory.py`" in section
+
+
+def test_results_numbers_need_the_measured_line() -> None:
+    table = "| field | n | p50 | p95 |\n|---|---|---|---|\n| `eou_ms` | n=24 | 310.0 | 540.5 |\n"
+    assert unmeasured_cells(table) == [["`eou_ms`", "n=24", "310.0", "540.5"]]
+    assert unmeasured_cells("Measured on 2026-10-21 with `scripts/latency_report.py`.\n\n" + table) == []
 
 
 def test_results_latency_rows_are_the_report_fields() -> None:

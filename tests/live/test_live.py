@@ -22,10 +22,9 @@ from livekit.agents import AgentSession, llm
 from livekit.agents.testing import fake_job_context
 
 from concierge import session
-from concierge.config import Settings, build_llm
+from concierge.config import LLM_KEY, Settings, build_llm
 from concierge.contract import FORGET_ME_METHOD
-from concierge.grounding import shares_a_word
-from concierge.merge import _GROUNDING_EXEMPT
+from concierge.grounding import CONFIRM_QUESTION, words
 from concierge.models import Fact
 from concierge.session import Started
 from concierge.store import Store
@@ -37,8 +36,8 @@ pytestmark = [
     pytest.mark.skipif(not os.environ.get("LIVEKIT_URL"), reason="live: LIVEKIT_URL not set (Michael runs these)"),
 ]
 
-KEY_FOR_PROVIDER = {"anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
 NAME_TURNS = ("Hi, I'm Ada. I'm interested in voice agents.", "Yes, that's right.")  # the B12 confirmation
+GROUNDED_SLOTS = ("role", "company", "interests")  # D10: must share a word with the visitor (merge.py `_check`)
 
 
 @pytest.fixture(autouse=True)
@@ -47,7 +46,7 @@ async def live_session(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[Setting
     AgentSession over the real conversation LLM, with build_session's other providers left out. The LLMs it builds
     are closed at teardown."""
     settings = Settings()
-    key = KEY_FOR_PROVIDER[settings.llm_provider]
+    key = LLM_KEY[settings.llm_provider]
     if not os.environ.get(key):
         pytest.skip(f"live: {key} not set")
     built: list[llm.LLM] = []
@@ -90,8 +89,9 @@ def greeting(started: Started) -> str:
 
 
 async def visit(*turns: str, ended: Callable[[str], None] | None = None,
-                then: Callable[[Started, FakeRoom], Any] | None = None) -> str:
-    """One session: start, the visitor's typed turns, optionally `then` (awaited), shutdown. Returns the greeting."""
+                then: Callable[[Started, FakeRoom], Any] | None = None, replies: list[str] | None = None) -> str:
+    """One session: start, the visitor's typed turns, optionally `then` (awaited), shutdown. Returns the greeting;
+    `replies`, when given, gets every assistant message's text."""
     room = FakeRoom()
     with fake_job_context(job_metadata=METADATA, room=room) as ctx:
         if ended is not None:
@@ -102,12 +102,19 @@ async def visit(*turns: str, ended: Callable[[str], None] | None = None,
         if then is not None:
             await then(started, room)
         said = greeting(started)
+        if replies is not None:
+            replies.extend(m.text_content or "" for m in started.session.history.messages() if m.role == "assistant")
         await shutdown(ctx, started, "live test")
     return said
 
 
 async def test_live_two_session_recall_in_text_mode(judge: llm.LLM) -> None:
-    await visit(*NAME_TURNS)
+    replies: list[str] = []
+    await visit(*NAME_TURNS, replies=replies)
+    # B12's precondition: the name is stored only after the prompt's exact question. Failing here points at the
+    # conversation prompt, not at memory.
+    asked = f"{CONFIRM_QUESTION}, ada"
+    assert any(asked in " ".join(r.casefold().split()) for r in replies), f"never asked {asked!r}: {replies}"
     facts = valid_facts()
     assert ("name", "Ada") in [(f.slot, f.value) for f in facts]
     assert any(f.slot == "interests" and "voice" in f.value.casefold() for f in facts)
@@ -123,12 +130,14 @@ async def test_live_two_session_recall_in_text_mode(judge: llm.LLM) -> None:
 
 async def test_live_wrong_memory_is_not_attributed_to_the_visitor() -> None:
     said = ("I hire engineers for a living.", "Anyway, what does Michael build?")
-    await visit(*said)
+    replies: list[str] = []
+    await visit(*said, replies=replies)
     facts = valid_facts()
-    # D10 on the result, by the merge's own rule (asked_about and follow_up_wanted are paraphrases, exempt there too)
-    ungrounded = [f"{f.slot}: {f.value}" for f in facts
-                  if f.slot not in _GROUNDING_EXEMPT and not shares_a_word(f.value, " ".join(said))]
-    assert ungrounded == []
+    # Spec §7: no grounded fact borrows a word only the agent said (the merge checks one cited turn; this checks the
+    # whole visit, so a value that shares one word with the visitor and takes the rest from the agent fails too).
+    agent_only = words(" ".join(replies)) - words(" ".join(said))
+    borrowed = [f"{f.slot}: {f.value}" for f in facts if f.slot in GROUNDED_SLOTS and words(f.value) & agent_only]
+    assert borrowed == [], f"agent said: {replies}"
     assert not any(f.slot == "role" and "recruit" in f.value.casefold() for f in facts)
 
 

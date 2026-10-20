@@ -1,9 +1,11 @@
 """The operator scripts, run as subprocesses: scripts/memory_history.py (C2-04), and C7-02's eval_memory.py,
 latency_report.py, run-worker.sh and the systemd unit (plan C7 "Part 1" and "Part 3"). Nothing here starts a worker,
-calls a provider or runs systemctl: every run-worker.sh test leaves a required name unset, or execs a stub python."""
+calls a provider or runs systemctl: every run-worker.sh test leaves a required name unset, and those that set
+any LiveKit name run a copy that execs a stub python."""
 
 import configparser
 import hashlib
+import importlib.util
 import os
 import re
 import shutil
@@ -25,7 +27,8 @@ EVAL_MEMORY = ROOT / "scripts" / "eval_memory.py"
 LATENCY_REPORT = ROOT / "scripts" / "latency_report.py"
 RUN_WORKER = ROOT / "scripts" / "run-worker.sh"
 UNIT = ROOT / "deploy" / "voice-concierge.service"
-EVAL_STEMS = sorted(p.stem for p in (ROOT / "evals" / "memory").glob("*.yaml"))
+EVALS = ROOT / "evals" / "memory"
+EVAL_STEMS = sorted(p.stem for p in EVALS.glob("*.yaml"))
 
 
 def run(*args: str | Path) -> subprocess.CompletedProcess[str]:
@@ -223,6 +226,35 @@ def test_eval_memory_reports_a_harm_hit_by_name_and_exits_1(home, tmp_path) -> N
     assert rows["total"] == ["1/1 (100 %)", "1"]
 
 
+async def test_eval_memory_reports_a_provider_error_as_a_row_and_runs_the_other_cases(monkeypatch, capsys) -> None:
+    """A 400 or a refusal from the live extractor is that case's row, not a traceback that loses the rest."""
+    from livekit.agents import APIStatusError
+
+    from concierge.evals.script import load_script
+
+    spec = importlib.util.spec_from_file_location("eval_memory_probe", EVAL_MEMORY)
+    assert spec and spec.loader
+    eval_memory = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(eval_memory)
+    real = eval_memory.run_script
+
+    async def flaky(script, factory):
+        if script.name == "01-introduction":
+            raise APIStatusError("claude-sonnet-5-5 refused the request", retryable=False)
+        return await real(script, factory)
+
+    monkeypatch.setattr(eval_memory, "run_script", flaky)
+    scripts = [load_script(EVALS / f"{stem}.yaml") for stem in ("01-introduction", "02-correction")]
+
+    code = await eval_memory.run_all(scripts, None)
+
+    rows = table_rows(capsys.readouterr().out)
+    assert rows["01-introduction"] == ["error", "1: APIStatusError"]
+    assert rows["02-correction"][1] == "0"
+    assert rows["total"][1] == "1"
+    assert code == 1
+
+
 def test_eval_memory_unknown_case_exits_2(home) -> None:
     result = run_py(EVAL_MEMORY, "--offline", "--case", "99-no-such-case", env=scrubbed_env(home))
     assert result.returncode == 2
@@ -363,30 +395,30 @@ def test_run_worker_without_env_exits_1_naming_livekit_url(home, tmp_path) -> No
     assert "LIVEKIT_URL" in result.stdout + result.stderr
 
 
-def test_run_worker_reads_the_env_file_when_present(home, tmp_path) -> None:
+def test_run_worker_reads_the_env_file_when_present(home, tmp_path, stub_checkout) -> None:
     write_env_file(home, LIVEKIT)  # the LiveKit names only: the LLM key is next
-    result = run_sh(RUN_WORKER, env=scrubbed_env(home), cwd=tmp_path)
+    result = run_sh(stub_checkout, env=scrubbed_env(home), cwd=tmp_path)
     assert result.returncode == 1
     assert "ANTHROPIC_API_KEY" in result.stderr and "LIVEKIT" not in result.stderr
 
 
-def test_run_worker_never_prints_a_value(home, tmp_path) -> None:
+def test_run_worker_never_prints_a_value(home, tmp_path, stub_checkout) -> None:
     write_env_file(home, LIVEKIT)
-    result = run_sh(RUN_WORKER, env=scrubbed_env(home), cwd=tmp_path)
+    result = run_sh(stub_checkout, env=scrubbed_env(home), cwd=tmp_path)
     assert result.returncode == 1
     assert DUMMY not in result.stdout + result.stderr
 
 
-def test_run_worker_needs_the_openrouter_key_under_openrouter(home, tmp_path) -> None:
+def test_run_worker_needs_the_openrouter_key_under_openrouter(home, tmp_path, stub_checkout) -> None:
     write_env_file(home, {**LIVEKIT, "ANTHROPIC_API_KEY": DUMMY, "CONCIERGE_LLM_PROVIDER": "openrouter"})
-    result = run_sh(RUN_WORKER, env=scrubbed_env(home), cwd=tmp_path)
+    result = run_sh(stub_checkout, env=scrubbed_env(home), cwd=tmp_path)
     assert result.returncode == 1
     assert "OPENROUTER_API_KEY" in result.stderr
 
 
-def test_run_worker_needs_the_deepgram_key_under_deepgram_speech(home, tmp_path) -> None:
+def test_run_worker_needs_the_deepgram_key_under_deepgram_speech(home, tmp_path, stub_checkout) -> None:
     write_env_file(home, {**LIVEKIT, "ANTHROPIC_API_KEY": DUMMY, "CONCIERGE_SPEECH": "deepgram"})
-    result = run_sh(RUN_WORKER, env=scrubbed_env(home), cwd=tmp_path)
+    result = run_sh(stub_checkout, env=scrubbed_env(home), cwd=tmp_path)
     assert result.returncode == 1
     assert "DEEPGRAM_API_KEY" in result.stderr
 

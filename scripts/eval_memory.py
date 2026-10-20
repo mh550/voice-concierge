@@ -11,6 +11,8 @@ naming it when unset. `--offline` replays the recorded_ops instead, like tests/t
 Prints a markdown table: case, recall (expected facts valid at the end; `n/a` when a case expects none) and harm hits
 (forbidden, duplicate, gone-but-valid and stored-when-nothing-should-be), then a total row. Exit 0 with no harm hit,
 1 with any (a recall miss is reported, not failed: the live extractor can miss things), 2 on usage or a missing key.
+A provider error (a 400, a refusal, a timeout) prints `error` for that case and counts as one harm hit; the run goes
+on.
 """
 
 from __future__ import annotations
@@ -21,16 +23,16 @@ import os
 import sys
 from pathlib import Path
 
-from livekit.agents import llm
+import yaml
+from livekit.agents import APIError
 from pydantic import ValidationError
 
-from concierge.config import Settings, build_llm
+from concierge.config import LLM_KEY, Settings, build_llm
 from concierge.evals.runner import LLMFactory, ScriptResult, run_script
 from concierge.evals.script import MemoryScript, load_script
 from concierge.testing.replay import Replay
 
 EVALS = Path(__file__).resolve().parent.parent / "evals" / "memory"
-KEY_FOR_PROVIDER = {"anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
 
 
 def recall_cell(hit: int, total: int) -> str:
@@ -45,25 +47,25 @@ def harm_cell(hits: list[str]) -> str:
 async def run_all(scripts: list[MemoryScript], live: Settings | None) -> int:
     print("| case | recall | harm hits |\n|---|---|---|")
     hit_total = expected_total = harm_total = 0
-    for script in scripts:
-        built: list[llm.LLM] = []
-        factory: LLMFactory
-        if live is None:
-            factory = Replay(script)
-        else:
-            def factory(n: int, settings: Settings = live, built: list[llm.LLM] = built) -> llm.LLM:
-                built.append(build_llm("extractor", settings))
-                return built[-1]
-        try:
-            result: ScriptResult = await run_script(script, factory)
-        finally:
-            for made in built:  # run_script doesn't close the factory's LLMs
-                await made.aclose()
-        expected = len(script.expected)
-        hit = expected - len(result.missing_expected)
-        hit_total, expected_total = hit_total + hit, expected_total + expected
-        harm_total += len(result.forbidden_hits)
-        print(f"| {script.name} | {recall_cell(hit, expected)} | {harm_cell(result.forbidden_hits)} |")
+    extractor = build_llm("extractor", live) if live is not None else None
+    try:
+        for script in scripts:
+            factory: LLMFactory = Replay(script) if extractor is None else (lambda n: extractor)
+            expected = len(script.expected)
+            expected_total += expected
+            try:
+                result: ScriptResult = await run_script(script, factory)
+            except (APIError, TimeoutError) as exc:  # a 400, a refusal or a timeout is this case's row, counted as harm
+                harm_total += 1
+                print(f"| {script.name} | error | 1: {type(exc).__name__} |")
+                continue
+            hit = expected - len(result.missing_expected)
+            hit_total += hit
+            harm_total += len(result.forbidden_hits)
+            print(f"| {script.name} | {recall_cell(hit, expected)} | {harm_cell(result.forbidden_hits)} |")
+    finally:
+        if extractor is not None:  # run_script doesn't close the factory's LLM
+            await extractor.aclose()
     print(f"| total | {recall_cell(hit_total, expected_total)} | {harm_total} |")
     return 1 if harm_total else 0
 
@@ -82,7 +84,7 @@ def main(argv: list[str]) -> int:
         return 2
     try:
         scripts = [load_script(p) for p in paths if not args.case or p.stem in args.case]
-    except (ValueError, OSError) as exc:  # pydantic's ValidationError is a ValueError
+    except (ValueError, OSError, yaml.YAMLError) as exc:  # pydantic's ValidationError is a ValueError
         print(f"bad eval script: {exc}", file=sys.stderr)
         return 2
 
@@ -93,7 +95,7 @@ def main(argv: list[str]) -> int:
         except ValidationError as exc:
             print(f"bad CONCIERGE_ setting: {exc.errors()[0]['loc']}", file=sys.stderr)
             return 2
-        key = KEY_FOR_PROVIDER[live.llm_provider]
+        key = LLM_KEY[live.llm_provider]
         if not os.environ.get(key):
             print(f"{key} not set", file=sys.stderr)
             return 2

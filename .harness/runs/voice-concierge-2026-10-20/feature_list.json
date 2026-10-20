@@ -456,7 +456,7 @@
         "`.venv/bin/pytest -m 'not live' -q` reports 0 skipped except the live file's module skip, and the whole suite runs in under 120 s",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
 
     {

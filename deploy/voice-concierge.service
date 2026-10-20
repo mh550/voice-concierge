@@ -15,6 +15,9 @@ RestartSec=10
 # The first SIGTERM drains live sessions (livekit-agents 1.8 cli/cli.py); a session is at most 10 min (B7), plus 30 s
 # of shutdown work, so systemd waits that long before it kills the worker.
 TimeoutStopSec=660
+# SIGTERM goes to the worker only, which drains and stops its own job processes; anything left gets SIGKILL at
+# the timeout. (The default, control-group, would also kill multiprocessing's forkserver mid-drain.)
+KillMode=mixed
 
 [Install]
 WantedBy=default.target

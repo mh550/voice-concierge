@@ -1,7 +1,7 @@
 # MORNING.md: Michael's checklist
 
 This needs keys only you have (LiveKit Cloud, Anthropic) and takes about 20 minutes. Steps 1–2 are offline. From
-step 3 on, the worker talks to LiveKit Cloud and the Anthropic API, so each of those steps says what to **Check** and
+step 3 on, steps call LiveKit Cloud or the Anthropic API, so each of those steps says what to **Check** and
 how to **Undo** it. Run the commands from the repo root. Nothing here was run by the build.
 
 The env file `~/.config/voice-concierge/env` holds plain `NAME=value` lines (no quotes, spaces or `$` in values:
@@ -34,7 +34,9 @@ otherwise. Then, in the foreground:
 scripts/run-worker.sh start
 ```
 
-Or as a systemd user unit (the repo at `~/projects/voice-concierge` with its `.venv` built):
+Or as a systemd user unit, once this branch is merged and checked out at `~/projects/voice-concierge` with its `.venv`
+built (run `.harness/init.sh` there; until then that checkout has no `scripts/run-worker.sh` and the unit restarts
+every 10 s):
 
 ```
 cp deploy/voice-concierge.service ~/.config/systemd/user/ && systemctl --user daemon-reload && systemctl --user enable --now voice-concierge
@@ -79,8 +81,9 @@ Check: `4 passed`. `4 skipped` means the env wasn't loaded. Undo: none; they use
 ( set -a; . ~/.config/voice-concierge/env; set +a; .venv/bin/python scripts/eval_memory.py )
 ```
 
-Check: the total row, harm 0, exit 0; note the recall. If every case shows recall 0 and the worker log has no
-`extraction_ran`, look first at the strict-schema risk (C4 plan "Risks": a 400 on the `emit_ops` schema). Undo: none.
+Check: the total row, harm 0, exit 0; note the recall. A case that shows `error` and `APIStatusError` got a 400 or a refusal
+from the API; if every case does (or the worker log shows `extraction failed (APIStatusError)`), look first at the
+strict-schema risk (C4 plan "Risks": a 400 on the `emit_ops` schema). Undo: none.
 
 ## 9. Latency report
 
@@ -89,7 +92,9 @@ Check: the total row, harm 0, exit 0; note the recall. If every case shows recal
 ```
 
 That is the `db_path` default in `concierge/config.py`; use `CONCIERGE_DB_PATH` if you set it. Paste the table into
-README "Results" with the totals from step 8, and commit only `README.md`.
+README "Results" with the totals from step 8, add the line `Measured on <YYYY-MM-DD> on Michael's box.` above the
+tables (`tests/test_readme.py` allows numbers there only with that line), run `.harness/check.sh`, and commit only
+`README.md`.
 
 Check: `eou_ms`, `stt_ms`, `llm_ttft_ms`, `tts_ttfb_ms` and `total_ms` each have `n=` of at least 20 (`preload_ms` is one
 per session and `extraction_ms` one per merge, so theirs are smaller); otherwise talk more turns first. Undo:
@@ -117,14 +122,14 @@ Check: one line per fact, corrected ones with a `valid_to`. Undo: none, it's rea
 - Kill switch, no restart needed: `touch ~/.voice-concierge-off`. New jobs are declined and the page shows offline after
   about 10 s. Undo: `rm ~/.voice-concierge-off`.
 
-Check: the worker process is gone (`systemctl --user status voice-concierge` says inactive), and with the file present
-the page shows offline. Undo: step 3.
+Check: after Ctrl-C or `stop`, the worker process is gone (`systemctl --user status voice-concierge` says inactive);
+with only the kill switch, the worker keeps running and the page shows offline. Undo: step 3.
 
 ## Questions for you
 
 Each is a default the build took (details in `docs/decisions.md`); say if you want it changed.
 
-- **D7:** keep turn detection on VAD only, or switch to the local turn-detector model (one line in `concierge/worker.py`)?
+- **D7:** keep turn detection on VAD only, or switch to the local turn-detector model (the `turn_handling` line in `build_session`, `concierge/session.py`)?
   Switch if the agent cuts into your pauses.
 - **D8 / D11:** "forget X" deletes the fact but leaves that turn's text in the journal until "Forget me" or the 30-day
   purge. OK, or should it blank the turn text too?
@@ -132,7 +137,7 @@ Each is a default the build took (details in `docs/decisions.md`); say if you wa
   should be awaited before `session.start`.
 - **D10:** keep rejecting extracted values that share no word with the visitor's turn (fewer false memories, some lost
   paraphrases)?
-- **D12:** after a compaction keep the last 3 exchanges verbatim (default: a "turn" is one message) or the last 6?
+- **D12:** after a compaction keep the last 6 messages verbatim (3 exchanges, the default) or the last 6 exchanges?
 - **D13:** does the page expect fact `id` as a number and timestamps as ISO-8601 `…Z` strings?
 - **Health port:** the worker's health server listens on all interfaces, port 8081. Bind it to `127.0.0.1`
   (`AgentServer(host="127.0.0.1")`)? Until then, keep 8081 closed at the firewall.

@@ -266,3 +266,33 @@ async def test_the_livekit_judge_runs_on_a_claude_llm() -> None:
     await ChatMessageAssert(ChatMessageEvent(item=reply), Parent(), 0).judge(judge, intent="greets Ada")  # type: ignore[arg-type]
     (sent,) = client.fake_messages.calls
     assert not _keys(sent) & {"temperature", "top_k", "top_p"}
+    assert sent["tool_choice"] == {"type": "auto"}  # judge() forces "required"; Sonnet 5.5 rejects that with a 400
+
+
+@llm.function_tool
+async def check_intent(success: bool, reason: str) -> None:
+    """The judge's verdict tool, as in voice/run_result.py."""
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-opus-5-5"])
+@pytest.mark.parametrize("forced", ["required", {"type": "function", "function": {"name": "check_intent"}}])
+async def test_a_forced_tool_choice_is_sent_as_auto_to_models_that_reject_it(model: str, forced: Any) -> None:
+    """Sonnet 5.5 and Opus 5.5 answer a forced tool_choice (`any`/`tool`) with a 400 (spec §4.4, docs/decisions.md);
+    LiveKit's judge() always asks for tool_choice="required", which the plugin sends as `any`."""
+    client = FakeAnthropicClient([reply_events("ok")])
+    stream = build_claude_llm("extractor", model, client=client).chat(
+        chat_ctx=_ctx(), tools=[check_intent], tool_choice=forced
+    )
+    await stream.collect()
+    (sent,) = client.fake_messages.calls
+    assert sent["tool_choice"] == {"type": "auto"}
+
+
+async def test_a_forced_tool_choice_is_kept_for_haiku() -> None:
+    client = FakeAnthropicClient([reply_events("ok")])
+    stream = build_claude_llm("conversation", "claude-haiku-5-5", client=client).chat(
+        chat_ctx=_ctx(), tools=[check_intent], tool_choice="required"
+    )
+    await stream.collect()
+    (sent,) = client.fake_messages.calls
+    assert sent["tool_choice"] == {"type": "any"}
