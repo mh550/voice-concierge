@@ -2,6 +2,7 @@ import hashlib
 import json
 import multiprocessing
 import sqlite3
+import time
 import uuid
 
 import pytest
@@ -582,6 +583,43 @@ def test_delete_fact_leaves_the_value_in_neither_file(store, visitor_id) -> None
     thread = store.get_or_create_thread(visitor_id)
     fact = store.add_fact(thread.id, add("company", "Zqxmarker Ltd"))
     store.delete_fact(fact.id)  # the store stays open: a long-running worker never closes it
+    for suffix in ("", "-wal"):
+        path = store.path.with_name(store.path.name + suffix)
+        assert b"Zqxmarker" not in (path.read_bytes() if path.exists() else b""), suffix
+
+
+@pytest.mark.parametrize("form", ["list", "callable"])
+def test_apply_fact_ops_delete_leaves_the_value_in_neither_file(store, visitor_id, form) -> None:
+    # C4's forget tool may delete several facts in one batch, so the checkpoint can't live only in delete_fact.
+    thread = store.get_or_create_thread(visitor_id)
+    fact = store.add_fact(thread.id, add("company", "Zqxmarker Ltd"))
+    if form == "list":
+        ops = [DeleteFact(fact_id=fact.id)]
+    else:
+        ops = lambda valid: [DeleteFact(fact_id=f.id) for f in valid if f.slot == "company"]  # noqa: E731
+    store.apply_fact_ops(thread.id, ops)
+    assert store.valid_facts(thread.id) == []
+    for suffix in ("", "-wal"):
+        path = store.path.with_name(store.path.name + suffix)
+        assert b"Zqxmarker" not in (path.read_bytes() if path.exists() else b""), suffix
+
+
+def test_delete_fact_does_not_wait_out_a_reader_and_the_next_write_finishes_the_checkpoint(
+    store, visitor_id
+) -> None:
+    # The forget tool is on a tool call's path: a reader in another process must not stall it for the busy timeout.
+    thread = store.get_or_create_thread(visitor_id)
+    fact = store.add_fact(thread.id, add("company", "Zqxmarker Ltd"))
+    reader = sqlite3.connect(store.path, isolation_level=None)
+    reader.execute("BEGIN")
+    reader.execute("SELECT count(*) FROM threads").fetchall()
+    started = time.monotonic()
+    store.delete_fact(fact.id, thread_id=thread.id)
+    assert time.monotonic() - started < 1.0
+    reader.close()
+
+    store.journal(thread.id, uuid.uuid4().hex, "user_turn", {"text": "hello"})  # the owed checkpoint settles
+
     for suffix in ("", "-wal"):
         path = store.path.with_name(store.path.name + suffix)
         assert b"Zqxmarker" not in (path.read_bytes() if path.exists() else b""), suffix

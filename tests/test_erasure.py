@@ -277,3 +277,18 @@ def test_purge_idle_finishes_an_owed_checkpoint_even_when_nothing_is_idle(store,
     assert store.purge_idle(clock()) == 0
 
     assert marker.encode() not in disk_bytes(store.path)
+
+
+@pytest.mark.parametrize("checkpointed", [False, True], ids=["in_wal", "in_main_file"])
+def test_purge_idle_leaves_no_bytes_on_disk(store, clock, visitor_id, checkpointed) -> None:
+    marker = "Mnbvcxzlk" + uuid.uuid4().hex[:8]
+    seed_visitor(store, visitor_id, marker)
+    if checkpointed:
+        store._checkpoint()
+    assert marker.encode() in disk_bytes(store.path)
+
+    assert store.purge_idle(clock() + 31 * 86_400_000) == 1
+
+    assert marker.encode() not in disk_bytes(store.path)
+    assert visitor_id.encode() not in disk_bytes(store.path)
+    assert store.pragma("freelist_count") == 0
