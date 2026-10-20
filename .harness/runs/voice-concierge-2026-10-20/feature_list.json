@@ -64,7 +64,7 @@
         "The entrypoint awaits session.start(agent=ConciergeAgent(...), room=ctx.room, room_options=..., record=recording_options()) and never constructs LLM/STT/TTS at module import (grep: no with_openrouter( call at module level)",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C1-06", "milestone": "C1", "kind": "review", "model": "opus",

@@ -13,6 +13,25 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 00:46 · C1-05 · passes
+
+- **Added:** `concierge/worker.py` (`server = AgentServer(shutdown_process_timeout=30, setup_fnc=prewarm)`,
+  `@server.rtc_session(agent_name="concierge", on_request=on_request)`, `recording_options()`, silero VAD prewarm),
+  `concierge/dispatch.py` (`DispatchInfo`, `parse_dispatch` → `DispatchError`), `concierge/text_input.py`
+  (`make_text_input_cb`, `ChannelTags`), `tests/test_dispatch.py` (19), `tests/test_worker.py` (16), "C1-05 as built" in
+  the C1 plan. Tests 60 → 95.
+- **Verified:** `check.sh` green (95). `env -i … .venv/bin/python -c 'import concierge.worker'` succeeds; no
+  `with_openrouter(` in worker.py, and an AST test finds no provider call at module level. Six mutants were each caught (tag after the
+  default, redaction False, no participant identity, no return on bad metadata, loose UUID regex, no VAD turn mode). A
+  real `AgentSession` + `FakeLLM` typed turn through the wrapper comes back tagged `text`.
+- **Opus review:** no Critical. Important, fixed test-first: `turn_handling` now also sets `interruption.mode="vad"`
+  (otherwise dev/console mode builds the hosted `AdaptiveInterruptionDetector`). Minor fixes applied: uppercase UUIDs
+  rejected (not lowercased, so `visitor-<id>` matches the page), `ChannelTags` bounded at 32, `on_text` failure never
+  drops the turn, plus stronger tests.
+- **Next session:** nothing calls `ChannelTags.channel_of` yet. C4 wires it from `conversation_item_added`.
+  `session.start` connects the room itself, and C3-02 replaces that with `gather(ctx.connect(), preload)`. Entry
+  point: `python -m concierge.worker start|dev`.
+
 ### 2026-10-20 03:15 · C1-04 · passes
 
 - **Added:** `concierge/prompt.py` (`STATIC_INSTRUCTIONS`, 1,263 chars; `MEMORY_HEADER`; `MEMORY_BLOCK_MAX_CHARS = 1500`;
