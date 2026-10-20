@@ -2,21 +2,17 @@
 
 | | |
 |---|---|
-| Passing | **31/38** · verified 26 (C1, P1, C2, C3, C4, C5) · merged 26 (C1, P1, C2, C3, C4, C5) |
-| Tests | 1 → 828 |
-| Spend | **$131.71** total · **$4.25** per passing feature |
-| Spend by role | init $6.04 · plan $24.54 · build $70.94 · review $28.38 · verify $1.66 · retro $0.12 · manager (the bash driver) $0.00 |
-| Time | 8.1 h wall: sessions 7.98 h (init 0.21, plan 1.41, build 4.81, review 1.39, verify 0.16, retro 0.01), driver 0.13 h |
-| Sessions | 39 (39 real, 0 refused by limits/API errors) |
-| Ended | deadline |
-| Not passing | not reached 7 |
+| Passing | **35/38** · verified 31 (C1, P1, C2, C3, C4, C5, C6) · merged 31 (C1, P1, C2, C3, C4, C5, C6) |
+| Tests | 1 → 909 |
+| Spend | **$157.93** total · **$4.51** per passing feature |
+| Spend by role | init $6.04 · plan $32.43 · build $75.14 · review $37.37 · docs $4.08 · verify $2.59 · retro $0.25 · manager (the bash driver) $0.00 |
+| Time | 9.69 h wall: sessions 9.55 h (init 0.21, plan 1.79, build 5.07, review 1.74, verify 0.26, retro 0.02, docs 0.47), driver 0.14 h |
+| Sessions | 48 (48 real, 0 refused by limits/API errors) |
+| Ended | waiting on Michael: C7-05 (after 1 continuation) |
+| Not passing | waiting on Michael 1 · blocked 2 |
 
 | Feature | Cause | Detail | Sessions | $ |
 |---|---|---|---|---|
-| C7-01 | not reached | run ended: deadline | 0 | $0.00 |
-| C7-02 | not reached | run ended: deadline | 0 | $0.00 |
-| C7-03 | not reached | run ended: deadline | 0 | $0.00 |
-| C7-04 | not reached | run ended: deadline | 0 | $0.00 |
-| C7-05 | not reached | run ended: deadline | 0 | $0.00 |
-| C8-01 | not reached | run ended: deadline | 0 | $0.00 |
-| C8-02 | not reached | run ended: deadline | 0 | $0.00 |
+| C7-05 | waiting on Michael | Michael to approve the diff path (1a/1b) and amend or approve step 3's grep (2a/2b) in INBOX.md | 2 | $8.99 |
+| C8-01 | blocked | waits on C7-05, which is waiting on Michael | 0 | $0.00 |
+| C8-02 | blocked | waits on C7-05, which is waiting on Michael | 0 | $0.00 |

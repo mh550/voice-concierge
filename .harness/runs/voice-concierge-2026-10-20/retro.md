@@ -1,20 +1,23 @@
 ## Outcome
-The run delivered 31 of 38 features (C1–C6, plus P1). Only 26 are verified and merged, in PRs #2–#5 and the earlier C1 merge. C6's five features pass but are unverified and unmerged. C7 (5 features) and C8 (2 features) were never started. The deadline ended the run at 8.09 h, 38 sessions, $131.59 ($4.24 per passing feature), with 828 tests. The cause was pace, not failure: builds took 8–46 min each and averaged about 15 min, and the plan and review sessions added another 3 h.
+This run delivered 35 of 38 features (C1–C6, P1, and C7-01..04) at $157.80, 9.5 h and 909 tests. It ended "waiting on Michael: C7-05", and C7 is unverified and unmerged. C8-01 and C8-02 were not started because they depend on C7-05. The main reason is that C7-05 has steps that can't be satisfied under CLAUDE.md. That is a feature-list problem, not a model failure. The earlier deadline segment (31/38 at 08:13) was resumed at 11:19 after about 3 h idle.
 
 ## Non-passing features by cause
-All 7 non-passing features (C7-01..05, C8-01..02) have cause "not reached", with detail "run ended: deadline".
-- None has a progress entry or a final result, because none was attempted.
-- This is a pace and scope problem: 38 features did not fit in the time budget.
-- No feature was refused or failed.
+- **C7-05: spec or feature-list problem.** Its cause is "waiting on Michael", with 2 sessions and $8.99. The last progress entry says "step 1 wants the diff in `/tmp/voice-concierge/` (outside the allowed write area); step 3's grep matches its own step text … Neither is fixable without editing `feature_list.json` or breaking CLAUDE.md."
+- **C8-01 and C8-02: depends on a failed feature.** Both have cause "blocked" and 0 sessions ("waits on C7-05").
 
 ## Harness behaviour
-- **Guards:** repairs, red_unpass, verify_failed, limit_waits and verify_escalations were all 0. That is plausible: every verify returned "hold".
-- **Deadline gap:** the log reads "08:13 C6-05 passes=true … 08:13 deadline reached". C6 was left unverified and unmerged, and C6 also holds the privacy and forget-me work. The C1–C5 verifies cost $0.18–$0.36 and took 1–2 min each, so reserving that time would have been cheap.
-- **Review cost:** review took $28.38 (21.6% of the run) and plan took $24.54 (18.6%), together 40%. Build took $70.94. C6-05 was itself a review session and found 2 Important issues. Reviews are therefore sometimes worth it, but the cost is uniform.
-- **Verify depth:** verify sessions did re-run steps. The C1 verify reported "33 of 33 steps", re-ran check.sh, and read the assertions of each named test. The C2 verify added 26 rows, and the P1 verify re-ran every step. Verify wall time was 56–108 s on Sonnet, so these checks are mostly test reading, not independent end-to-end runs.
-- **Summary field:** `tests.start` is 1 (the smoke test). It is not wrong this time.
+- **Guards:**
+  - `verify_failed` fired once, correctly. The C7 verify at 12:52 re-checked C7-05, found it failing and put it back in the queue.
+  - The retry session lasted 1 minute and parked the feature. That was a sound outcome, but the retry was not needed.
+  - The other guards were 0.
+- **Waste:**
+  - The step 1 conflict was already visible in the progress log at the C7 plan, and the build session still ran 20 min and passed it. The verify then caught that pass.
+  - The step 3 problem (a grep that matches its own text) should have come up in the init or plan phase.
+  - The park at 12:54 blocked C8, even though C8 only needed C7-05's `after` dependency. The run then idled until Michael answers.
+- **Verify evidence:** Verify sessions did re-run steps. The "verify C7" table has per-step rows with commands and observations, for example C7-01 steps 1–3 and C7-05 steps 2, 4, 5. Cost was low ($2.59 over 8 sessions). I did not count every row against every step.
+- **Deadline gap:** The previous retro's gap persisted. C6 was only verified and merged after the resume, at 11:19–11:22.
 
 ## Proposed harness changes
-1. **Run each milestone's verify and merge before the deadline is allowed to end the run** (driver deadline logic). The driver should stop starting new features when remaining time is less than roughly one feature plus one verify, then verify and merge the last milestone. Evidence: C6 has 5 passing features that are unverified and unmerged, at a verify cost of about $0.30. This has not been proposed in an earlier retro.
-2. **Make review conditional or cheaper** (driver config / review prompt). Run one review for each milestone with more than 4 features or a risky area, or use Sonnet for the first pass. Evidence: $28.38 for 9 review sessions. This is the fifth repeat of the proposal from `v2-2026-10-18`, `agent-harness-2026-10-19`, `rane-one-mixxx-2026-10-19` and `portfolio_site-2026-10-20`.
-3. **Size the feature list to the time budget at plan or init time** (init prompt). Estimate about 15 min per feature plus overhead, and mark the tail milestones as optional. Evidence: 38 features × the observed average of about 15 min exceeds the 8 h budget. Not proposed before.
+1. **Lint step text at init and plan time.** Fail the feature list if a step writes outside the worktree or scratch dir, or if a grep step matches `.harness` or its own text. Evidence: both C7-05 blockers. This is new. The `rane-one-mixxx-2026-10-19` retro proposed a related smoke check of steps (its proposal 2).
+2. **Let a build session mark a step "unsatisfiable" at the start and park immediately** (build prompt and driver). Evidence: C7-05 spent a 20 min build and a verify cycle before parking. This is the same as `rane-one-mixxx-2026-10-19` proposal 2.
+3. **Reserve time to verify and merge the last milestone before the deadline** (driver). Evidence: C6 sat unmerged from 08:13 to 11:22. This repeats this run's earlier retro (proposal 1).
