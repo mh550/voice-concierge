@@ -113,9 +113,11 @@ message or the pre-connect audio can be lost. A normal preload takes under 1 ms;
 write lock can take 5 s.
 
 **Choice.** Keep the gather (the spec's design and the feature's step) and bound the preload with
-`asyncio.wait_for(…, PRELOAD_TIMEOUT_S)`, 1.0 s in `concierge/worker.py`. On the deadline the session runs without
-memory, like any other preload failure (logged by type, `TimeoutError`). The store thread may still finish and count
-the visit; nothing waits for it.
+`PRELOAD_TIMEOUT_S`, 1.0 s (now in `concierge/session.py`). On the deadline the session runs without memory, like
+any other preload failure (logged by type, `TimeoutError`). The store thread can't be cancelled, so (C3-03 review)
+the preload is a tracked task under `asyncio.wait`, not `wait_for`, and `on_shutdown` waits for it before closing the
+store. Accepted: a late preload still counts the visit and journals `memory_preloaded`, and that session journals
+no `session_started` / `session_ended` (it ran without memory).
 
 **Rejected.** Moving the preload after `session.start` (no overlap with the connect, against §4.0), or overlapping
 it only with provider construction and awaiting it before `session.start` (smaller win, more moving parts).

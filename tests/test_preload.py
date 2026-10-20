@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 from livekit.agents.testing import fake_job_context
 
+from concierge import session as concierge_session
 from concierge import worker
 from concierge.agent import ConciergeAgent
 from concierge.knowledge import load_pack
@@ -145,6 +146,10 @@ async def test_entrypoint_connects_and_preloads_concurrently(
         await asyncio.sleep(0.2)
 
     class NoStore:
+        def journal(self, thread_id: str, session_id: str, kind: str, payload: dict[str, Any]) -> int:
+            calls.append(kind)
+            return 1
+
         def close(self) -> None:
             calls.append("close")
 
@@ -152,7 +157,7 @@ async def test_entrypoint_connects_and_preloads_concurrently(
         return NoStore()
 
     monkeypatch.setattr(worker, "_open_or_none", opened)  # the timed span holds only the gather and the start
-    monkeypatch.setattr(worker, "preload", slow_preload)
+    monkeypatch.setattr(concierge_session, "preload", slow_preload)
     with fake_job_context(job_metadata=METADATA) as ctx:
         ctx.proc.userdata["vad"] = "vad"
         monkeypatch.setattr(ctx, "connect", slow_connect)
@@ -162,7 +167,7 @@ async def test_entrypoint_connects_and_preloads_concurrently(
         for callback in ctx._shutdown_callbacks:
             await callback("test")
 
-    assert sorted(calls) == ["close", "connect", "preload"]
+    assert sorted(calls) == ["close", "connect", "preload", "session_ended", "session_started"]
     assert 0.2 <= elapsed < 0.35, elapsed
     (session,) = recording_session.instances
     assert session.started is not None
@@ -185,12 +190,12 @@ async def test_entrypoint_runs_without_memory_when_preload_fails(
         VisitorState.model_validate({"name": "Zephyrine" * 50})  # over the cap: ValidationError quoting the value
         raise AssertionError("unreachable")
 
-    monkeypatch.setattr(worker, "preload", failing)
+    monkeypatch.setattr(concierge_session, "preload", failing)
     _, session = await run_entrypoint()
     text = instructions_of(session)
     assert MEMORY_HEADER not in text and "Zephyrine" not in text
     expected = {"store": "StoreError", "sqlite": "OperationalError", "validation": "ValidationError"}[kind]
-    warnings = [r.getMessage() for r in caplog.records if r.name == "concierge.worker" and r.levelname == "WARNING"]
+    warnings = [r.getMessage() for r in caplog.records if r.name == "concierge.session" and r.levelname == "WARNING"]
     assert any(expected in m for m in warnings), warnings
     assert "Zephyrine" not in caplog.text and "boom" not in caplog.text  # the type only, never a message
 
@@ -201,19 +206,24 @@ async def test_a_slow_preload_is_cut_off_and_the_session_runs_without_memory(
     # D9: the room is connected during the preload, before RoomIO registers its lk.chat and pre-connect audio
     # handlers, so the preload gets a short deadline (a store waiting on another job's write lock can take 5 s).
     seed_db()
-    real = worker.preload
+    real = concierge_session.preload
 
     async def stalled(store: Store, visitor_id: str, session_id: str = "") -> Preloaded:
         await asyncio.sleep(1.0)
         return await real(store, visitor_id, session_id)
 
-    monkeypatch.setattr(worker, "preload", stalled)
-    monkeypatch.setattr(worker, "PRELOAD_TIMEOUT_S", 0.1)
-    start = time.perf_counter()
-    _, session = await run_entrypoint()
-    assert time.perf_counter() - start < 0.6
+    monkeypatch.setattr(concierge_session, "preload", stalled)
+    monkeypatch.setattr(concierge_session, "PRELOAD_TIMEOUT_S", 0.1)
+    with fake_job_context(job_metadata=METADATA) as ctx:
+        ctx.proc.userdata["vad"] = "vad"
+        start = time.perf_counter()
+        await worker.entrypoint(ctx)
+        assert time.perf_counter() - start < 0.6  # the session started; the late preload goes on in the background
+        for callback in ctx._shutdown_callbacks:
+            await callback("test")  # waits for the late preload, then closes the store
+    (session,) = RecordingSession.instances
     assert MEMORY_HEADER not in instructions_of(session)
-    assert any("TimeoutError" in r.getMessage() for r in caplog.records if r.name == "concierge.worker")
+    assert any("TimeoutError" in r.getMessage() for r in caplog.records if r.name == "concierge.session")
 
 
 async def test_entrypoint_runs_without_memory_when_the_store_cannot_open(
@@ -229,7 +239,7 @@ def test_agent_falls_back_to_no_block_when_build_instructions_raises() -> None:
     pre = Preloaded(thread_id="t", version=1, visits=2, state=VisitorState(), facts=[], block="x" * 2000, ms=0.1)
     with pytest.raises(ValueError):
         build_instructions(pack, pre.block)
-    agent = worker._agent_or_memoryless(pack, pre)
+    agent = concierge_session._agent_or_memoryless(pack, pre)
     assert agent.instructions == build_instructions(pack, None)
 
 
@@ -277,3 +287,36 @@ async def test_every_fact_line_is_quoted(recording_session: type[RecordingSessio
     assert len(lines) == 4 and all(_FACT_LINE.match(line) for line in lines[1:])
     (attack_line,) = [line for line in lines if ATTACK in line]
     assert f'"{ATTACK}"' in attack_line  # the injection is a quoted value under the header, not an instruction
+
+
+async def test_a_preload_thread_that_outlives_the_deadline_finishes_before_the_store_closes(
+    recording_session: type[RecordingSession], monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A store blocked on another job's write lock is a blocked thread, which wait_for can't cancel: shutdown must
+    # wait for it before close(), or its next call hits a closed connection (review C3-03 #1).
+    seed_db()
+    order: list[str] = []
+    real_get, real_journal, real_close = Store.get_or_create_thread, Store.journal, Store.close
+
+    def slow_get(self: Store, visitor_id: str) -> Any:
+        time.sleep(0.4)
+        return real_get(self, visitor_id)
+
+    def journal(self: Store, *args: Any) -> int:
+        order.append(args[2])
+        return real_journal(self, *args)
+
+    def close(self: Store) -> None:
+        order.append("close")
+        real_close(self)
+
+    monkeypatch.setattr(Store, "get_or_create_thread", slow_get)
+    monkeypatch.setattr(Store, "journal", journal)
+    monkeypatch.setattr(Store, "close", close)
+    monkeypatch.setattr(concierge_session, "PRELOAD_TIMEOUT_S", 0.1)
+    _, session = await run_entrypoint()
+    assert MEMORY_HEADER not in instructions_of(session)
+    assert any("TimeoutError" in r.getMessage() for r in caplog.records if r.name == "concierge.session")
+    assert order == ["memory_preloaded", "close"]  # the late preload landed; no session rows for a memoryless one
+    with Store(db_path()) as s:
+        assert s.thread_for(VISITOR).visits == 2  # type: ignore[union-attr]

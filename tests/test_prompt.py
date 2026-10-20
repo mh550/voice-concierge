@@ -82,3 +82,13 @@ def test_memory_block_cap() -> None:
     assert build_instructions(pack, ok).endswith(ok)
     with pytest.raises(ValueError, match="1501"):
         build_instructions(pack, _memory_block(1501))
+
+
+def test_static_instructions_carry_the_name_confirmation_rule() -> None:
+    # B12: confirm a name once before using it (C4 stores it only after the yes). Case-sensitive on purpose.
+    text = STATIC_INSTRUCTIONS
+    assert "confirm" in text and "did I get that right" in text
+    assert '"Did I get that right, <name>?"' in text
+    assert "only after they say yes" in text
+    assert "Never ask to confirm a name from their earlier visits" in text
+    assert text.index("Names:") < text.index("earlier visits may follow the pack")  # before the memory paragraph

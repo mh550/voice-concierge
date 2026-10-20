@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 
-from concierge import worker
+from concierge import session
 from concierge.store import Store
 from concierge.testing.fake_llm import FakeLLM
 from concierge.testing.recording_session import RecordingSession
@@ -45,17 +45,17 @@ def visitor_id() -> str:
     return str(uuid.uuid4())
 
 
-# --- the entrypoint's AgentSession seam (tests/test_worker.py, tests/test_preload.py) ---------------------------
+# --- the session's AgentSession seam (tests/test_worker.py, tests/test_preload.py) ---------------------------
 
 
 @pytest.fixture
 def recording_session(monkeypatch: pytest.MonkeyPatch) -> type[RecordingSession]:
     RecordingSession.instances = []
-    monkeypatch.setattr(worker, "AgentSession", RecordingSession)
+    monkeypatch.setattr(session, "AgentSession", RecordingSession)
     fake = FakeLLM([])
-    monkeypatch.setattr(worker, "build_llm", lambda stage, settings=None: fake)
-    monkeypatch.setattr(worker, "build_stt", lambda settings=None: "stt")
-    monkeypatch.setattr(worker, "build_tts", lambda settings=None: "tts")
+    monkeypatch.setattr(session, "build_llm", lambda stage, settings=None: fake)
+    monkeypatch.setattr(session, "build_stt", lambda settings=None: "stt")
+    monkeypatch.setattr(session, "build_tts", lambda settings=None: "tts")
     monkeypatch.delenv("CONCIERGE_RECORD_AUDIO", raising=False)
     RecordingSession.tags = []
 
@@ -64,5 +64,5 @@ def recording_session(monkeypatch: pytest.MonkeyPatch) -> type[RecordingSession]
             super().__init__()
             RecordingSession.tags.append(self)
 
-    monkeypatch.setattr(worker, "ChannelTags", KeptChannelTags)
+    monkeypatch.setattr(session, "ChannelTags", KeptChannelTags)
     return RecordingSession

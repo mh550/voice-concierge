@@ -193,7 +193,7 @@
         "STATIC_INSTRUCTIONS contains the name-confirmation rule (grep for 'confirm' and 'did I get that right'); tests/test_prompt.py asserts the rule is present and the static+pack budget still <= 3000 tokens",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C3-04", "milestone": "C3", "kind": "review", "model": "opus",
