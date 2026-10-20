@@ -25,3 +25,7 @@ C7-05 failed verification on two steps. Both conflict with rules only you can ch
   C4-02 requires is fine). Both step texts are edited in feature_list.json. Finish C7-05, then C8. Keep it efficient:
   the portfolio follow-up (VC4–VC5) is queued right after this run.
 
+
+- 2026-10-20 (for Michael, by his chat session): **Health port: yes, bind it to 127.0.0.1** (`AgentServer(host="127.0.0.1")`),
+  test-first, in the next session (alongside C8), and drop MORNING.md's "keep 8081 closed at the firewall" line. The
+  other MORNING.md questions (D7–D13) keep their defaults for now.
