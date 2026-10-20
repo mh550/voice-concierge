@@ -476,6 +476,8 @@ async def test_forget_me_cancels_a_running_compaction(
         await until(lambda: len(slow.calls) == 1)  # the summarizer call is in flight
         assert await forget_visitor(writer, VISITOR) is True
         assert compactor.disabled and compactor.ready is None
+        await asyncio.sleep(0.05)
+        assert not compactor._tasks  # the 3 s call was cancelled, not left to finish and be dropped (review B-I1)
         add_turns(started.session, agent, range(30, 60))  # however many items follow
         listening(started.session)
         await asyncio.sleep(0.1)
