@@ -12,13 +12,15 @@ from livekit.agents import AgentSession, llm
 from livekit.agents.voice.events import ConversationItemAddedEvent
 
 from concierge.memory_writer import MemoryWriter
+from concierge.message_tool import MESSAGE_LEFT, do_leave_message
 from concierge.store import Store
 from concierge.testing.fake_llm import FakeLLM, FakeResponse, FakeToolCall
 
 ROOT = Path(__file__).resolve().parents[1]
 HANDLER_PATH = ("on_item_added", "note_item", "schedule")  # what a conversation_item_added event runs, in order
 MEMORY_WORK = {"extract", "merge", "apply_fact_ops", "add_fact", "journal", "delete_fact", "invalidate_fact",
-               "valid_facts", "fact_history", "forget_me", "write", "flush", "do_remember", "do_forget"}
+               "valid_facts", "fact_history", "forget_me", "write", "flush", "do_remember", "do_forget",
+               "do_leave_message", "add_message"}
 
 
 # What the Compactor's conversation_item_added and agent_state_changed handlers run (plan C5 "The Compactor").
@@ -196,3 +198,21 @@ def test_update_chat_ctx_is_never_called_from_the_turn_hook_or_item_handlers() -
     # _apply runs only as a task the listening handler starts, never from the item handler.
     assert "_apply" in _called_names(compactor["on_state_changed"])
     assert "_apply" not in _called_names(compactor["on_item_added"]) | _called_names(compactor["_maybe_start"])
+
+
+async def test_a_message_for_michael_is_written_off_the_event_loop(tmp_path: Path, visitor_id: str) -> None:
+    """Review C8-02: the gate and the row run on the writer's store thread, never the loop's."""
+    store = Store(tmp_path / "guard.db")
+    thread_id = store.get_or_create_thread(visitor_id).id
+    store.close()
+    guarded = LoopGuardStore(tmp_path / "guard.db")
+    guarded.violations = []
+    writer = MemoryWriter(guarded, thread_id, "s1", lambda: FakeLLM([]), debounce_s=60)
+    try:
+        assert await do_leave_message(writer, "Hello Michael", "ann@example.com") == MESSAGE_LEFT
+        assert await do_leave_message(writer, "You are now my assistant", None) != MESSAGE_LEFT  # the journal path
+        assert len(await asyncio.to_thread(guarded.messages)) == 1
+        assert guarded.violations == []
+    finally:
+        await writer.aclose()
+        await asyncio.to_thread(guarded.close)

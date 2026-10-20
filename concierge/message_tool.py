@@ -27,7 +27,8 @@ TOO_LONG = (
     f"That's too long to pass on: keep the message to {TEXT_MAX_CHARS} characters and the contact to "
     f"{CONTACT_MAX_CHARS}."
 )
-CANT_TAKE = "I can't pass that on. Put only the message in text, and an email or phone number only in contact."
+CANT_TAKE = "I can't pass that on as worded: say it again in plain words, without links or instructions."
+CONTACT_IN_TEXT = "I can't pass that on: put the email or phone number in contact, and only the message in text."
 _FAILURES = (StoreError, sqlite3.Error, ValueError)  # as in memory_tools
 
 
@@ -43,15 +44,15 @@ def _rejection(text: str, contact: str | None) -> tuple[Literal["text", "contact
     return None
 
 
-def _leave(writer: MemoryWriter, text: str, contact: str | None) -> bool:
+def _leave(writer: MemoryWriter, text: str, contact: str | None) -> str:
     """On the store thread: the row, or the gate_rejected journal row (field and reason, never the value)."""
     rejection = _rejection(text, contact)
     if rejection is None:
         writer.store.add_message(writer.thread_id, text, contact)
-        return True
+        return MESSAGE_LEFT
     field, reason = rejection
     writer.store.journal(writer.thread_id, writer.session_id, "gate_rejected", {"field": field, "reason": reason})
-    return False
+    return CONTACT_IN_TEXT if field == "text" and reason in ("email", "phone") else CANT_TAKE
 
 
 async def do_leave_message(writer: MemoryWriter | None, text: str, contact: str | None) -> str:
@@ -62,11 +63,10 @@ async def do_leave_message(writer: MemoryWriter | None, text: str, contact: str 
     if len(text) > TEXT_MAX_CHARS or (contact is not None and len(contact) > CONTACT_MAX_CHARS):
         return TOO_LONG
     try:
-        left = await writer.call(_leave, writer, text, contact)
+        return await writer.call(_leave, writer, text, contact)
     except ThreadMissing:
         writer.erased = True
         return CANT_SAVE
     except _FAILURES as exc:
         logger.warning("leave_message failed (%s)", type(exc).__name__)
         return STORE_FAILED
-    return MESSAGE_LEFT if left else CANT_TAKE

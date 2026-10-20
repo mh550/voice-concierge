@@ -12,6 +12,14 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+### 2026-10-20 21:30 · C8-02 · passes
+
+- **Changed:** review of `git diff 7f5cb5c..HEAD -- . ':!.harness'` (776 lines) in `$HARNESS_SCRATCH/review-C8.diff`, notes under `## Review` in `docs/plans/2026-10-20-C8-messages.md`. An Opus reviewer found 0 Critical, 0 Important and 7 Minor. Fixed: a rejected message text now gets a reply for its reason (`CONTACT_IN_TEXT` vs `CANT_TAKE`), and a new off-loop test for the message write (it fails when the write is forced onto the loop). `session.py` was 282 lines, now 246: `preload_or_none` → `preload.py`, `agent_or_memoryless` → `agent.py`, `recording_options` → `config.py`. Tests 935 → 940.
+- **Verified:** `wc -l concierge/*.py` max is 250 (`memory_writer.py`). `tests/test_messages.py` 25 passed, `tests/test_critical_path.py` 6 passed. `lib/check.sh` green, 940 tests, 90 s.
+- **Step 1 path:** I wrote the diff to the scratch dir, not `/tmp/voice-concierge/`, which is outside where I may write. This applies your C7-05 answer 1b to C8. The step text is unchanged.
+- **Questions for Michael:** D14 *default*: the message text still runs the full gate, so a link, "act as …" or a date with a time is refused. Should links be allowed? D15 *default*: messages are deleted with the thread at the 30-day idle purge, and MORNING now says to read them within 30 days. Should messages outlive the purge?
+- **Proposed changes:** amend C8-02 step 1 to `$HARNESS_SCRATCH/review-C8.diff`, as you did for C7-05.
+
 ### 2026-10-20 20:40 · C8-01 · passes
 
 - **Changed:** `ConciergeAgent.leave_message_for_michael(text, contact=None)` → `concierge/message_tool.py` (caps 500/120, rejects rather than truncates; contact gated with `purpose="contact"`, text with the full gate; `gate_rejected` journals field + reason only); `Store.add_message` (one fenced `write`) and `Store.messages()` (newest first), `models.Message`; `scripts/messages.py <db>`; one prompt line; README "What it does" + turn-path lines; MORNING steps 5 and 11. Plan `docs/plans/2026-10-20-C8-messages.md`. Tests 909 → 935.
