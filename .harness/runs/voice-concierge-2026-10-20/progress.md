@@ -13,6 +13,18 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 05:45 · C4-06 · passes
+
+- **Changed:** C4 review notes under `## Review` in `docs/plans/2026-10-20-C4-extraction.md`. The README's "Memory design" table gains 6 write-path rows, each citing its tests (checked by `test_readme.py`). Fixes are in `memory_writer.py`, `forget_match.py`, `memory_tools.py`, `merge.py`, `grounding.py` and `extractor.py`. `fact_ops._key` is now the public `value_key`. Tests 598 → 616.
+- **Review (2 Opus, `review-C4.diff` + `review-C4-extra.diff` in scratch):** 0 Critical, 5 Important, 11 Minor.
+  - Fixed RED→GREEN: the loop-guard test, which the handler's `except` hid; and `forgotten` blocking a later restatement.
+  - New mutation-checked tests: the name-confirmation cases, which never reached the take-back rule, and in-batch `supersedes` inheritance.
+  - B-I3 declined: §4.4 says an extractor DELETE invalidates. Ten Minor are fixed or covered (a DELETE citing an agent turn, two-letter stop words, flush retrying after a failure, a tool call after `aclose`, and others).
+- **Verified:** every step holds. `check.sh` exits 0 at 616, ruff is clean, and the largest module is `merge.py` at 250 lines. Each new test fails on its mutation.
+- **Not adopted:** "merge must require a known `turn_id` on DELETE". Spec §4.4 and the plan exempt DELETE, so only an agent-turn citation is rejected now.
+- **Next session (C5):** `flush` stops after a run that extracted nothing. `_drain` and `_debounced` both own `_run`; consider unifying them in C5-02. **C6:** `forget_visitor` on a closed writer raises `StoreError`, so erase through the store once the session has ended.
+- **Proposed change:** C4-06 step 1's diff path should be the scratch directory, as in C1-06, C2-05 and C3-04.
+
 ### 2026-10-20 04:55 · C4-05 · passes
 
 - **Changed:** new `evals/memory/` with 13 YAML scripts (the seven §4.9 cases 01–07, plus 08–13 from the plan's table). New `concierge/evals/script.py` (`MemoryScript`, `extra="forbid"`, `load_script`), `concierge/evals/runner.py` (`run_script` → `ScriptResult(stored, missing_expected, forbidden_hits, runs, rejected, history)`, `check`) and `concierge/testing/replay.py` (`Replay`, the FakeLLM factory). `pyyaml>=6,<7` and the `concierge.evals` package are in `pyproject.toml`. Tests 546 → 598 (`tests/test_memory_evals_offline.py`, 52).
