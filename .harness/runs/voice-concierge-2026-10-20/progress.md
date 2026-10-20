@@ -13,6 +13,14 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 14:30 · C7-04 · passes
+
+- **Changed:** new `MORNING.md` (12 numbered steps in the specified order, exact commands, Check and Undo per live step, "needs keys only Michael has, about 20 minutes" up front, "Questions for you" mirroring D7–D13 and the health-port question). `.env.example` now lists the six names (all empty; OPENROUTER and DEEPGRAM marked optional) and the four `CONCIERGE_*` switches as comments. New `tests/test_morning.py` (6 tests: step order, commands in order, Check/Undo, D-coverage, env names). Tests 896 → 902.
+- **Verified:** `grep -n 'D[0-9]* \*default\*' docs/decisions.md` lists D7–D13, all with finding, choice and rejected; `lib/check.sh` green in 88 s, 902 tests; ruff clean.
+- **Next (C7-05):** `MORNING.md` is not checked by `tests/test_readme.py` paths, only by `test_morning.py`. Env file must stay plain `NAME=value` (said in MORNING.md).
+- **Questions for Michael:** all in MORNING.md "Questions for you" (D7–D13, health server bind to 127.0.0.1).
+- **Proposed change:** C7-03 step 1 "16 rows" should be 17.
+
 ### 2026-10-20 13:40 · C7-03 · passes
 
 - **Changed:**
