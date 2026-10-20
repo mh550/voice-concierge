@@ -13,6 +13,23 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 06:57 · C6-01 · passes
+
+- **Changed:**
+  - New plan `docs/plans/2026-10-20-C6-contract.md`. It quotes `send_text`, `register_rpc_method` and `RpcInvocationData` from rtc 1.1.20, and covers the §6 names as constants, the memory/metrics/forget-me schemas, the `MetricsReport` → §6 key mapping, the kill switch, the 10-min timer, the daily cap, and test names for C6-02 to C6-04.
+  - `D13 *default*` in `docs/decisions.md`. Tests 711 → 711.
+- **Verified:** I grepped the plan for each step's element, and the Opus plan review spot-checked 30 source refs (2 were wrong and are fixed). The review found 7 Important issues, all folded in and listed under `## Plan review`. `check.sh` is green with 711 tests.
+- **Next session must know:**
+  - The room disconnects *before* shutdown callbacks run (`ipc/job_proc_lazy_main.py:479` vs `:497`), so stop publishing first in `on_shutdown`.
+  - `session.aclose()` does not end the job; use `ctx.shutdown`.
+  - `fake_job_context()`'s room has no `local_participant`, so pass a `FakeRoom`.
+  - `jsonschema` is not installed; C6-02 adds it to the `dev` extra.
+- **Question for Michael (D13):** the page reads the same §6. Does it expect fact `id` as a number and timestamps as ISO-8601 `…Z` strings?
+- **Proposed changes:**
+  - C6-01 and C6-03 name `UserMessageMetrics` / `AssistantMessageMetrics`, but 1.8.8 has one `MetricsReport`.
+  - C6-04 step 4 should name `over_daily_cap` + `say_and_end`, with `enforce_daily_cap` as their composition.
+  - C6-05's diff path should be the scratch dir.
+
 ### 2026-10-20 · verify C5
 
 | Feature | Step | What you ran or read | What you saw | Holds |
