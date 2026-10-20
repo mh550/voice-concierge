@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 from jsonschema import Draft202012Validator
 from livekit import rtc
+from livekit.agents import AgentSession
 from livekit.agents.testing import fake_job_context
 
 from concierge import session as concierge_session
@@ -333,4 +334,26 @@ async def test_forget_me_stops_the_session_timer(
         await room.local_participant.rpc_handlers[FORGET_ME_METHOD](invocation(FORGET_ME_METHOD))
         await asyncio.sleep(0.05)
         assert started.timer.cancelled()
+        await shutdown(ctx, started, "forget_me")
+
+
+async def test_a_forget_me_during_session_start_gets_no_greeting_and_no_timer(
+    fakes: list[FakeLLM], db: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review A-M1: the RPCs answer before session.start returns; a forget then must not be followed by a greeting
+    built from the erased memory, nor by the 10-minute timer."""
+    room = FakeRoom()
+    real_start = AgentSession.start
+
+    async def start_after_a_forget(self: AgentSession, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        await room.local_participant.rpc_handlers[FORGET_ME_METHOD](invocation(FORGET_ME_METHOD))
+        await asyncio.sleep(0.05)  # the erase task runs
+        return await real_start(self, *args, **kwargs)
+
+    monkeypatch.setattr(AgentSession, "start", start_after_a_forget)
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        monkeypatch.setattr(ctx, "shutdown", lambda reason="": None)
+        started = await start(ctx, db)
+        assert started.writer is not None and started.writer.erased
+        assert started.greeting is None and started.timer is None
         await shutdown(ctx, started, "forget_me")
