@@ -102,13 +102,13 @@ class _Decision:
         raise _Rejected("stale_fact")  # invalidated or forgotten since the extractor read it, or never ours
 
     def _one(self, index: int, op: Op) -> None:
-        if isinstance(op, DeleteOp):
+        turn = self.turns.get(op.turn_id) if op.turn_id is not None else None
+        if turn is not None and turn.role == "agent":
+            raise _Rejected("agent_attributed")
+        if isinstance(op, DeleteOp):  # needs no turn (spec §4.4), but never the agent's
             self.live.remove(self._target(op.fact_id))
             self.out.append(InvalidateFact(fact_id=op.fact_id, reason=op.reason or "unspecified"))
             return
-        turn = self.turns.get(op.turn_id)
-        if turn is not None and turn.role == "agent":
-            raise _Rejected("agent_attributed")
         if turn is None or op.turn_id not in self.known:
             raise _Rejected("unknown_turn")
         target = self._target(op.fact_id) if isinstance(op, UpdateOp) else None

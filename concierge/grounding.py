@@ -13,7 +13,8 @@ from concierge.turns import Turn, visible_text
 
 _STOP = frozenset(
     "the and or but of to in on at for with from by about as is are was were be been am me my you your he his she "
-    "her it its we our they them this that what who how do does did have has had not so just can will would".split()
+    "her it its we our they them this that what who how do does did have has had not so just can will would "
+    "an us no up if oh ok hi".split()
 )
 _YES = re.compile(r"^\W*(yes|yeah|yep|yup|correct|right|that's right|exactly|uh-huh)\b")
 _TAKEN_BACK = re.compile(r"\b(no|not|nope|actually|but|wait)\b")
