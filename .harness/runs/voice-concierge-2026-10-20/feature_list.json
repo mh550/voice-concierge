@@ -14,7 +14,7 @@
         ".harness/check.sh exits 0 and reports 1 passed"
       ],
       "after": [],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C1-02", "milestone": "C1", "kind": "build", "model": "opus",

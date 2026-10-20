@@ -13,6 +13,20 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 01:10 · C1-01 · passes
+
+- **Added:** `pyproject.toml` (livekit-agents, plugins-openai, silero and deepgram all `==1.8.8`; pydantic>=2; setuptools; dev
+  extra; pytest `asyncio_mode=auto` + `live` marker; ruff E/F/W/I/B/UP), `concierge/__init__.py`, `scripts/__init__.py`,
+  `tests/test_smoke.py`, `docs/plans/2026-10-20-C1-skeleton.md`, D7 in `docs/decisions.md`. Tests 0 → 1.
+- **Verified:** `.harness/init.sh` built `.venv` and printed `livekit-agents 1.8.8`; `check.sh` green (ruff clean, 1 passed).
+- **Next session (C1-03):** add `"concierge.testing"` to `[tool.setuptools] packages`. Read `.venv/…/livekit/`, not the
+  probe venv. `LLMStream.__init__` starts tasks, so build fake streams inside async tests.
+- **Correction to the initializer's note:** in 1.8.8 the turn-detector model needs **no download**. `AgentSession`
+  defaults to `inference.TurnDetector()` (the local v1-mini, bundled in `livekit-local-inference`). So VAD-only must be
+  set explicitly: `turn_handling={"turn_detection": "vad"}`. Details are in the plan and D7.
+- **Question for Michael (D7):** keep silero VAD only, or switch to the local turn-detector model now that it needs no
+  download?
+
 ## 2026-10-20 00:40 — initializer
 
 ### Feature counts
