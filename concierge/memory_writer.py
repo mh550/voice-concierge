@@ -11,7 +11,6 @@ so a timer or run that wakes later does nothing, and the store's fence fails a w
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import functools
 import logging
 from collections.abc import Callable
@@ -25,7 +24,7 @@ from concierge.extractor import WINDOW_MAX_TURNS, extract, extraction_window
 from concierge.forget_match import was_forgotten
 from concierge.merge import MergeResult, merge
 from concierge.models import Channel, SlotName
-from concierge.store import Store, ThreadMissing
+from concierge.store import Store, StoreError, ThreadMissing
 from concierge.tasks import track
 from concierge.text_input import ChannelTags
 from concierge.turns import Turn, journal_note, turn_from_message
@@ -107,6 +106,8 @@ class MemoryWriter:
 
     async def call[T](self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:  # noqa: ANN401
         """`fn(*args, **kwargs)` on the writer's store thread (the tools use it too, in order with the runs)."""
+        if self._closed:
+            raise StoreError("the memory writer is closed")
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, functools.partial(fn, *args, **kwargs))
 
@@ -199,8 +200,7 @@ class MemoryWriter:
         while not self.erased and not self._closed:
             if self._timer is not None:
                 self._timer.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._timer
+                await asyncio.wait({self._timer})  # not `await`: that would swallow a cancel aimed at flush itself
                 self._timer = None
             if self._run is not None:
                 await asyncio.wait({self._run})
@@ -208,15 +208,15 @@ class MemoryWriter:
             self._again = False
             if len(self.history) <= min(self._journaled, self._extracted):
                 return
-            before = (self._journaled, self._extracted)
+            before = self._extracted
             # A tracked task, so cancel_all reaches it; as `_run`, a turn noted meanwhile waits for the next loop.
             self._run = track(self._tasks, self._run_once(), log=logger)
             try:
                 await asyncio.wait({self._run})
             finally:
                 self._run = None
-            if (self._journaled, self._extracted) == before:
-                return  # it failed: no retry loop at shutdown
+            if self._extracted == before:
+                return  # it failed (its turns may be journaled): no retry loop at shutdown
 
     def cancel_all(self) -> None:
         """Erasure: nothing pending runs and nothing new is scheduled. `erased` is set first."""
