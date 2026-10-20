@@ -125,10 +125,14 @@ class AddFact(_SlotValue):
         return list(dict.fromkeys(ids))  # a repeat would invalidate once, then report itself skipped
 
 
+InvalidateReason = Literal["no_longer_true", "asked_to_forget", "corrected", "unspecified"]
+
+
 class InvalidateFact(BaseModel):
     op: Literal["invalidate"] = "invalidate"
     fact_id: int
     superseded_by: int | None = None
+    reason: InvalidateReason | None = None  # journaled in fact_invalidated: an enum, never free text (D8)
 
 
 class DeleteFact(BaseModel):
@@ -136,7 +140,15 @@ class DeleteFact(BaseModel):
     fact_id: int
 
 
-FactOp = Annotated[AddFact | InvalidateFact | DeleteFact, Field(discriminator="op")]
+class Note(BaseModel):
+    """A journal row that commits with the batch (C4: gate_rejected, extraction_ran). Ids and reasons only."""
+
+    op: Literal["note"] = "note"
+    type: JournalType
+    payload: dict[str, Any]
+
+
+FactOp = Annotated[AddFact | InvalidateFact | DeleteFact | Note, Field(discriminator="op")]
 
 
 class ApplyResult(BaseModel):

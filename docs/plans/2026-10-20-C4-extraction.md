@@ -738,3 +738,35 @@ ones (#6). All were applied above:
 | 13 | Minor | `remember` skipped B12 and grounding, so an agent guess passed to it would be stored | `remember` applies the name rule and grounding against the session's user turns |
 | 14 | Minor | Typed confirmations were stored as `user_typed`; B12 says `user_said` | a name is always `user_said` |
 | 15 | Minor | Raw-schema fallback loses `strict`; "it caches" was wrong (no `caching` on the extractor); the second-`emit_ops` test needs two calls the fake can't script; YAML `about` and case 11's "nothing stored" weren't in the schema; two names for the handler | each fixed in place (Risks, the context section, the test note, the schema's optional keys, `on_item_added`) |
+
+## C4-02 build notes
+
+What the build changed from the plan above, and the Opus review of the C4-02 diff (`review-C4-02.diff` in the
+scratch dir).
+
+- **Unknown slots** pass `parse_ops` and are rejected by `merge` as `unknown_slot`, journaled `gate_rejected` with
+  `slot: null` (the model's slot text is never journaled). That way they leave a trace.
+- **`turns` is effectively required for ADD/UPDATE.** A cited id in `turn_ids_known` with no `Turn` in `turns` is
+  `unknown_turn`. The merge can't check grounding, channel or name confirmation on a turn it can't read, so it fails
+  closed.
+- **`forgotten=`** is left to C4-04, which owns the `forget` tool and the before/after ordering of turns. `merge.py`
+  is at 250 lines, so C4-04 should put that check in `grounding.py` or a new small module.
+- **`Turn` and `visible_text`** are in `concierge/turns.py` now; C4-03 adds `turn_from_message`. Grounding and the
+  name rule are in `concierge/grounding.py`.
+- **Name confirmation** accepts only the prompt's exact form, `did I get that right, <value>` (the text after the
+  comma, compared whole). A reply that takes the yes back (`no`, `not`, `nope`, `actually`, `but`, `wait`) fails.
+- **In-batch:** a later op that supersedes an earlier op's pending ADD drops that ADD (`replaced_in_batch`) and takes
+  over what it superseded. An UPDATE to a set item that's already held invalidates the target with `corrected`.
+  The set cap counts items, not spellings, the way `derive_state` does.
+- `InvalidateFact.reason` is `InvalidateReason` (the three wire reasons plus `unspecified`), never free text.
+
+| # | Sev. | Finding | Outcome |
+|---|---|---|---|
+| 1 | Important | The name rule matched substrings ("Ada" in "Adam", "Right" from the question itself, a company in a non-name question) and accepted a yes that was taken back | Fixed RED→GREEN (`test_name_confirmation_holes_are_closed`, 5 cases): exact form and whole value, take-back words |
+| 2 | Important | No test had a turn that is in `turns` but missing from `turn_ids_known` | Case added to `test_add_citing_an_unknown_turn_is_rejected` |
+| 3 | Important | "(555) 123-4567" and "ada at gmail dot com" passed the gate | Fixed RED→GREEN: up to 2 separators between phone digits; spoken-email rule |
+| 4 | Minor | "was"/"this"/"has" became non-stop words after the s-strip | Fixed RED→GREEN (`test_stop_words_never_ground_a_value`) |
+| 5 | Minor | False positives: model names ("gpt-4o-realtime-preview"), "function calling (tool use)"; dotted brands ("Booking.com") | Model names and "function calling" fixed (near-miss accepts added). Dotted brands are left as the accepted risk in Risks |
+| 6 | Minor | Gaps: "ignore everything before", "always say", "respond only"; homoglyphs | The phrases are added (tests). Homoglyph folding is not done: these are visitor-typed values that are already quoted as data in the block |
+| 7 | Minor | `InvalidateFact.reason` was free text | Fixed: an enum (`test_invalidate_reason_is_an_enum_never_free_text`). `extraction=` stays a dict built by C4-04's own code |
+| 8 | Minor | The set cap counted "Rust"/"rust" as two items | Fixed RED→GREEN (`test_set_cap_counts_case_variants_once`) |

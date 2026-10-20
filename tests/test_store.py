@@ -8,7 +8,7 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from concierge.models import AddFact, DeleteFact, Fact, InvalidateFact, TurnMetrics, VisitorState
+from concierge.models import AddFact, DeleteFact, Fact, InvalidateFact, Note, TurnMetrics, VisitorState
 from concierge.schema import TABLES
 from concierge.store import FactMissing, Store, StoreError, ThreadMissing, VersionConflict
 from concierge.testing.store_writers import open_and_touch
@@ -723,3 +723,29 @@ def test_load_returns_version_state_and_facts_from_one_snapshot(store, visitor_i
 
     with pytest.raises(ThreadMissing):
         store.load(uuid.uuid4().hex)
+
+
+def test_note_op_journals_in_the_batch(store, visitor_id) -> None:
+    thread = store.get_or_create_thread(visitor_id)
+    version = store.version(thread.id)
+    note = Note(type="gate_rejected", payload={"reason": "url", "slot": "interests"})
+    store.apply_fact_ops(thread.id, [add(), note], session_id=SESSION)
+    assert [r.type for r in store.journal_rows(thread.id)] == ["fact_added", "gate_rejected"]
+    assert store.journal_rows(thread.id)[-1].payload == {"reason": "url", "slot": "interests"}
+    assert store.version(thread.id) == version + 1
+    with pytest.raises(ValidationError):
+        Note(type="not_a_type", payload={})
+
+
+def test_invalidate_reason_is_journaled(store, visitor_id) -> None:
+    thread = store.get_or_create_thread(visitor_id)
+    fact = store.add_fact(thread.id, add())
+    store.apply_fact_ops(thread.id, [InvalidateFact(fact_id=fact.id, reason="corrected")])
+    assert store.journal_rows(thread.id)[-1].payload == {
+        "fact_id": fact.id, "slot": "interests", "superseded_by": None, "reason": "corrected",
+    }
+
+
+def test_invalidate_reason_is_an_enum_never_free_text() -> None:
+    with pytest.raises(ValidationError):
+        InvalidateFact(fact_id=1, reason="the visitor said they hate Acme")

@@ -233,7 +233,7 @@
         "Merge results are journaled as fact_added / fact_invalidated / fact_deleted with fact id and slot (tests assert the journal types after a merge)",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C4-03", "milestone": "C4", "kind": "build", "model": "opus",

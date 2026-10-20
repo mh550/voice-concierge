@@ -13,6 +13,14 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 05:50 · C4-02 · passes
+
+- **Changed:** new modules `concierge/ops.py` (`AddOp`/`UpdateOp`/`DeleteOp`, `OpArg`, `parse_ops` → `ParsedOps(ops, dropped)`), `gate.py` (`check_value` → `GateResult`), `merge.py` (`merge`, `MergeResult`, 250 lines), `grounding.py` (D10 grounding and the B12 name rule) and `turns.py` (`Turn`, `visible_text`). `models.py`/`fact_ops.py` gain the `Note` op and an enum `InvalidateFact.reason`. Tests 351 → 455 (`test_ops.py`, `test_gate.py`, `test_merge.py`, plus 3 in `test_store.py`).
+- **Verified:** all 6 steps hold, and the named tests pass (66 selected). Two mutations are caught: grounding always true fails 4 tests; a wrong set cap fails 3. `check.sh` is green at 455 and ruff is clean.
+- **Review (Opus):** 0 Critical, 3 Important, 6 Minor. All 3 Important are fixed RED→GREEN: substring name confirmation, the missing `turn_ids_known` test case, and phone/spoken-email gaps. Minor 4, 7 and 8 are fixed, 5 and 6 partly. The table is in the plan's "C4-02 build notes".
+- **Next session (C4-03):** `turns.py` already has `Turn` and `visible_text`; add `turn_from_message` there. `merge` needs `turns=` (the window, in order, agent turns included). A cited turn missing from it is `unknown_turn`. `merge.py` is at exactly 250 lines, so C4-04's `forgotten` check belongs outside it. A name is accepted only from the prompt's exact "Did I get that right, <name>?" followed by an untaken-back yes.
+- **Proposed changes:** C4-02 step 1 should say `parse_ops(json_args) -> ParsedOps(ops, dropped)`, since a bare list can't report the dropped ops. Step 3's `merge` adds the keyword arguments `turns=` and `extraction=`.
+
 ### 2026-10-20 04:55 · C4-01 · passes
 
 - **Changed:** new `docs/plans/2026-10-20-C4-extraction.md` (740 lines). It covers the `emit_ops` tool and its exact strict JSON schema, the extractor's two-message context, `tool_choice="auto"` with parallel tool calls off and the "call emit_ops exactly once" line, how `collect()` is read, the deterministic merge (10 ordered checks), the write-gate regexes plus the contact exception reserved for C8, the scheduler and erasure flow, `remember`/`forget`, the YAML eval schema with 13 scripts, and test names for C4-02 to C4-05. Also new: `docs/decisions.md` D10 *default* (grounding). Docs only, so tests stay at 351 → 351.
