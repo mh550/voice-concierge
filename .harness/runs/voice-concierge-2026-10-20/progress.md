@@ -13,6 +13,14 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 03:25 · C3-04 · passes
+
+- **Changed:** the README has a new "Memory design" section with the rows Just-in-time vs preload, Stable, cached prefix and Memory as an attack surface. Each row cites the tests that prove it, and `tests/test_readme.py` fails if a cited test doesn't exist. `greeting._topic` now reads the rendered block. `session._done` logs a failed background task by type. `_preload_or_none` falls back to no memory on any error. The plan's `## Review` is written. Tests 342 → 351.
+- **Verified:** all 5 steps hold. `check.sh` is green at 351. The largest module is `store.py` at 247 lines. The diff is in the scratch dir as `review-C3.diff`, the same path deviation as C1-06 and C2-05. RED `efe7a3b` comes before GREEN `1fd0d1b`, and both RED failures reproduced the bug: the greeting pointed at a missing asked_about line, and asyncio logged "boom Zephyrine". Swapping one cited test name in the README fails `test_memory_design_row_names_tests_that_exist`.
+- **Review (Opus):** 0 Critical, 1 Important (fixed), 5 Minor: #2, #3 and #5 fixed, #4 and #6 declined with reasons in the plan. The Important finding: the greeting could offer "the last asked_about line" after trimming had dropped every asked_about item, or offer a summary that `_clean` had blanked.
+- **Next session (C4-01):** the README's "Memory design" table is where C4-06 adds its write-path rows, and `test_readme.py`'s parametrize list grows with it. The attack-surface row already says the write gate and the name-after-a-yes rule arrive in C4.
+- **Proposed changes:** (1) C3-04 step 1's diff path should be the scratch dir. (2) Spec §4.0's trim rule could keep the newest asked_about item, which is the greeting's "last topic". Right now 8 newer interests can push it out, and the greeting falls back to the Last visit line.
+
 ### 2026-10-20 02:57 · C3-03 · passes
 
 - **Changed:** new `concierge/session.py` (`start_session`, `Started`, `room_start_kwargs`, `build_session`, `recording_options`, one ordered `on_shutdown`), `concierge/greeting.py` (`greeting_instructions`, `INTRODUCTION`); the B12 name rule in `STATIC_INSTRUCTIONS`; `worker.py` shrinks to parse → open store → `await start_session` (66 lines). The test seams (`AgentSession`, `build_*`, `ChannelTags`, `preload`, `PRELOAD_TIMEOUT_S`, logger `concierge.session`) moved to `concierge.session`; `RecordingSession.generate_reply`. Tests 324 → 342 (`test_greeting.py` 7, `test_session.py` 8, `test_prompt.py` +1, `test_preload.py` +1, `test_worker.py` +1 param).
