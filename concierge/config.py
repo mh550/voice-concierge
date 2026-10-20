@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 from livekit.agents import inference, llm, stt, tts
+from livekit.agents.voice.agent_session import RecordingOptions
 from livekit.plugins import deepgram, openai
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -94,3 +95,10 @@ def build_tts(settings: Settings | None = None) -> tts.TTS:
     if s.speech == "deepgram":
         return deepgram.TTS()  # the plugin's default Aura voice; tts_model is an Inference id
     return inference.TTS(model=s.tts_model)
+
+
+def recording_options(settings: Settings | None = None) -> RecordingOptions:
+    """B11: no visitor audio at LiveKit unless CONCIERGE_RECORD_AUDIO=1; transcripts, traces and logs stay on
+    (unset keys default to True in `_resolve_recording_options`), with redaction requested."""
+    s = settings or Settings()
+    return {"audio": s.record_audio, "redaction": True}

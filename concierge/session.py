@@ -21,12 +21,11 @@ from typing import Any
 
 from livekit.agents import AgentSession, JobContext, llm
 from livekit.agents.voice import SpeechHandle
-from livekit.agents.voice.agent_session import RecordingOptions
 from livekit.agents.voice.room_io import RoomOptions, TextInputOptions
 
-from concierge.agent import ConciergeAgent
+from concierge.agent import ConciergeAgent, agent_or_memoryless
 from concierge.compactor import Compactor
-from concierge.config import Settings, build_llm, build_stt, build_tts
+from concierge.config import Settings, build_llm, build_stt, build_tts, recording_options
 from concierge.contract import METRICS_TOPIC
 from concierge.dispatch import DispatchInfo, parse_dispatch
 from concierge.erasure_hooks import add_erase_hook
@@ -43,7 +42,7 @@ from concierge.limits import (
 from concierge.memory_writer import MemoryWriter
 from concierge.merge import MergeResult
 from concierge.metrics import TurnMetricsCollector
-from concierge.preload import Preloaded, preload
+from concierge.preload import Preloaded, preload, preload_or_none
 from concierge.publish import MemoryPublisher, publish
 from concierge.rpc import current_memory, serve_rpcs
 from concierge.session_end import journal_row, write_summary
@@ -62,6 +61,7 @@ EXTRACTION_DEBOUNCE_S = 2.0  # spec §4.4: a run starts 2 s after the first user
 # summary attempt (another session stored one during the first) only runs in what is left of it.
 SHUTDOWN_WORK_S = 25.0
 
+
 @dataclass
 class Started:
     """What start_session set going; `greeting` is the first reply's handle (not awaited by start_session)."""
@@ -76,13 +76,6 @@ class Started:
     publisher: MemoryPublisher | None = None
     collector: TurnMetricsCollector | None = None
     timer: asyncio.Task[None] | None = None  # the session_max_s limit; cancelled first at shutdown
-
-
-def recording_options(settings: Settings | None = None) -> RecordingOptions:
-    """B11: no visitor audio at LiveKit unless CONCIERGE_RECORD_AUDIO=1; transcripts, traces and logs stay on
-    (unset keys default to True in `_resolve_recording_options`), with redaction requested."""
-    s = settings or Settings()
-    return {"audio": s.record_audio, "redaction": True}
 
 
 def room_start_kwargs(ctx: JobContext, info: DispatchInfo, settings: Settings, channels: ChannelTags) -> dict[str, Any]:
@@ -109,35 +102,6 @@ def build_session(ctx: JobContext, settings: Settings) -> AgentSession:
         # D7. Interruptions by VAD too: with no mode, dev/console mode builds the hosted adaptive detector.
         turn_handling={"turn_detection": "vad", "interruption": {"mode": "vad"}},
     )
-
-
-async def _preload_or_none(task: asyncio.Task[Preloaded] | None) -> Preloaded | None:
-    """The visitor's memory, or None (a session without memory). On the deadline the task is left running, not
-    cancelled: its store thread can't be stopped, so on_shutdown waits for it before closing the store. Only the
-    error type is logged (by `track`): a message can quote visitor data. Any error, not only the store's: a
-    session without memory beats no session."""
-    if task is None:
-        return None
-    done, _ = await asyncio.wait({task}, timeout=PRELOAD_TIMEOUT_S)
-    if not done:
-        logger.warning("no memory this session: the preload missed its deadline (TimeoutError)")
-        return None
-    if task.exception() is not None:
-        logger.warning("no memory this session: the preload failed")
-        return None
-    return task.result()
-
-
-def _agent_or_memoryless(
-    pack: str, preloaded: Preloaded | None, writer: MemoryWriter | None = None
-) -> ConciergeAgent:
-    """The agent with the visitor's memory block, or without one if build_instructions rejects it (the renderer
-    keeps it under the cap, so this is the backstop that keeps a session from failing over memory)."""
-    try:
-        return ConciergeAgent(pack, preloaded.block if preloaded else None, memory=writer)
-    except ValueError:
-        logger.warning("no memory this session: the memory block was rejected")
-        return ConciergeAgent(pack, memory=writer)
 
 
 async def start_session(ctx: JobContext, store: Store | None, settings: Settings) -> Started:
@@ -207,7 +171,7 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
         counting = track(tasks, over_daily_cap(store, info.visitor_id, settings.sessions_per_day), log=logger)
         loading = functools.partial(preload, store, info.visitor_id, session_id)
         preloading = track(tasks, preload_unless_capped(counting, loading), log=logger)
-    _, preloaded = await asyncio.gather(ctx.connect(), _preload_or_none(preloading))
+    _, preloaded = await asyncio.gather(ctx.connect(), preload_or_none(preloading, PRELOAD_TIMEOUT_S))
     # The count is done unless the preload missed its deadline (the preload waits for it). A late count is awaited
     # after session.start instead, so RoomIO's lk.chat and pre-connect audio handlers aren't held up (D9, review I3).
     late_count = counting if counting is not None and not counting.done() else None
@@ -243,7 +207,7 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
             on_merged=on_merged,
         )
         session.on("conversation_item_added", writer.on_item_added)  # before start: the greeting is seen too
-    agent = _agent_or_memoryless(load_pack(), preloaded, writer)
+    agent = agent_or_memoryless(load_pack(), preloaded.block if preloaded else None, writer)
     # Compaction is about the context budget, not the store: it runs without memory too (then nothing is journaled).
     compactor = Compactor(
         agent, session, functools.partial(build_llm, "summarizer", settings),

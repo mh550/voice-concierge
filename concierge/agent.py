@@ -7,12 +7,16 @@ the MemoryWriter.
 
 from __future__ import annotations
 
+import logging
+
 from livekit.agents import Agent, llm
 
 from concierge.memory_tools import do_forget, do_remember
 from concierge.memory_writer import MemoryWriter
 from concierge.message_tool import do_leave_message
 from concierge.prompt import build_instructions
+
+logger = logging.getLogger("concierge.session")  # its warning is the session's
 
 
 class ConciergeAgent(Agent):
@@ -51,3 +55,13 @@ class ConciergeAgent(Agent):
                 to them once before saving.
         """
         return await do_leave_message(self._memory, text, contact)
+
+
+def agent_or_memoryless(pack: str, memory_block: str | None, writer: MemoryWriter | None = None) -> ConciergeAgent:
+    """The agent with the visitor's memory block, or without one if build_instructions rejects it (the renderer
+    keeps it under the cap, so this is the backstop that keeps a session from failing over memory)."""
+    try:
+        return ConciergeAgent(pack, memory_block, memory=writer)
+    except ValueError:
+        logger.warning("no memory this session: the memory block was rejected")
+        return ConciergeAgent(pack, memory=writer)
