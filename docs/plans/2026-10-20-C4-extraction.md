@@ -770,3 +770,40 @@ scratch dir).
 | 6 | Minor | Gaps: "ignore everything before", "always say", "respond only"; homoglyphs | The phrases are added (tests). Homoglyph folding is not done: these are visitor-typed values that are already quoted as data in the block |
 | 7 | Minor | `InvalidateFact.reason` was free text | Fixed: an enum (`test_invalidate_reason_is_an_enum_never_free_text`). `extraction=` stays a dict built by C4-04's own code |
 | 8 | Minor | The set cap counted "Rust"/"rust" as two items | Fixed RED→GREEN (`test_set_cap_counts_case_variants_once`) |
+
+## C4-03 build notes
+
+- **Heard-text finding, re-read in 1.8.8 for C4-03.** `ChatMessage` (`agents/llm/chat_context.py:407-416`) has
+  `interrupted` and no field for unheard text. `_pipeline_reply_task_impl` joins `out.forwarded_text`
+  (`voice/agent_activity.py:3905`) and adds the assistant message with `content=forwarded_text,
+  interrupted=speech_handle.interrupted or any(out.tts_failed ...)` only `if forwarded_text:` (`:3918-3936`).
+  `_ForwardOutput.forwarded_text` (`voice/generation.py:708-716`) is `""` when skipped and the synchronized
+  transcript when partial. So `turn_from_message` sets `heard_text = msg.text_content` for an interrupted assistant
+  message: the recorded content is what was heard. `test_room_options_keep_transcription_sync` guards the
+  precondition (`RoomOptions.get_text_output_options().sync_transcription is not False`, `room_io.py:177`).
+- **`turn_from_message(msg, channel="voice")`**: agent turns are always `"voice"`. The caller (C4-04) passes
+  `ChannelTags.channel_of(text)` for user messages only, because `channel_of` consumes a typed tag.
+- **`extraction_window(history, first_new)`** picks the turns (the new ones, plus the agent turn just before them,
+  newest 24). `build_extractor_ctx` also caps at the newest 24, and it drops agent turns with nothing heard. C4-04's
+  writer keeps the turn history and the index of the first turn after the last successful run.
+- **`ops_from(response, *, ms=0) -> ExtractionResult`** reads a `CollectedResponse`. Its fields are `ops`, `dropped`,
+  `ms` (an int), `prompt_tokens`, `tool_called` and `ignored_calls`. `extract(llm, turns, facts, *,
+  conn_options=EXTRACTOR_CONN)` wraps it.
+- **The `OpArg` docstring is sent to the model** as the item's `description` in the strict schema. It now reads "One
+  change to the visitor's memory. Fields the op doesn't use are null." `test_emit_ops_strict_schema_lists_every_field`
+  pins the whole `input_schema`, description included.
+- **The fake LLM** records `parallel_tool_calls`, and `FakeResponse(error=...)` raises a non-retryable
+  `APIStatusError`, for the provider-error path that C4-04's writer journals.
+- A user turn's `confidence` (kept only when below 1.0) reaches the extractor as a `"confidence"` key on the turn. That
+  gives the model the ASR signal from spec §4.10.
+- **Review (Opus, `review-C4-03.diff`):** 0 Critical, 2 Important, 5 Minor.
+
+| # | Sev. | Finding | Outcome |
+|---|---|---|---|
+| I1 | Important | The system prompt asked for `turn_id` only on ADD, but `UpdateOp` requires one, so an UPDATE without it was dropped and the correction lost | Fixed RED→GREEN: UPDATE and DELETE rules each ask for the turn (`test_system_prompt_asks_for_the_turn_on_update_and_delete`, `test_an_update_citing_its_turn_parses`). **For C4-04/C4-06:** `merge` still accepts a DELETE with no `turn_id`. `merge.py` is at 250 lines, so requiring a known turn on DELETE is left to C4-06 |
+| I2 | Important | A window with no visitor turn still called the LLM with the facts, which could only yield an ungrounded DELETE | Fixed RED→GREEN: `extract` returns zero ops without a call (`test_no_visitor_turn_means_no_call`) |
+| M1 | Minor | `forwarded_text` falls back to the whole generated text when the synchronizer is off at runtime (an output detached, `synchronizer.py:710-716`) | Not changed. The concierge never toggles outputs. **C4-04 must not** call `set_transcription_enabled`/`set_audio_enabled` |
+| M2 | Minor | The headline heard-text test built the `Turn` by hand | Added `test_an_interrupted_message_reaches_the_extractor_as_its_recorded_content` (ChatMessage → `turn_from_message` → context) |
+| M3 | Minor | `extraction_window(first_new=-1)` returned only the last turn | Fixed RED→GREEN: `ValueError` (`test_window_rejects_a_negative_start`) |
+| M4 | Minor | The 24-turn cap can drop turns that were never extracted, after repeated failed runs | Left to C4-04: the writer should journal the cut count with `extraction_ran` |
+| M5 | Minor | `channel_of` matches the raw typed text, but `Turn.text` is stripped | Documented in `turn_from_message`: callers pass `channel_of(msg.text_content)` on the unstripped text |

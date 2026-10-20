@@ -13,6 +13,14 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 06:40 · C4-03 · passes
+
+- **Changed:** new `concierge/extractor.py` (`EMIT_OPS`, `EXTRACTOR_SYSTEM`, `extraction_window`, `build_extractor_ctx`, `ops_from`, `extract`, `ExtractionResult`). `turns.py` gains `turn_from_message`. The fake LLM records `parallel_tool_calls` and can script `error=` (a non-retryable `APIStatusError`). `OpArg`'s docstring is now model-facing, because the strict schema sends it as the description. Tests 455 → 486 (`test_heard_text.py` 11, `test_extractor.py` 20).
+- **Verified:** all 5 steps hold, and the 7 step-named tests pass. Two mutations are caught: reading `turn.text` instead of `visible_text` fails 2 heard-text tests, and `tool_choice="required"`/parallel on fails 2. The heard-text citations were re-read in 1.8.8 (`agent_activity.py:3905-3936`, `generation.py:708-716`). `check.sh` is green at 486 and ruff is clean.
+- **Review (Opus):** 0 Critical, 2 Important, 5 Minor. Both Important are fixed RED→GREEN: the prompt now asks for `turn_id` on UPDATE/DELETE, and a window with no visitor turn makes no LLM call. M2 and M3 are fixed and M5 is documented. The table is in the plan's "C4-03 build notes".
+- **Next session (C4-04):** the writer keeps its turn history and calls `extraction_window(history, first_new)`, then `extract(llm, window, facts)`. Pass `channel_of(msg.text_content)` for user messages only (it consumes a tag), on the unstripped text. Never toggle the session's audio or transcription outputs: with the synchronizer off, an interrupted reply would record all of its text, not just what was heard (M1). Journal the count of turns the 24-turn cap drops (M4).
+- **Proposed changes:** C4-06 should make `merge` reject a DELETE without a known `turn_id`. `merge.py` is at 250 lines, so C4-03 didn't touch it. C4-03 step 1's `ExtractionResult` also has `dropped`, `tool_called` and `ignored_calls`.
+
 ### 2026-10-20 05:50 · C4-02 · passes
 
 - **Changed:** new modules `concierge/ops.py` (`AddOp`/`UpdateOp`/`DeleteOp`, `OpArg`, `parse_ops` → `ParsedOps(ops, dropped)`), `gate.py` (`check_value` → `GateResult`), `merge.py` (`merge`, `MergeResult`, 250 lines), `grounding.py` (D10 grounding and the B12 name rule) and `turns.py` (`Turn`, `visible_text`). `models.py`/`fact_ops.py` gain the `Note` op and an enum `InvalidateFact.reason`. Tests 351 → 455 (`test_ops.py`, `test_gate.py`, `test_merge.py`, plus 3 in `test_store.py`).

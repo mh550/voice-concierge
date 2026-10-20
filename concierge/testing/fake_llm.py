@@ -17,7 +17,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from livekit.agents import llm, utils
+from livekit.agents import APIStatusError, llm, utils
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, NOT_GIVEN, APIConnectOptions, NotGivenOr
 from pydantic import BaseModel, Field, model_validator
 
@@ -28,10 +28,11 @@ class FakeToolCall(BaseModel):
 
 
 class FakeResponse(BaseModel):
-    """One scripted reply: spoken text or a single tool call, plus the token counts to report."""
+    """One scripted reply: spoken text, a single tool call or a provider error, plus the token counts to report."""
 
     text: str | None = None
     tool_call: FakeToolCall | None = None
+    error: str | None = None  # raised as a non-retryable APIStatusError, the way a refusal or a 4xx surfaces
     prompt_tokens: int = 0
     prompt_cached_tokens: int = 0
     completion_tokens: int = 0
@@ -39,8 +40,8 @@ class FakeResponse(BaseModel):
 
     @model_validator(mode="after")
     def _one_kind(self) -> FakeResponse:
-        if (self.text is None) == (self.tool_call is None):
-            raise ValueError("a FakeResponse has exactly one of text or tool_call")
+        if sum(x is not None for x in (self.text, self.tool_call, self.error)) != 1:
+            raise ValueError("a FakeResponse has exactly one of text, tool_call or error")
         return self
 
 
@@ -52,6 +53,7 @@ class FakeLLMCall:
     chat_ctx: llm.ChatContext
     tools: list[llm.Tool]
     tool_choice: llm.ToolChoice | None
+    parallel_tool_calls: bool | None = None
 
 
 class FakeLLM(llm.LLM):
@@ -84,6 +86,7 @@ class FakeLLM(llm.LLM):
                 chat_ctx=llm.ChatContext([item.model_copy(deep=True) for item in chat_ctx.items]),
                 tools=list(tools or []),
                 tool_choice=tool_choice if utils.is_given(tool_choice) else None,
+                parallel_tool_calls=parallel_tool_calls if utils.is_given(parallel_tool_calls) else None,
             )
         )
         response = self._script[index] if index < len(self._script) else None
@@ -113,6 +116,8 @@ class FakeLLMStream(llm.LLMStream):
         if r is None:
             raise AssertionError(f"FakeLLM script exhausted: chat() call {self._index + 1} has no scripted response")
         request_id = f"fake-{self._index}"
+        if r.error is not None:
+            raise APIStatusError(r.error, retryable=False)
         if r.tool_call is not None:
             call = llm.FunctionToolCall(
                 name=r.tool_call.name,

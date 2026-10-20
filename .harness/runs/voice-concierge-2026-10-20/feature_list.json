@@ -245,7 +245,7 @@
         "tests/test_extractor.py: a FakeLLM scripted to call emit_ops with two ADD ops yields ExtractionResult.ops of length 2; a script that returns plain text yields zero ops and no exception; the extractor context never contains STATIC_INSTRUCTIONS or the knowledge pack (isolation)",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C4-04", "milestone": "C4", "kind": "build", "model": "opus",

@@ -23,7 +23,8 @@ _Confidence = Annotated[float, Field(ge=0, le=1)]
 
 
 class OpArg(BaseModel):
-    """One item of emit_ops(ops=[...]) on the wire."""
+    # One item of emit_ops(ops=[...]) on the wire. The docstring is sent to the model as the item's description.
+    """One change to the visitor's memory. Fields the op doesn't use are null."""
 
     op: OpKind
     slot: SlotName | None = None
