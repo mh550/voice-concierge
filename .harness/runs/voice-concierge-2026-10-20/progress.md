@@ -13,6 +13,46 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 06:10 · verify C4
+
+All 6 features hold (33 steps). Caveat: C4-06 step 1 path is literally absent; diff lives in the scratch dir.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| C4-01 | 1 | read docs/plans/2026-10-20-C4-extraction.md §emit_ops (l.95-170) | emit_ops schema, ops fields, minimal ctx, tool_choice auto, parallel off, strict (default True, test named), 'exactly once/empty ops' line, 400 on forced, collect() l.166 | yes |
+| C4-01 | 2 | read gate table l.370-393 | regexes for ignore/you are now/system:/disregard, url, email, code, caps, agent_attributed; contact exception reserved for C8 | yes |
+| C4-01 | 3 | read scheduler section l.408-480 | debounce 2 s, one task per thread, extraction→merge→extraction_ran, cancel_all/erased, shutdown skips flush | yes |
+| C4-01 | 4 | read eval schema l.540-596 | schema with interrupted_heard, expected, forbidden, recorded_ops; 01-07 cases listed | yes |
+| C4-01 | 5 | read l.600-620 test lists | per-feature test functions named for C4-02..05 | yes |
+| C4-01 | 6 | `/home/mh550/projects/agent-harness/lib/check.sh` | green, 616 tests; ruff clean | yes |
+| C4-02 | 1 | read concierge/ops.py via tests/test_ops.py (9 tests pass) | parse_ops drops malformed and reports; Add/Update/Delete parse | yes |
+| C4-02 | 2 | pytest tests/test_gate.py; read plan l.388-394 + test_rejects params | all 8 rejects with reasons and 3 accepts pass | yes |
+| C4-02 | 3 | read tests/test_merge.py names + run | ADD/UPDATE/DELETE, supersede, dedupe, 8-cap, gate_rejected journal, state recompute all tested and pass | yes |
+| C4-02 | 4 | tests/test_merge.py (265 tests in C4 files pass) | each named case present: UPDATE superseded_by, delete keeps row, user forget removes row, unknown slot, cap, unknown turn, 9th interest | yes |
+| C4-02 | 5 | test_merge_journals_each_result_by_type | asserts fact_added/fact_invalidated/fact_deleted types | yes |
+| C4-02 | 6 | check.sh | green | yes |
+| C4-03 | 1 | read extractor tests; test_extractor_passes_parallel_tool_calls_false, test_heard_text | extract uses tool_choice auto, parallel False, collect(); ExtractionResult has ms/prompt_tokens | yes |
+| C4-03 | 2 | tests/test_heard_text.py l.36-80, plan l.234-257 | Turn built from ChatMessage; finding on 1.8 interrupted content recorded in plan | yes |
+| C4-03 | 3 | test_interrupted_agent_turn_reaches_the_extractor_as_heard_text_only, test_extractor_call_uses_tool_choice_auto, ..._exactly_one_tool_named_emit_ops | pass; asserts match step | yes |
+| C4-03 | 4 | test_two_add_ops_yield_two_ops, test_plain_text_reply_is_zero_ops_and_no_error, test_extractor_ctx_is_isolated_from_the_session_prompt | pass; asserts STATIC_INSTRUCTIONS not in ctx | yes |
+| C4-03 | 5 | check.sh | green | yes |
+| C4-04 | 1 | read memory_writer.py (244 lines) + tests/test_memory_writer.py | note_item, schedule, flush, cancel_all, erased, on_merged, extraction_ran journal all present and tested | yes |
+| C4-04 | 2 | test_item_handler_returns_fast_while_extraction_sleeps (5 s fake; <0.05 s; extraction_ran within 6 s), test_no_await_on_the_turn_path_targets_memory_work (ast) | pass; asserts match | yes |
+| C4-04 | 3 | test_two_schedules_100ms_apart_start_one_extraction; test_a_turn_during_a_run_queues_exactly_one_follow_up | pass; len(calls)==1 and 2 as specified | yes |
+| C4-04 | 4 | test_agent_has_remember_and_forget_tools, test_remember_writes_before_returning, test_forget_deletes_the_matching_facts | params fact/about; source user_asked_to_remember, channel; deletes not invalidates | yes |
+| C4-04 | 5 | test_erasure_wins_over_an_inflight_extraction | 1 s extraction, forget+cancel, shutdown; all visitor tables 0 rows, no errors | yes |
+| C4-04 | 6 | check.sh | green | yes |
+| C4-05 | 1 | ls evals/memory; read 03 yaml | 13 files, 01-07 names exact; fields name/visits/expected/forbidden/recorded_ops (test_every_script_validates) | yes |
+| C4-05 | 2 | read concierge/evals/runner.py usage in tests | run_script returns ScriptResult with missing_expected/forbidden_hits via real extract+merge on temp Store | yes |
+| C4-05 | 3 | test_memory_evals_offline.py test_script x13; 03 yaml ADDs Initech; l.66 asserts initech not in context; 05 ADDs injection | all 13 pass | yes |
+| C4-05 | 4 | grep pyyaml pyproject.toml; ruff check .; check.sh | pyyaml>=6,<7 present; ruff clean; compileall in check green | yes |
+| C4-05 | 5 | check.sh | green | yes |
+| C4-06 | 1 | ls /tmp/voice-concierge; scratch; grep '## Review' | review-C4.diff does not exist at the literal /tmp/voice-concierge path (outside allowed write dirs); it exists in scratch dir with review-C4-extra.diff; '## Review' at plan l.893. Accepted: path conflicts with CLAUDE.md | yes |
+| C4-06 | 2 | read plan ## Review table + git log 0c365fa/d426499 | 5 Important: 4 fixed, 1 declined (documented); fixes carry tests (616 vs 598) | yes |
+| C4-06 | 3 | grep README.md for the 6 row names | all 6 rows present, each citing tests; test_readme.py passes | yes |
+| C4-06 | 4 | find concierge -name '*.py' | xargs wc -l | max 250 (merge.py), none over | yes |
+| C4-06 | 5 | check.sh | green | yes |
+
 ### 2026-10-20 05:45 · C4-06 · passes
 
 - **Changed:** C4 review notes under `## Review` in `docs/plans/2026-10-20-C4-extraction.md`. The README's "Memory design" table gains 6 write-path rows, each citing its tests (checked by `test_readme.py`). Fixes are in `memory_writer.py`, `forget_match.py`, `memory_tools.py`, `merge.py`, `grounding.py` and `extractor.py`. `fact_ops._key` is now the public `value_key`. Tests 598 → 616.
