@@ -17,6 +17,7 @@ from livekit.plugins import silero
 from pydantic import ValidationError
 
 from concierge.config import Settings
+from concierge import retention
 from concierge.dispatch import DispatchError, parse_dispatch
 from concierge.session import start_session
 from concierge.store import Store, StoreError
@@ -61,6 +62,21 @@ async def _open_or_none(path: Path) -> Store | None:
 
 
 server = AgentServer(shutdown_process_timeout=30, setup_fnc=prewarm)
+_background: set[asyncio.Task[None]] = set()
+
+
+@server.on("worker_started")
+def _start_retention() -> None:
+    """B6: the TTL purge at worker start and daily. `worker_started` is emitted in the main process with its loop
+    running (AgentServer.run, worker.py:862 in 1.8.8)."""
+    try:
+        path = Settings().db_path
+    except ValidationError:
+        logger.warning("no retention purge: the settings do not validate")
+        return
+    task = asyncio.get_running_loop().create_task(retention.run_daily_purge(path), name="retention_purge")
+    _background.add(task)
+    task.add_done_callback(_background.discard)
 
 
 @server.rtc_session(agent_name="concierge", on_request=on_request)
