@@ -50,3 +50,18 @@
 - 2026-10-20 08:13 · deadline reached
 - 2026-10-20 08:13 · run ended (deadline): 31/38 passing · 38 sessions (38 real) · 31 features passed · $131.59 · 8.0 h · by kind: init 1 ($6.04), coding 31 ($123.88), verify 6 ($1.66) · by model: claude-fable-5-1 1 ($6.04), claude-opus-5-5 31 ($123.88), claude-sonnet-5-5 6 ($1.66)
 - 2026-10-20 11:19 · merged main into harness/voice-concierge-2026-10-20
+- 2026-10-20 11:21 · C6 verified and tagged run/voice-concierge-2026-10-20/C6
+- 2026-10-20 11:22 · C6 merged into main · https://github.com/mh550/voice-concierge/pull/6
+- 2026-10-20 11:44 · C7-01 · claude-opus-5-5 · passes=true · 22 min · 32/38 passing
+- 2026-10-20 12:00 · C7-02 · claude-opus-5-5 · passes=true · 15 min · 33/38 passing
+- 2026-10-20 12:26 · C7-03 · claude-opus-5-5 · passes=true · 25 min · 34/38 passing
+- 2026-10-20 12:28 · C7-04 · claude-sonnet-5-5 · passes=true · 2 min · 35/38 passing
+- 2026-10-20 12:49 · C7-05 · claude-opus-5-5 · passes=true · 20 min · 36/38 passing
+- 2026-10-20 12:49 · merged main into harness/voice-concierge-2026-10-20
+- 2026-10-20 12:52 · verify C7: C7-05 failed the re-check, back in the queue (one more attempt)
+- 2026-10-20 12:54 · C7-05 · claude-opus-5-5 · passes=false · 1 min · 35/38 passing
+- 2026-10-20 12:54 · C7-05 parked (waiting on Michael): Michael to approve the diff path (1a/1b) and amend or approve step 3's grep (2a/2b) in INBOX.md
+- 2026-10-20 12:54 · waiting on Michael: C7-05 (parked; answer in INBOX.md, then harness continue voice-concierge-2026-10-20)
+- 2026-10-20 12:54 · run ended (waiting on Michael: C7-05): 35/38 passing · 47 sessions (47 real) · 36 features passed · $157.80 · 9.5 h · by kind: init 1 ($6.04), coding 37 ($149.04), verify 8 ($2.60), retro 1 ($0.12) · by model: claude-fable-5-1 1 ($6.04), claude-opus-5-5 36 ($148.74), claude-sonnet-5-5 10 ($3.02)
+- 2026-10-20 16:17 · C7-05 unparked: INBOX.md has new answers
+- 2026-10-20 16:21 · C7-05 · claude-opus-5-5 · passes=true · 3 min · 36/38 passing

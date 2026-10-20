@@ -21,6 +21,7 @@ from concierge.claude_llm import build_claude_llm
 Stage = Literal["conversation", "extractor", "summarizer"]
 STAGES: tuple[Stage, ...] = ("conversation", "extractor", "summarizer")
 OPENROUTER_MODEL = "openai/gpt-4.1-mini"  # every stage's default under llm_provider=openrouter
+LLM_KEY = {"anthropic": "ANTHROPIC_API_KEY", "openrouter": "OPENROUTER_API_KEY"}  # the key each llm_provider needs
 
 
 class Settings(BaseSettings):

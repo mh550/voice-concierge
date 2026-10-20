@@ -1,0 +1,23 @@
+# systemd user unit for the concierge worker (plan C7 "Part 3"). Install it by hand (MORNING.md step 3):
+#   cp deploy/voice-concierge.service ~/.config/systemd/user/ && systemctl --user daemon-reload
+#   systemctl --user enable --now voice-concierge
+# It assumes the repo is cloned at ~/projects/voice-concierge with its .venv built there.
+[Unit]
+Description=voice-concierge: LiveKit agent worker for the portfolio concierge
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/voice-concierge/env
+WorkingDirectory=%h/projects/voice-concierge
+ExecStart=%h/projects/voice-concierge/scripts/run-worker.sh start
+Restart=on-failure
+RestartSec=10
+# The first SIGTERM drains live sessions (livekit-agents 1.8 cli/cli.py); a session is at most 10 min (B7), plus 30 s
+# of shutdown work, so systemd waits that long before it kills the worker.
+TimeoutStopSec=660
+# SIGTERM goes to the worker only, which drains and stops its own job processes; anything left gets SIGKILL at
+# the timeout. (The default, control-group, would also kill multiprocessing's forkserver mid-drain.)
+KillMode=mixed
+
+[Install]
+WantedBy=default.target

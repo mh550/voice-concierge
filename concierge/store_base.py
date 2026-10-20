@@ -199,6 +199,12 @@ class StoreBase:
                 f"INSERT INTO anonymous_turn_metrics ({columns}) VALUES ({marks})", (session_id, *values.values())
             )
 
+    def turn_metrics(self) -> list[TurnMetrics]:
+        """Every anonymous metrics row, in insertion order (`scripts/latency_report.py`; works read-only)."""
+        fields = list(TurnMetrics.model_fields)
+        rows = self._read(f"SELECT {', '.join(fields)} FROM anonymous_turn_metrics ORDER BY id")
+        return [TurnMetrics.model_validate(dict(zip(fields, row, strict=True))) for row in rows]
+
 
 @contextmanager
 def _immediate(conn: sqlite3.Connection) -> Iterator[None]:

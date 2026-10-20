@@ -233,3 +233,66 @@ def test_ends_on_user_looks_at_the_formatted_messages(make: Any, appended: bool)
     assert messages[-1]["role"] == "user"
     assert (out is not ctx) == appended
     assert (messages[-1]["content"][-1].get("text") == TRAILING_USER_TEXT) == appended
+
+
+@pytest.mark.parametrize("stage", STAGES)
+async def test_caller_sampling_parameters_are_dropped(stage: str) -> None:
+    """5.x models reject sampling parameters, and the SDK this was checked against has no `temperature` keyword."""
+    text, sent = await _send(stage, extra_kwargs={"temperature": 0.0, "top_k": 1, "top_p": 0.9})
+    assert text == "Hi there."
+    assert not _keys(sent) & {"temperature", "top_k", "top_p"}
+
+
+async def test_the_livekit_judge_runs_on_a_claude_llm() -> None:
+    """RunResult's judge() always passes temperature=0.0 (livekit/agents/voice/run_result.py), as the live tests'
+    judge does with build_llm("extractor")."""
+    from livekit.agents.voice.run_result import ChatMessageAssert, ChatMessageEvent
+
+    from concierge.testing.fake_anthropic import _block, _message_start
+
+    tool_use = [
+        _message_start(input_tokens=12),
+        *_block(0, {"type": "tool_use", "id": "toolu_1", "name": "check_intent", "input": {}},
+                [{"type": "input_json_delta", "partial_json": '{"success": true, "reason": "it greets Ada"}'}]),
+    ]
+    client = FakeAnthropicClient([tool_use])
+    judge = build_claude_llm("extractor", "claude-sonnet-5-5", client=client)
+    reply = llm.ChatMessage(role="assistant", content=["Welcome back, Ada!"])
+
+    class Parent:  # the RunAssert surface judge() uses on failure
+        def _raise_with_debug_info(self, message: str, index: int | None = None) -> None:
+            raise AssertionError(message)
+
+    await ChatMessageAssert(ChatMessageEvent(item=reply), Parent(), 0).judge(judge, intent="greets Ada")  # type: ignore[arg-type]
+    (sent,) = client.fake_messages.calls
+    assert not _keys(sent) & {"temperature", "top_k", "top_p"}
+    assert sent["tool_choice"] == {"type": "auto"}  # judge() forces "required"; Sonnet 5.5 rejects that with a 400
+
+
+@llm.function_tool
+async def check_intent(success: bool, reason: str) -> None:
+    """The judge's verdict tool, as in voice/run_result.py."""
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-opus-5-5"])
+@pytest.mark.parametrize("forced", ["required", {"type": "function", "function": {"name": "check_intent"}}])
+async def test_a_forced_tool_choice_is_sent_as_auto_to_models_that_reject_it(model: str, forced: Any) -> None:
+    """Sonnet 5.5 and Opus 5.5 answer a forced tool_choice (`any`/`tool`) with a 400 (spec §4.4, docs/decisions.md);
+    LiveKit's judge() always asks for tool_choice="required", which the plugin sends as `any`."""
+    client = FakeAnthropicClient([reply_events("ok")])
+    stream = build_claude_llm("extractor", model, client=client).chat(
+        chat_ctx=_ctx(), tools=[check_intent], tool_choice=forced
+    )
+    await stream.collect()
+    (sent,) = client.fake_messages.calls
+    assert sent["tool_choice"] == {"type": "auto"}
+
+
+async def test_a_forced_tool_choice_is_kept_for_haiku() -> None:
+    client = FakeAnthropicClient([reply_events("ok")])
+    stream = build_claude_llm("conversation", "claude-haiku-5-5", client=client).chat(
+        chat_ctx=_ctx(), tools=[check_intent], tool_choice="required"
+    )
+    await stream.collect()
+    (sent,) = client.fake_messages.calls
+    assert sent["tool_choice"] == {"type": "any"}

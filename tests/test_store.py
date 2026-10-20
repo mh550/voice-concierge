@@ -770,3 +770,15 @@ def test_invalidate_reason_is_journaled(store, visitor_id) -> None:
 def test_invalidate_reason_is_an_enum_never_free_text() -> None:
     with pytest.raises(ValidationError):
         InvalidateFact(fact_id=1, reason="the visitor said they hate Acme")
+
+
+def test_turn_metrics_reads_every_row_in_turn_order(tmp_path, store) -> None:
+    rows = [TurnMetrics(turn=1, preload_ms=40.0, total_ms=900.0, prompt_tokens=1000, cached_tokens=0),
+            TurnMetrics(turn=2, eou_ms=210.0, stt_ms=80.0, total_ms=700.0, compacted=True),
+            TurnMetrics(turn=1)]
+    for metrics in rows:
+        store.add_turn_metrics(SESSION, metrics)
+
+    assert store.turn_metrics() == rows
+    with Store.open_readonly(store.path) as reader:  # the latency report reads it read-only
+        assert reader.turn_metrics() == rows
