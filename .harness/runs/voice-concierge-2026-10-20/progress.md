@@ -12,6 +12,38 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+### 2026-10-20 17:00 · verify C7
+
+All 25 steps of C7-01..05 re-run; none flipped. Notes: spec §4.0 has 17 rows (C7-03 step 1 says 16; the README has all 17). C7-04 step 9 writes `data/concierge.db`; MORNING uses the real `db_path` default (`~/.local/share/voice-concierge/concierge.db`), a documented deviation (plan "Proposed changes", progress C7-04).
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| C7-01 | 1 | read docs/plans/2026-10-20-C7-ops-docs.md Parts 4, 5 and "Live stages" | README outline (GIF line, mermaid nodes, practice table, 2.0 mapping, results 'to measure', failure cases, run), 12 MORNING steps with commands, 5 stages (dry run, one session, live evals, latency report, hardening) each with check and undo | yes |
+| C7-01 | 2 | read Parts 1–3 | CLIs of eval_memory.py, latency_report.py, run-worker.sh, memory_history.py; messages.py reserved for C8; tests/live layout, `live` marker, LIVEKIT_URL skipif; full unit text | yes |
+| C7-01 | 3 | read "Tests for C7-02 (names)" | test functions listed per script, the unit and tests/test_live_layout.py | yes |
+| C7-01 | 4 | `lib/check.sh`, `.harness/check.sh` | green, 909 passed, 4 deselected | yes |
+| C7-02 | 1 | `env -u ANTHROPIC_API_KEY scripts/eval_memory.py`; `--offline`; read test_eval_memory_without_the_key_says_not_set_and_exits_2, test_eval_memory_offline_has_full_recall_and_no_harm | "ANTHROPIC_API_KEY not set", rc=2; offline table of 13 cases, total 20/20 (100 %), harm 0, rc=0; tests assert the same | yes |
+| C7-02 | 2 | `pytest tests/test_scripts.py`; read test_latency_report_prints_p50_and_p95_per_field, test_latency_report_prints_the_cached_token_share | 39 passed (with test_live_layout); 20 seeded rows assert p50 105.0 / p95 190.5 per field scaled, n=20, cached share 80.0 % | yes |
+| C7-02 | 3 | read tests/live/test_live.py and test_live_layout.py; `pytest -m 'not live' --collect-only` | pytestmark has live + skipif(not LIVEKIT_URL); 4 async tests; docstring says only Michael runs; "909/913 collected (4 deselected)"; test_not_live_deselects_all_four asserts "4 deselected" | yes |
+| C7-02 | 4 | read scripts/run-worker.sh; `bash -n`; read test_run_worker_without_env_exits_1_naming_livekit_url, test_run_worker_is_executable_and_parses | -rwxr-xr-x; sources env only if file exists with set -a; names missing key, provider variants, exec `.venv/bin/python -m concierge.worker "${@:-start}"`; bash -n ok; tests pass (exit 1, LIVEKIT_URL in output, empty HOME) | yes |
+| C7-02 | 5 | read deploy/voice-concierge.service; test_systemd_unit_has_the_six_keys | all six keys with the stated values (plus TimeoutStopSec, KillMode); test asserts them; systemd not invoked | yes |
+| C7-02 | 6 | `.harness/check.sh` | green, 909 passed | yes |
+| C7-03 | 1 | read README headings, sections, tables; `pytest tests/test_readme.py` | sections in the required order; mermaid has all named nodes; 17 practice rows (= spec 17) with module and tests; 6 mapping rows; Results cells all 'to measure'; limits and privacy present; 54 passed | yes |
+| C7-03 | 2 | `grep -n -i 'agents 2.0'`; `grep -E '[0-9]+ ?ms' README.md` | only the section heading and a link saying "the code is 1.8"; ms grep matches only the "about 0 ms, measured per turn as memory_on_turn_path_ms" row | yes |
+| C7-03 | 3 | read test_every_cited_test_name_exists | extracts `test_\w+` from README and asserts subset of defined tests; passes | yes |
+| C7-03 | 4 | read test_every_cited_module_and_script_path_exists | checks concierge/ scripts/ deploy/ docs/ evals/ knowledge/ paths exist; passes | yes |
+| C7-03 | 5 | `.harness/check.sh` | green | yes |
+| C7-04 | 1 | read MORNING.md steps 1–12 | numbered in the required order with the exact commands (step 9 path: see note above), spend-limit reminder, systemd alternative, kill switch | yes |
+| C7-04 | 2 | read MORNING.md | intro says keys only Michael has, about 20 minutes; every step from 3 has Check and Undo | yes |
+| C7-04 | 3 | read .env.example | the six names empty (last two marked optional) plus the four commented switch lines | yes |
+| C7-04 | 4 | `grep -n 'D[0-9]+ \*default\*' docs/decisions.md`; read MORNING "Questions for you" vs progress log questions | D7–D13 each with Finding, Choice, Rejected; questions D7–D13 plus health port mirrored | yes |
+| C7-04 | 5 | `.harness/check.sh` | green | yes |
+| C7-05 | 1 | `ls -l`, `git diff 5a59354..HEAD -- . ':!.harness'` vs scratch file; read plan "## Review" | review-C7.diff in scratch (2595 lines, equals current diff except the review note's own wording); Review section with findings and a 63-line claim table with file:line | yes |
+| C7-05 | 2 | read findings table Done column | every Critical/Important marked fixed, B-C1 and A-C3/B-I1 test-first with named tests | yes |
+| C7-05 | 3 | the `git grep` from the step; `git grep -i hostname README.md MORNING.md`; `git check-ignore`; `git ls-files '*.db'` | both greps empty; `*.db` and `data/` ignored; 0 tracked .db | yes |
+| C7-05 | 4 | `pytest -m 'not live' -q` | 909 passed, 4 deselected, no skips, 84.5 s | yes |
+| C7-05 | 5 | `.harness/check.sh` | green | yes |
+
 
 ### 2026-10-20 16:30 · C7-05 · passes
 
