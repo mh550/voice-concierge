@@ -13,6 +13,22 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 06:40 · C5-01 · passes
+
+- **Changed:** `docs/plans/2026-10-20-C5-compaction.md` (new). It covers the shutdown sequence (compactor.aclose → flush → summary → `set_summary`, skipped when erased, one 25 s deadline inside `shutdown_process_timeout=30`), `SUMMARY_SYSTEM` and `COMPACTION_SYSTEM`, the trigger (>24 items or >4,000 est. tokens), fold/keep (last 6 turns, tool pairs whole), the apply point (`agent_state_changed` → `listening`, `Agent.update_chat_ctx`, rebased on the live context), the 5 s timeout and the truncate-to-12 fallback. It also quotes 1.8.8's `AgentStateChangedEvent` and `update_chat_ctx`, and names the C5-02 and C5-03 tests. Added D12 *default* to `docs/decisions.md`. Tests 616 → 616 (plan only).
+- **Verified:** one scratch prototype on a real `AgentSession`: after `update_chat_ctx` there are 8 items and `session.history` still holds 32. One Opus plan review: 0 Critical, 6 Important and 4 Minor, all folded in (table under `## Plan review`). `check.sh` is green with 616 tests.
+- **Next session (C5-02) must know:**
+  - First switch `conftest.fakes` and `test_erasure_wins` to a per-stage `build_llm` fake. Today every stage gets the extractor fake.
+  - Then add `FakeLLM(respond=…)`.
+  - `store.py` is at 247 lines: move `write`/`journal`/`journal_rows` into `store_journal.py` before adding `set_summary`.
+  - Lower `FLUSH_TIMEOUT_S` to 15, and make `flush` cancel its in-flight run on timeout.
+  - 1.8's `ChatContext._summarize` drops the earlier summary from its input (the #7721 bug), so don't use it.
+- **Question for Michael (D12):** after a compaction, should the concierge keep the last 3 exchanges verbatim (the default: a "turn" is one message) or the last 6?
+- **Proposed changes:**
+  - C5-03 step 3: the greeting is journaled too, so the session has 31 rows. The test checks the 30 added turn ids.
+  - C5-03 step 2: the handler logic lives in `compactor.py`, registered from `session.py`.
+  - C5-02: `summarize()` returns an outcome so the shutdown can journal `error`. `summarize_visit` wraps it.
+
 ### 2026-10-20 06:10 · verify C4
 
 All 6 features hold (33 steps). Caveat: C4-06 step 1 path is literally absent; diff lives in the scratch dir.

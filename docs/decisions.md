@@ -164,3 +164,19 @@ for which turns "mention" a value, and it breaks C5's every-turn journal guarant
 
 **Question for Michael.** Should "forget X" also scrub X's turns from the journal (stronger privacy, a gap in the
 history), or is the TTL plus "Forget me" enough?
+
+## D12 *default*: a compaction "turn" is one message, not a user+agent pair (2026-10-20, C5-01)
+
+**Finding.** Spec §4.8 says compaction keeps "the last 6 turns" and the fallback "the last 12 turns". livekit-agents
+1.8.8's own `ChatContext._summarize` counts a turn as a user+assistant pair; the journal (`user_turn`, `agent_turn`) and
+C5-03's tests ("30 turns → 30 journal rows", "≤ 8 items after compaction") count one message as one turn.
+
+**Choice.** One user or assistant message is one turn, so compaction keeps about the last 3 exchanges verbatim and the
+fallback about 6. Reversible: `KEEP_TURNS` and `FALLBACK_KEEP_TURNS` in `concierge/compaction.py` double if Michael
+prefers pairs.
+
+**Rejected.** Pairs (12 messages kept): the compacted context would rarely be far under the 24-item trigger, so
+compaction would run about every 6 turns instead of every ~18.
+
+**Question for Michael.** After a compaction, should the concierge keep the last 3 exchanges verbatim (this default) or
+the last 6?
