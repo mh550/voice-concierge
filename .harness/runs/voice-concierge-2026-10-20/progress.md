@@ -13,6 +13,26 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 01:26 · P1-01 · passes
+
+- **Changed:** pinned `livekit-plugins-anthropic==1.8.8` (+ `anthropic>=1.15,<2`); new `concierge/claude_llm.py`
+  (`ClaudeLLM`, `ClaudeLLMStream`, `build_claude_llm`); `config.py` gains `llm_provider` (anthropic default: Haiku 5.5 /
+  Sonnet 5.5; openrouter restores `openai/gpt-4.1-mini`); `concierge/testing/fake_anthropic.py` (a real AsyncAnthropic
+  whose `messages.create` binds kwargs against the SDK signature); `.env.example`, README, decisions entry "LLM provider:
+  Anthropic direct" with file:line cites into the plugin. Tests 99 → 135.
+- **Verified:** `check.sh` green (135); `import livekit.plugins.anthropic` ok; `concierge.worker` imports with
+  ANTHROPIC_API_KEY unset; 11 mutants, all caught. Opus review: 0 Critical, 1 Important fixed RED→GREEN (the plugin never
+  reads `stop_reason`, so a refusal looked like success: background stages now raise a non-retryable APIStatusError),
+  5 Minor fixed, 2 deferred (below).
+- **Next session must know:** C4/C5 get `build_llm("extractor"|"summarizer")`; `collect()` raises `APIStatusError` on
+  a refusal, so treat that as zero ops / keep the old summary. Pass `tool_choice="auto"`, `parallel_tool_calls=False`.
+  Caller `extra_kwargs` merge with the stage's only for extra_headers/extra_body/output_config.
+- **Deferred (Minor):** a leftover `/`-style OpenRouter model id under provider anthropic fails at the first live call,
+  not at startup; provider tools with their own beta flag would lose it to the stage header (none used).
+- **For Michael (MORNING):** the live check of this is the first voice turn: a 400 naming `thinking`, `output_config`
+  or `fallbacks` means the 5.5 request shape needs a tweak in `concierge/claude_llm.py` (rollback:
+  `CONCIERGE_LLM_PROVIDER=openrouter` plus OPENROUTER_API_KEY in the env file).
+
 ### 2026-10-20 02:05 · C2-01 · passes
 
 - **Changed:** new `docs/plans/2026-10-20-C2-store.md` (schema DDL for all seven tables, models, slot catalogue,

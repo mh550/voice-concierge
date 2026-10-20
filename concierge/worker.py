@@ -1,7 +1,8 @@
 """The worker entry point: `python -m concierge.worker start` (scripts/run-worker.sh wraps it).
 
 Explicit dispatch as `concierge` (spec §6). Providers need keys, so they're built only inside the entrypoint, never
-at import; importing this module needs no LIVEKIT_* or OPENROUTER_API_KEY.
+at import; importing this module needs no LIVEKIT_*,
+ANTHROPIC_API_KEY or OPENROUTER_API_KEY.
 """
 
 from __future__ import annotations

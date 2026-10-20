@@ -52,7 +52,8 @@ def test_import_needs_no_keys() -> None:
     env = {
         k: v
         for k, v in os.environ.items()
-        if not k.startswith(("LIVEKIT_", "CONCIERGE_")) and k not in ("OPENROUTER_API_KEY", "DEEPGRAM_API_KEY")
+        if not k.startswith(("LIVEKIT_", "CONCIERGE_"))
+        and k not in ("ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "DEEPGRAM_API_KEY")
     }
     code = (
         "import concierge.worker as w; "
