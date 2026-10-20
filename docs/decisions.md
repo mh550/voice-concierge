@@ -24,3 +24,80 @@ It's better at not cutting people off mid-thought, and in 1.8.8 it needs no down
 the agent interrupting pauses, switch.
 
 **Question for Michael.** Keep VAD only, or switch to the local turn-detector model now that it needs no download?
+
+## D8 *default*: a per-fact `forget` leaves the turn's text in the journal (2026-10-20, C2-01)
+
+**Finding.** Spec §4.2 puts turn text in the journal (`user_turn`, and `agent_turn` with the heard text), and §4.0
+offers "forget" per fact. The `forget` tool really deletes the fact (B5), but the `user_turn` journal row the fact
+came from still holds what the visitor said, until "Forget me" or the 30-day idle purge.
+
+**Choice.** Keep the turn text in the journal; journal `fact_*` payloads carry ids and slots, never values (so the
+fact's value isn't copied anywhere else); the README's limits section says that a per-fact forget removes the
+memory, not the transcript, and that "Forget me" removes both. The journal never reaches the prompt or the page.
+
+**Rejected.** Scrubbing journal text on every `forget` (it would need to find the fact's words inside free text,
+which is guesswork), or storing no turn text at all (the spec wants the journal to keep every turn, §4.8).
+
+**Question for Michael.** Is "forget removes the memory; Forget me removes the transcript too" the promise you
+want, or should a per-fact forget also blank the text of the turn it came from?
+
+## LLM provider: Anthropic direct (Michael, 2026-10-20)
+
+**Decision.** Every LLM call (conversation, extractor, summarizer) goes straight to the Anthropic API through
+`livekit-plugins-anthropic` 1.8.8 (spec D5, B1, B10, §4.10, amended by Michael). OpenRouter stays as a fallback:
+`CONCIERGE_LLM_PROVIDER=openrouter` gives every stage `openai/gpt-4.1-mini` through `openai.LLM.with_openrouter`,
+as before. `CONCIERGE_<STAGE>_MODEL` overrides a stage's model under either provider. Built in P1-01:
+`concierge/config.py` (`llm_provider`, `build_llm`) and `concierge/claude_llm.py` (`ClaudeLLM`, `build_claude_llm`).
+
+**Why.** It's paid from Michael's Claude Console credit; it's one network hop fewer than a gateway; Haiku gives the
+spoken reply the fastest first token; and the extractor can't rely on a forced tool call anyway, because Sonnet 5.5
+and Opus 5.5 reject `tool_choice` `any`/`tool` with a 400, so C4 asks for `emit_ops` with `tool_choice="auto"`.
+
+**Per stage** (`concierge/claude_llm.py`):
+
+| Stage | Model | Request settings |
+|---|---|---|
+| conversation | `claude-haiku-5-5` | `thinking={"type": "disabled"}` (Haiku 5.5 accepts it at its default effort); `caching="ephemeral"` on the LLM; the plugin's default `max_tokens` 1024 |
+| extractor, summarizer | `claude-sonnet-5-5` | `output_config={"effort": "low"}`; `max_tokens=4096` through the constructor; server-side refusal fallback: `extra_headers={"anthropic-beta": "server-side-fallback-2026-07-01"}` and `extra_body={"fallbacks": "default"}` |
+
+No stage sends `temperature` or `top_k` (5.x models reject sampling parameters). No request ends on an assistant
+message (5.x models reject prefill).
+
+**What the plugin does** (read in `.venv/lib/python3.12/site-packages/livekit/plugins/anthropic/llm.py`, 1.8.8):
+
+- `LLM.__init__` raises `ValueError("Anthropic API key is required, ... ANTHROPIC_API_KEY ...")` when neither
+  `api_key` nor the env var is set, even when a `client` is passed (`llm.py:120-125`). So `build_llm` runs only inside
+  a session, and offline tests set a dummy key alongside the fake client (`llm.py:127` uses `client` when given).
+- `chat(extra_kwargs=...)` copies extra_kwargs into the request (`llm.py:163-166`) and passes them to
+  `client.messages.create(..., **extra)` (`llm.py:273-279`). That's how `thinking`, `output_config`,
+  `extra_headers` and `extra_body` reach the API; the SDK (anthropic 1.15.0) takes all four as keywords.
+- It then sets `extra["max_tokens"]` from the constructor, default 1024 (`llm.py:183`), overwriting any
+  `max_tokens` in extra_kwargs. So the background stages pass `max_tokens=4096` to the constructor.
+- `temperature`/`top_k` go into `extra_body` only when given to the constructor (`llm.py:171-181`); `ClaudeLLM`
+  doesn't accept them.
+- The prefill guard `_model_disables_prefill` matches only `claude-sonnet-4-6` and `claude-opus-4-6`
+  (`llm.py:41-46`), and only then asks `to_provider_format` for a trailing user message (`llm.py:227-230`). So
+  `ClaudeLLM.chat` converts the context itself and, when it ends on the assistant, sends a copy with a `"."` user
+  turn appended (the plugin's own filler, `agents/llm/_provider_format/anthropic.py:107-108`).
+- With `caching="ephemeral"` it puts `cache_control` on the last system block, the last tool and the last
+  assistant/user pair of the history (`llm.py:239-258`), and reports cache reads as `prompt_cached_tokens`
+  (`llm.py:329-342`).
+- `tool_choice="auto"` maps to `{"type": "auto"}` and `parallel_tool_calls=False` to `disable_parallel_tool_use`
+  (`llm.py:202-224`); `"required"` would map to `{"type": "any"}`, which Sonnet 5.5 rejects.
+- The stream parser handles only `text_delta` and `input_json_delta` (`llm.py:373-395`), so thinking blocks
+  (`thinking_delta`, `signature_delta`) never reach the transcript; `test_thinking_before_the_text_yields_only_the_text`
+  checks it.
+- `_parse_event` never reads `message_delta.delta.stop_reason` (`llm.py:357-418`), so a refusal (including one the
+  server-side fallback couldn't rescue) streams like a finished reply. `ClaudeLLMStream` records `stop_reason`; for
+  the extractor and summarizer (`refusal_is_error=True`) a refusal raises a non-retryable `APIStatusError`, so a
+  declined or truncated result is never stored. The conversation keeps the reply (it has already been spoken) and only
+  records it. The plugin's `chat()` builds its `LLMStream` itself (`llm.py:282`), so `ClaudeLLM.chat` sets the
+  instance's class to `ClaudeLLMStream` before the stream's task first runs.
+- Request kwargs merge: a caller's `extra_kwargs` replace the stage's, except `extra_headers`, `extra_body` and
+  `output_config`, which merge one level down. A provider tool with its own beta flag would go through
+  `beta.messages.create(betas=[…])` (`llm.py:263-271`), and the stage's `anthropic-beta` header would replace that
+  flag, so no stage uses provider tools.
+
+**Model ids.** `claude-haiku-5-5` and `claude-sonnet-5-5` are Michael's choice and Anthropic's current ids; the
+plugin's `ChatModels` Literal (`models.py`) stops at the 4.6 ids, but `model` is typed `str | ChatModels`
+(`llm.py:67`), so any id is accepted.

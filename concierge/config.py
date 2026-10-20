@@ -1,7 +1,8 @@
 """Settings, one per stage (spec D5, B1, B7, B11), and lazy provider factories.
 
-Nothing here builds a provider at import: `openai.LLM.with_openrouter` raises without OPENROUTER_API_KEY, so
-`build_llm`, `build_stt` and `build_tts` are called only inside a session. Settings come from the process
+Nothing here builds a provider at import: the Anthropic plugin raises without ANTHROPIC_API_KEY and
+`openai.LLM.with_openrouter` without OPENROUTER_API_KEY, so `build_llm`, `build_stt` and `build_tts` are called only
+inside a session. Settings come from the process
 environment (prefix CONCIERGE_) and never from a dotenv file.
 """
 
@@ -15,16 +16,22 @@ from livekit.plugins import deepgram, openai
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from concierge.claude_llm import build_claude_llm
+
 Stage = Literal["conversation", "extractor", "summarizer"]
+STAGES: tuple[Stage, ...] = ("conversation", "extractor", "summarizer")
+OPENROUTER_MODEL = "openai/gpt-4.1-mini"  # every stage's default under llm_provider=openrouter
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CONCIERGE_", validate_default=True)
 
-    # LLM ids are OpenRouter ids; speech ids are LiveKit Inference ids (Literals in livekit/agents/inference/).
-    conversation_model: str = "openai/gpt-4.1-mini"
-    extractor_model: str = "openai/gpt-4.1-mini"
-    summarizer_model: str = "openai/gpt-4.1-mini"
+    # LLM ids are Anthropic ids (OpenRouter ids under llm_provider=openrouter, whose defaults _openrouter_defaults
+    # fills in); speech ids are LiveKit Inference ids (Literals in livekit/agents/inference/).
+    llm_provider: Literal["anthropic", "openrouter"] = "anthropic"
+    conversation_model: str = "claude-haiku-5-5"
+    extractor_model: str = "claude-sonnet-5-5"
+    summarizer_model: str = "claude-sonnet-5-5"
     stt_model: str = "deepgram/nova-3"
     tts_model: str = "cartesia/sonic-3"
     speech: Literal["inference", "deepgram"] = "inference"  # deepgram: the plugin, with DEEPGRAM_API_KEY (B1)
@@ -37,6 +44,15 @@ class Settings(BaseSettings):
     session_max_s: int = 600
     sessions_per_day: int = 5
     idle_ttl_days: int = 30
+
+    @model_validator(mode="before")
+    @classmethod
+    def _openrouter_defaults(cls, data: object) -> object:
+        """Under openrouter, a stage model not set explicitly defaults to OPENROUTER_MODEL."""
+        if isinstance(data, dict) and data.get("llm_provider") == "openrouter":
+            for stage in STAGES:
+                data.setdefault(f"{stage}_model", OPENROUTER_MODEL)
+        return data
 
     @field_validator("off_file", "db_path")
     @classmethod
@@ -53,7 +69,9 @@ class Settings(BaseSettings):
 def build_llm(stage: Stage, settings: Settings | None = None) -> llm.LLM:
     s = settings or Settings()
     model: str = getattr(s, f"{stage}_model")
-    return openai.LLM.with_openrouter(model=model)
+    if s.llm_provider == "openrouter":
+        return openai.LLM.with_openrouter(model=model)
+    return build_claude_llm(stage, model)
 
 
 def speech_classes(settings: Settings) -> tuple[type[stt.STT], type[tts.TTS]]:

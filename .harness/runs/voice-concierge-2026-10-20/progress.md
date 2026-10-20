@@ -13,6 +13,155 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 · verify C2
+
+All 26 steps hold; no feature flipped. Note: C2-05 step 1 path deviation is documented and justified by CLAUDE.md.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| C2-01 | 1 | read plan `docs/plans/2026-10-20-C2-store.md` §Schema, §The fence, §Erasure, §TTL purge | 7 CREATE TABLE IF NOT EXISTS (threads, state, facts, journal, anonymous_turn_metrics, daily_session_counts, messages_for_michael) with spec columns; fence: BEGIN IMMEDIATE, read version, fn, `UPDATE threads SET version = version + 1 WHERE id = ? AND version = ?`, VersionConflict + apply_fact_ops 5-attempt reapply; erasure steps 1-7; purge_idle/purge_daily_counts | yes |
+| C2-01 | 2 | read plan slot catalogue table (l.211-220) and caps (l.185) | name/role/company/follow_up_wanted single 120; interests/asked_about set, 60 chars, at most 8, oldest invalidated on 9th; follow_up_wanted superseded on add | yes |
+| C2-01 | 3 | read plan §Tests (l.391-484) | per-feature test files and function names listed for C2-02 (test_models/test_store), C2-03 (test_store/test_concurrent_writers), C2-04 (erasure/ttl/scripts); all names exist in tests/ | yes |
+| C2-01 | 4 | `.harness/check.sh` | exit 0 | yes |
+| C2-02 | 1 | read concierge/models.py; ran python building maximal VisitorState; read test_models.py names | VisitorState and Fact fields as specified; SLOTS kinds/caps correct; maximal state dumps 2098 bytes; test_maximal_visitor_state_is_under_8_kib and test_visitor_state_over_8_kib_is_rejected pass | yes |
+| C2-02 | 2 | python: Store(tmp) then sqlite_master + PRAGMA journal_mode; read test_schema_creates_the_seven_tables, test_journal_mode_is_wal | 7 tables listed, journal_mode ('wal',); tests assert the same and pass | yes |
+| C2-02 | 3 | python get_or_create_thread; read test_new_thread_row_defaults, test_get_or_create_counts_visits_and_touches_last_active, test_threads_visitor_id_is_unique | version 0, idle_ttl_s 2592000, visits 1; tests assert visits==2 after two calls, UNIQUE raises IntegrityError | yes |
+| C2-02 | 4 | read test_journal_rows_come_back_in_insertion_order, test_journal_rejects_an_unknown_type, test_journal_type_literal_matches_spec_list | order and Literal constraint asserted; pass | yes |
+| C2-02 | 5 | python pragma table_info(anonymous_turn_metrics); read test_anonymous_turn_metrics_columns | no visitor_id or text column; test asserts exact column list | yes |
+| C2-02 | 6 | `.harness/check.sh` | exit 0 (290 passed) | yes |
+| C2-03 | 1 | read plan fence code + concierge/store.py write/apply_fact_ops; test_write_bumps_version_once, test_apply_fact_ops_gives_up_after_5_attempts | BEGIN IMMEDIATE, version-guarded UPDATE, VersionConflict; 5 attempts then raise; tests pass | yes |
+| C2-03 | 2 | read tests test_add_fact_sets_valid_from_to_now, test_invalidate_fact_sets_valid_to_and_keeps_the_row, test_delete_fact_removes_the_row, test_valid_facts_excludes..., test_recompute_state_* | each primitive asserted (invalidate keeps row, delete removes, newest wins for single, sets <=8); pass | yes |
+| C2-03 | 3 | read and ran tests/test_concurrent_writers.py | two spawn processes x20 facts via apply_fact_ops; asserts len(valid)==40, values match, version==40; passes | yes |
+| C2-03 | 4 | read test_stale_expected_version_raises_version_conflict_and_leaves_no_row, test_add_fact_on_missing_thread_raises_thread_missing | VersionConflict, no fact row; ThreadMissing with threads count 0; pass | yes |
+| C2-03 | 5 | `.harness/check.sh` | exit 0 | yes |
+| C2-04 | 1 | read test_forget_me_erases_visitor_tables_and_keeps_anonymous_ones | seeds 5 visitor tables + 3 metrics + 1 daily count; asserts 0 in five, 3 and 1 in survivors; vacuum test also present; pass | yes |
+| C2-04 | 2 | read test_writes_after_forget_me_raise_thread_missing | add_fact/journal/apply_fact_ops raise ThreadMissing, threads count 0; pass | yes |
+| C2-04 | 3 | read test_ttl.py 31d/29d and test_purge_daily_counts_drops_rows_older_than_2_days | 31 days purged, 29 stays; daily counts older than 2 days dropped; pass | yes |
+| C2-04 | 4 | read test_count_session_survives_forget_me and key test | count==3 after 2, forget_me, 1; key is sha256(visitor_id+day); pass | yes |
+| C2-04 | 5 | read tests/test_scripts.py::test_memory_history_prints_one_line_per_fact (subprocess, seeded db) | 2 lines ordered by valid_from, 2nd has `current` and `-`, 1st has superseded_by id; pass | yes |
+| C2-04 | 6 | `.harness/check.sh` | exit 0 | yes |
+| C2-05 | 1 | ls diff path; read plan ## Review | diff exists at scratch `.../review-C2.diff`, not literal `/tmp/voice-concierge/review-C2.diff` (plan l.512 explains: CLAUDE.md bars writes outside worktree/scratch); '## Review' with 14 findings appended | yes |
+| C2-05 | 2 | git log; read ## Review table; git log RED/GREEN pairs | Important #1,#2: RED 841613b before GREEN aa81a14; Minor fixes RED de4e705 -> GREEN fa413d7; tests named | yes |
+| C2-05 | 3 | read README.md 'Mapping onto Agents 2.0'; tests/test_readme.py | rows thread, lane state, journal, fence (BEGIN IMMEDIATE + version); contains 'Here 1.8 has no lease, so two live sessions for one visitor can interleave turns'; tests pass | yes |
+| C2-05 | 4 | wc -l concierge/*.py | largest store.py 238, store_base.py 220; none over 250 | yes |
+| C2-05 | 5 | `.harness/check.sh` and `pytest -m 'not live' -q` | exit 0; 290 passed | yes |
+
+### 2026-10-20 07:05 · C2-05 · passes
+
+- **Changed:** README "Mapping onto Agents 2.0" table (thread, lane state, journal, fence, channels, idle_ttl; "1.8 has
+  no lease, so two live sessions for one visitor can interleave turns") + `tests/test_readme.py`; `apply_fact_ops`
+  checkpoints the WAL after any delete (`ApplyResult.deleted`), without waiting; `AddFact.supersedes` deduped;
+  `memory_history.py` guards both reads; `Store` docstring gives blocking bounds and error types. Tests 281 → 290.
+- **Verified:** `check.sh` green (290). Opus review of `review-C2.diff` (in the scratch dir, as C1-06 did): 0 Critical,
+  2 Important, 12 Minor. Important #1 RED 841613b → GREEN aa81a14; #2 (a test gap) fails on a no-compaction mutant.
+  4 Minor fixed (2 RED → GREEN), the rest assigned to C3–C8 in the plan's `## Review`. Largest module: store.py, 238 lines.
+- **Next session must know:** a `DeleteFact` through any path now leaves the disk; if a reader blocks the checkpoint, the next
+  write finishes it. C4's `forget` must delete the slot's supersession chain, and its callable must re-check targets (`based_on`
+  doesn't). C5 adds `set_summary` with character checks. C6 `close()`s the store at job end and passes the UTC day.
+  C8 answers the forget_me RPC as soon as the delete commits.
+- **Proposed change:** later review steps should name the scratch dir, not `/tmp/voice-concierge/`. D8 still open.
+
+### 2026-10-20 06:10 · C2-04 · passes
+
+- **Changed:** new `concierge/store_erasure.py` (`forget_me`, `purge_idle`, `count_session`, `purge_daily_counts`;
+  `Store` now inherits from it), `store_base.py` (`open_readonly`, `_immediate`, an owed-checkpoint retry in
+  `_settle`), new `scripts/memory_history.py`, and new test files `tests/test_erasure.py`, `tests/test_ttl.py` and
+  `tests/test_scripts.py`, plus count tests in `test_store.py`. Tests 238 → 281.
+- **Verified:** `check.sh` green (281). Ran `memory_history.py` by hand: exits 0, 1 and 2 as specified. 11 mutants,
+  all 11 caught. The new test files passed 10 of 10 runs in a loop. Opus review: 0 Critical, 1 Important (a
+  checkpoint blocked by a reader left the erased value on disk until restart; it is now retried by the next write,
+  the daily purge and close), 5 Minor. All 6 fixed with tests written first (RED → GREEN). Details in the plan's
+  "C2-04 build notes".
+- **Next session must know:** C6 calls `purge_idle(now_ms())` and `purge_daily_counts(now_ms())` at worker start and
+  daily; both take ms, and passing seconds raises. If `forget_me` can't take the write lock, it raises and erases
+  nothing, so C8's RPC must answer not-ok then. `forget_me` can hold the store lock for up to 5 s while a reader
+  blocks its checkpoint.
+- **Questions / proposed changes:** none new. D8 is still open.
+
+### 2026-10-20 04:05 · C2-03 · passes
+
+- **Changed:** `Store.apply_fact_ops` (fence + reload/reapply, 5 attempts, jittered backoff, list or callable ops),
+  `add_fact` / `invalidate_fact` / `delete_fact` / `valid_facts` / `fact_history` / `recompute_state`, new
+  `concierge/fact_ops.py` (in-transaction ops, journal, `derive_state`), `store.py` split into `store_base.py`
+  (connection, lock, errors incl. new `FactMissing`, `_checkpoint`, metrics) + `store.py`; `write_facts` child target;
+  `tests/test_concurrent_writers.py`. Tests 208 → 238.
+- **Verified:** `check.sh` green (238). Concurrency test 20/20 in a loop (40 facts, version 40). 24 mutants: 22 caught,
+  2 equivalent. Opus review: 0 Critical, 2 Important (a deleted value lingered in `-wal`; a Store call from inside
+  `write` deadlocked), 7 Minor; both Important + 5 Minor fixed RED→GREEN, the rest noted in the plan's "C2-03 build notes".
+- **Next session must know:** C2-04's `forget_me` reuses `StoreBase._checkpoint()`. Re-entrant Store calls now raise
+  `StoreError`. C4's `forget` tool must pass `thread_id` to `delete_fact`; an `apply_fact_ops` callable must be fast
+  and pure (it holds the write lock). Mutation runs need `PYTHONPATH=<copy>` or pytest imports the worktree.
+- **Questions / proposed changes:** none new. D8 is still open.
+
+### 2026-10-20 03:10 · C2-02 · passes
+
+- **Changed:** new `concierge/models.py` (SLOTS, VisitorState with its 8 KB validator, Fact, the ops models,
+  JournalType, Thread, JournalRow, TurnMetrics), `concierge/schema.py` (the plan's DDL), `concierge/store.py`
+  (`Store`: WAL, schema, `get_or_create_thread`, `thread_for`, `version`, `state`, `write` (the fence), `journal`,
+  `journal_rows`, `add_turn_metrics`), `concierge/testing/store_writers.py`, `tests/conftest.py` (FakeClock, store
+  fixture), `tests/test_models.py`, `tests/test_store.py`. Tests 135 → 208.
+- **Verified:** `check.sh` green (208 tests). 13 mutants: 12 caught at first; the 13th (a revisit that doesn't bump
+  the version) survived, so I added an assertion that now catches it. A maximal state is 2098 bytes in ASCII and
+  7918 in 4-byte UTF-8. The multi-process fresh-open test passed 10 of 10 runs in a loop. Opus review: 0 Critical,
+  2 Important (several processes opening a new file together got `database is locked`; values with U+2028,
+  bidi or surrogate characters were accepted), 9 Minor. Both Important and 7 Minor fixed with tests written first
+  (21 RED → GREEN); 1 documented, 1 deferred. Details in the plan's "C2-02 build notes".
+- **Next session must know:** `store.py` is 249 lines, so the fact helpers go in `concierge/fact_ops.py`.
+  `write(fn)`: `fn` may use only `conn`, because calling a Store method from it deadlocks. `recompute_state` must
+  build the state with `model_validate` (VisitorState isn't frozen). A revisit bumps the version. `add_turn_metrics`
+  needs `uuid.uuid4().hex` as the session id. `store_writers.py` exists; add `write_facts` there.
+- **Questions / proposed changes:** none new. D8 is still open.
+
+### 2026-10-20 verify P1
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| P1-01 | 1 | `grep anthropic pyproject.toml`; `pip list`; read llm.py lines 41-46,120-127,163-183,227-279,329-342 vs decisions.md cites | pin ==1.8.8 present, installed 1.8.8, import ok; every cited file:line matches the source | yes |
+| P1-01 | 2 | `env -u ANTHROPIC_API_KEY python` importing config+worker; Settings() under both providers; CONCIERGE_EXTRACTOR_MODEL override; read config.py build_llm | import ok; anthropic defaults haiku/sonnet/sonnet; openrouter all gpt-4.1-mini; override x/y works; build_llm returns Claude wrapper or with_openrouter | yes |
+| P1-01 | 3 | read concierge/claude_llm.py | conversation thinking disabled + caching ephemeral; background effort low, max_tokens=4096 in constructor, fallback header+body; no temperature; ends_on_user appends user turn | yes |
+| P1-01 | 4 | `pytest tests/test_claude_llm.py` (read assertions) | tests for model id, thinking, cache_control, effort/max_tokens/header/body, no sampling keys, trailing user, thinking-block text-only all match the step; pass | yes |
+| P1-01 | 5 | `pytest tests/test_config.py` (read test_defaults, openrouter, build_llm tests); ran build_llm with key unset | 51 pass across both files; defaults, openrouter with_openrouter monkeypatch, ValueError naming ANTHROPIC_API_KEY | yes |
+| P1-01 | 6 | read .env.example, README.md line 10, docs/decisions.md 44-84 | ANTHROPIC_API_KEY= empty, OPENROUTER commented with required note; README names it; decisions entry has per-stage table and reasons | yes |
+| P1-01 | 7 | `.harness/check.sh` | exit 0, 135 passed | yes |
+
+### 2026-10-20 01:26 · P1-01 · passes
+
+- **Changed:** pinned `livekit-plugins-anthropic==1.8.8` (+ `anthropic>=1.15,<2`); new `concierge/claude_llm.py`
+  (`ClaudeLLM`, `ClaudeLLMStream`, `build_claude_llm`); `config.py` gains `llm_provider` (anthropic default: Haiku 5.5 /
+  Sonnet 5.5; openrouter restores `openai/gpt-4.1-mini`); `concierge/testing/fake_anthropic.py` (a real AsyncAnthropic
+  whose `messages.create` binds kwargs against the SDK signature); `.env.example`, README, decisions entry "LLM provider:
+  Anthropic direct" with file:line cites into the plugin. Tests 99 → 135.
+- **Verified:** `check.sh` green (135); `import livekit.plugins.anthropic` ok; `concierge.worker` imports with
+  ANTHROPIC_API_KEY unset; 11 mutants, all caught. Opus review: 0 Critical, 1 Important fixed RED→GREEN (the plugin never
+  reads `stop_reason`, so a refusal looked like success: background stages now raise a non-retryable APIStatusError),
+  5 Minor fixed, 2 deferred (below).
+- **Next session must know:** C4/C5 get `build_llm("extractor"|"summarizer")`; `collect()` raises `APIStatusError` on
+  a refusal, so treat that as zero ops / keep the old summary. Pass `tool_choice="auto"`, `parallel_tool_calls=False`.
+  Caller `extra_kwargs` merge with the stage's only for extra_headers/extra_body/output_config.
+- **Deferred (Minor):** a leftover `/`-style OpenRouter model id under provider anthropic fails at the first live call,
+  not at startup; provider tools with their own beta flag would lose it to the stage header (none used).
+- **For Michael (MORNING):** the live check of this is the first voice turn: a 400 naming `thinking`, `output_config`
+  or `fallbacks` means the 5.5 request shape needs a tweak in `concierge/claude_llm.py` (rollback:
+  `CONCIERGE_LLM_PROVIDER=openrouter` plus OPENROUTER_API_KEY in the env file).
+
+### 2026-10-20 02:05 · C2-01 · passes
+
+- **Changed:** new `docs/plans/2026-10-20-C2-store.md` (schema DDL for all seven tables, models, slot catalogue,
+  store API, fence + reload-and-reapply, erasure, TTL purge, 56 named tests for C2-02…C2-04); D8 *default* in
+  `docs/decisions.md`. No code; tests 99 → 99.
+- **Verified:** grepped each step's items in the plan (7 `CREATE TABLE`s, fence, erasure/TTL sections, 6 slot rows,
+  test lists per feature); `check.sh` green (99). Prototyped in scratch first: two spawned writers × 20 fenced writes,
+  30 runs, always 40 rows / version 40 (never a 2nd retry); WAL erasure leaves no bytes only after
+  `wal_checkpoint(TRUNCATE)`. Opus plan review: 0 Critical, 4 Important, all applied (see the plan's last section).
+- **Next session must know:** the store applies ops literally (slot ADD rules are C4's merge, via the callable form of
+  `apply_fact_ops`), because C2-03's 40-valid-facts step rules out slot rules in the store. Thread ids are uuid4
+  hex and fact ids AUTOINCREMENT so nothing is reused after erasure. Times are ms; `idle_ttl_s` stays seconds.
+- **Question for Michael (D8):** a per-fact `forget` deletes the fact but the journal still holds that turn's text
+  until "Forget me" or the 30-day purge. OK, or should `forget` blank the turn text too?
+- **Proposed changes:** C5 should add `compaction_ran` to the `JournalType` Literal (§4.8 needs it, §4.2's list lacks
+  it); C2-05 step 1's `/tmp/voice-concierge/review-C2.diff` is outside the scratch dir (use the run's scratch dir, as
+  C1-06 did).
+
 ### 2026-10-20 · verify C1
 
 Re-ran `check.sh` (99 passed, ruff clean) and read each named test's assertions. Result: 33 steps, 33 hold, 0 fail. Notes: C1-01 step 6 says "reports 1 passed", which was true when the feature shipped; now the suite has 99 tests, so I ran `pytest tests/test_smoke.py` (1 passed) plus the full check (exit 0). C1-06 step 1: the diff is in the scratch dir, not `/tmp/voice-concierge/` (the plan's `## Review` says why: CLAUDE.md forbids writing elsewhere); counted as holding.

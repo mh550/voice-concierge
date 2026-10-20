@@ -5,3 +5,14 @@
 - 2026-10-20 00:40 · C1-04 · claude-opus-5-5 · passes=true · 7 min · 4/37 passing
 - 2026-10-20 00:47 · C1-05 · claude-opus-5-5 · passes=true · 6 min · 5/37 passing
 - 2026-10-20 00:57 · C1-06 · claude-opus-5-5 · passes=true · 10 min · 6/37 passing
+- 2026-10-20 00:58 · C1 verified and tagged run/voice-concierge-2026-10-20/C1
+- 2026-10-20 00:59 · C1 merged into main · https://github.com/mh550/voice-concierge/pull/1
+- 2026-10-20 01:11 · C2-01 · claude-opus-5-5 · passes=true · 12 min · 7/37 passing
+- 2026-10-20 01:26 · P1-01 · claude-opus-5-5 · passes=true · 14 min · 8/38 passing
+- 2026-10-20 01:26 · merged main into harness/voice-concierge-2026-10-20
+- 2026-10-20 01:27 · P1 verified and tagged run/voice-concierge-2026-10-20/P1 (contains unverified work of C2-01: held until that is verified)
+- 2026-10-20 01:27 · held: P1 (its tag contains another milestone's unverified work, or main has changes it wasn't verified with); it merges with the next verified milestone
+- 2026-10-20 01:37 · C2-02 · claude-opus-5-5 · passes=true · 10 min · 9/38 passing
+- 2026-10-20 01:52 · C2-03 · claude-opus-5-5 · passes=true · 14 min · 10/38 passing
+- 2026-10-20 02:04 · C2-04 · claude-opus-5-5 · passes=true · 12 min · 11/38 passing
+- 2026-10-20 02:16 · C2-05 · claude-opus-5-5 · passes=true · 11 min · 12/38 passing

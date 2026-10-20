@@ -11,6 +11,8 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
   "livekit-agents==1.8.8",
   "livekit-plugins-openai==1.8.8",
+  "livekit-plugins-anthropic==1.8.8",
+  "anthropic>=1.15,<2",  # the SDK claude_llm.py was checked against (output_config, thinking keywords)
   "livekit-plugins-silero==1.8.8",
   "livekit-plugins-deepgram==1.8.8",
   "pydantic>=2,<3",
