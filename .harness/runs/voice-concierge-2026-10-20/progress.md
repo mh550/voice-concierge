@@ -13,6 +13,38 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 · verify C7
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| C7-01 | 1 | read `docs/plans/2026-10-20-C7-ops-docs.md` headings | Parts 4 (README outline) and 5 (MORNING steps 1-12 with commands), "Live stages" table (0 dry run, 1 one session, 2 live evals, 3 latency report, 4 hardening) with Check and Undo columns | yes |
+| C7-01 | 2 | read Part 1 and Part 2, Part 3 | CLIs for eval_memory, latency_report, run-worker.sh, messages.py (reserved for C8); tests/live/test_live.py layout; unit file contents | yes |
+| C7-01 | 3 | read "Tests for C7-02 (names)" | test_* names listed (test_eval_memory_*, test_latency_report_*, ...) | yes |
+| C7-01 | 4 | `/home/mh550/projects/agent-harness/lib/check.sh` | green, 909 tests | yes |
+| C7-02 | 1 | ran `scripts/eval_memory.py` with key unset, then `--offline`; read tests/test_scripts.py | "ANTHROPIC_API_KEY not set", exit 2; --offline exit 0, 13 cases, total 20/20 (100 %), 0 harm; tests test_eval_memory_without_the_key_says_not_set_and_exits_2 and test_eval_memory_offline_has_full_recall_and_no_harm assert this | yes |
+| C7-02 | 2 | read test_latency_report_prints_p50_and_p95_per_field (+ cached share test); ran tests/test_scripts.py | pass; asserts 20 rows give n=20, 105.0/190.5 per k, total_ms 525.0/952.5, cached share 80.0 % | yes |
+| C7-02 | 3 | `pytest --collect-only tests/live`; `pytest -m "not live" -q`; read tests/test_live_layout.py, module header | 4 live tests collected; suite: 909 passed, 4 deselected; module skipif LIVEKIT_URL; docstring says only Michael runs it | yes |
+| C7-02 | 4 | `ls -l`, `bash -n`, read script, read test_run_worker_* tests (ran them) | executable, syntax ok, set -a source guarded by -f, need list matches, exec "${@:-start}"; test_run_worker_without_env_exits_1_naming_livekit_url asserts exit 1 and LIVEKIT_URL. Did not run the script myself (auto-mode classifier blocked it) | yes |
+| C7-02 | 5 | read deploy/voice-concierge.service and test_systemd_unit_has_the_six_keys | all keys match step; test passes; unit not installed | yes |
+| C7-02 | 6 | check.sh | green | yes |
+| C7-03 | 1 | `grep -n "^#" README.md`; read README | sections in the required order; GIF placeholder; mermaid with page, LiveKit Cloud, worker, SQLite, Anthropic, OpenRouter, LiveKit Inference; 16 practice rows; mapping rows; Results all "to measure"; failure cases; Privacy; How to run. Step lists OpenRouter, present as node | yes |
+| C7-03 | 2 | `grep -n -i "agents 2.0" README.md`; `grep -nE "[0-9]+ ?ms" README.md` | mentions only intro link (says code is 1.8) and mapping section; ms grep matches only line 84 "about 0 ms, measured per turn as memory_on_turn_path_ms" | yes |
+| C7-03 | 3 | ran tests/test_readme.py; read test_every_cited_test_name_exists | passes (99 passed across scripts/live_layout/readme/morning) | yes |
+| C7-03 | 4 | read test_every_cited_module_and_script_path_exists | passes; asserts cited concierge/, scripts/ paths exist | yes |
+| C7-03 | 5 | check.sh | green | yes |
+| C7-04 | 1 | read MORNING.md; test_exact_commands_appear_in_order | 12 steps in order with the exact commands (incl. systemd alt, touch ~/.voice-concierge-off); spend-limit reminder in step 1; test passes | yes |
+| C7-04 | 2 | read MORNING.md header and steps 3-12 | up-front "needs keys only you have ... about 20 minutes"; Check and Undo on each live step | yes |
+| C7-04 | 3 | read .env.example | exactly the 6 names empty, 4 optional switches as comments | yes |
+| C7-04 | 4 | `grep "D[0-9]* \*default\*" docs/decisions.md`; read MORNING "Questions for you" | D7-D13 present, each section mentions a rejected alternative; MORNING Questions cover D7-D13 plus health port | yes |
+| C7-04 | 5 | check.sh | green | yes |
+| C7-05 | 1 | `ls /tmp/voice-concierge/review-C7.diff`; read plan ## Review | diff is NOT at /tmp/voice-concierge/ (written to scratch dir instead, deliberately, plan says CLAUDE.md bars it); ## Review has findings table and 62-row claims table with file:line | no |
+| C7-05 | 2 | read findings table | 4 Critical and 9 Important marked done; test count 902 -> 909 | yes |
+| C7-05 | 3 | ran the exact `git grep -n -E ...` command | NOT empty (rc=0): hits in tests/test_gate.py:12 and docs/plans/C4-extraction.md:388 (fake "sk-abc123def456"), and in .harness feature_list.json (the step text itself). All are fakes, not secrets, but the step says returns nothing. hostname grep: none; `git ls-files "*.db"` empty; *.db ignored | no |
+| C7-05 | 4 | `pytest -m "not live" -q` | 909 passed, 4 deselected, 0 skipped, 84.6 s | yes |
+| C7-05 | 5 | check.sh | green | yes |
+
+Result: C7-01..04 hold; C7-05 set to false (step 1 diff path, step 3 grep not empty). Fix: either drop the fake-key strings/accept path in the step, or reword; the next session decides.
+
 ### 2026-10-20 15:40 · C7-05 · passes
 
 - **Changed:** the C7 review is in `docs/plans/2026-10-20-C7-ops-docs.md` under `## Review`: a findings table and 61 README claims, each with its file:line. Two Opus reviewers read `review-C7.diff` (`5a59354..HEAD`) in scratch: 4 Critical, 9 Important, ~15 Minor, all fixed except the ones listed as not taken. Tests 902 → 909.
