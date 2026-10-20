@@ -9,7 +9,7 @@ from livekit.agents import llm
 
 from concierge.agent import ConciergeAgent
 from concierge.knowledge import load_pack
-from concierge.memory_tools import CANT_REMEMBER, CANT_SAVE, FORGOTTEN, NOTHING_TO_FORGET
+from concierge.memory_tools import CANT_REMEMBER, CANT_SAVE, FORGOTTEN, NOTHING_TO_FORGET, STORE_FAILED
 from concierge.memory_writer import MemoryWriter
 from concierge.models import AddFact
 from concierge.prompt import STATIC_AND_PACK_MAX_TOKENS, STATIC_INSTRUCTIONS, estimate_tokens
@@ -272,6 +272,16 @@ async def test_a_later_turn_is_not_blocked_by_an_earlier_forget(store: Store, th
         assert [f.value for f in store.valid_facts(thread_id)] == ["Globex"]
     finally:
         await w.aclose()
+
+
+async def test_a_tool_call_after_aclose_says_it_could_not_save(store: Store, thread_id: str) -> None:
+    """Review C4-06 M4: a late tool call gets a spoken answer, not the executor's RuntimeError."""
+    w = MemoryWriter(store, thread_id, "s1", lambda: FakeLLM([]), debounce_s=60)
+    agent = ConciergeAgent(PACK, memory=w)
+    w.note_item(user("Remember that I work at Acme.", "u1"))
+    await w.aclose()
+    assert await agent.remember("company: Acme") == STORE_FAILED
+    assert await agent.forget("Acme") == STORE_FAILED
 
 
 def emit_add(slot: str, value: str, turn_id: str) -> FakeResponse:

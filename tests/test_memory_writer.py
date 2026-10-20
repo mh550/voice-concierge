@@ -163,6 +163,18 @@ async def test_a_failed_run_keeps_its_turns_for_the_next(
     assert [f.value for f in store.valid_facts(thread_id)] == ["Acme"]
 
 
+async def test_a_failed_final_extraction_is_not_retried(
+    make: Callable[..., MemoryWriter], store: Store, thread_id: str
+) -> None:
+    """Review C4-06 M1: the turns' journal rows land before the extractor fails; that is not progress to retry on."""
+    fake = FakeLLM([FakeResponse(error="overloaded"), emit(add("company", "Acme", "u1"))])
+    writer = make(fake, debounce_s=60)
+    writer.note_item(user("I work at Acme.", "u1"))
+    await writer.flush()
+    assert len(fake.calls) == 1
+    assert types(store, thread_id).count("error") == 1
+
+
 async def test_window_drops_are_journaled(make: Callable[..., MemoryWriter], store: Store, thread_id: str) -> None:
     writer = make(FakeLLM([emit()]), debounce_s=60)
     for i in range(30):
