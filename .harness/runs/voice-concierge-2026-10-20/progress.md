@@ -13,6 +13,38 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 14:00 · verify C6
+
+Result: 5 hold, 0 fail (25 steps). `lib/check.sh`: green, 828 tests (cached for this tree). I also ran the C6 test files directly: 132 pass. `ruff check .`: all checks passed. Two small notes, neither a failure. The plan names `MetricsReport`, not `UserMessageMetrics`/`AssistantMessageMetrics`, because 1.8.8 has no such classes (grep: none). The review table cites `worker.py:66` for `agent_name="concierge"`, but the line is 82.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| C6-01 | 1 | Read the plan's "rtc APIs" section against `.venv/.../rtc/participant.py:518-522, 864-873` and `rtc/rpc.py:24-46`; read the topic and RPC name table | The `send_text`, `register_rpc_method` and `RpcInvocationData` quotes match the installed source field for field; both topics and both RPC names match spec §6 | yes |
+| C6-01 | 2 | Read plan Part 3's mapping table; `grep UserMessageMetrics\|AssistantMessageMetrics\|class MetricsReport` in `chat_context.py` | Only `MetricsReport` (line 286) exists, and the plan says so. Every key maps to its §6 key. `.get` is used for `e2e_latency`. Text turns leave eou/stt/memory_on_turn_path null | yes |
+| C6-01 | 3 | Read plan Part 5 (`on_request`, timer, `count_session` daily cap) | `req.reject()` on CONCIERGE_ENABLED=0 or the off file; 10-min timer task → `say` → `ctx.shutdown`; count at start, > 5 → one line and shutdown | yes |
+| C6-01 | 4 | Read plan "Tests" and "JSON schemas" sections | Test functions listed per C6-02..04; the schema files `memory`, `metrics` and `forget_me` are named | yes |
+| C6-01 | 5 | `lib/check.sh`; `ruff check .` | green, 828 tests; ruff clean | yes |
+| C6-02 | 1 | Read `concierge/contract.py`, `models.TurnMetrics` | `MemoryPayload` has the §6 shape with `extra=forbid`. `MetricsPayload = TurnMetrics` has 12 keys, all nullable except `turn` and `compacted`. `build_memory_payload(store, thread_id)` exists | yes |
+| C6-02 | 2 | Read both schema files; `tests/contract/test_contract.py`; `jsonschema` in `pyproject.toml` | Both are draft 2020-12, `additionalProperties` false, with the 4 and 12 required keys. `test_memory_payload_from_a_seeded_store_validates` and `test_metrics_payload_example_validates` validate. `jsonschema>=4.23` is in the dev group | yes |
+| C6-02 | 3 | Read `concierge/publish.py`; `test_publish_raises_payload_too_large_over_15_kib`; `test_build_memory_payload_drops_the_oldest_facts_to_fit` | `send_text(body, topic=topic)`, body from `model_dump_json()`. `PayloadTooLarge` raised by byte count (3-byte chars). Oldest facts trimmed first. `FakeRoom` records (text, topic) | yes |
+| C6-02 | 4 | Read `session.py:223-282`; `test_two_memory_publishes_after_one_merged_extraction` | Publishes after `session.start` and in `on_merged`. The test asserts exactly 2 sends on `concierge.memory`, both validate, and the second has the new fact (company Acme) | yes |
+| C6-02 | 5 | `pytest tests/contract tests/test_publish.py ...`; check.sh | 132 passed; check green | yes |
+| C6-03 | 1 | Read `concierge/metrics.py`; `session.py:258-265` | `USER_KEYS` and `ASSISTANT_KEYS` map as the step says, with `.get` → None. `session.llm.on("metrics_collected", on_llm_metrics)` collects prompt and cached tokens. A user message pairs with the following assistant message; turn counter starts at 1 | yes |
+| C6-03 | 2 | `metrics.py _close`; `test_preload_ms_is_on_turn_1_only`, `test_extraction_ms_is_on_the_turn_after_a_merge`, `test_compacted_is_true_on_the_turn_after_a_compaction`, `test_memory_on_turn_path_ms_is_measured` | preload only on turn 1; extraction_ms (from the `extraction_ran` ms via `MergeResult`) on the next turn only; compacted from the applied count; 0.0123 s → 12.0 asserted | yes |
+| C6-03 | 3 | `test_one_row_per_turn_with_the_anonymous_columns`, `test_one_publish_per_turn_validates_against_the_schema`, `test_a_text_turn_leaves_eou_stt_and_turn_path_null` | `PRAGMA table_info` equals the step's 14 columns and has no visitor_id or text. One publish per turn validates. Text turn: eou/stt/memory_on_turn_path None | yes |
+| C6-03 | 4 | `test_llm_metrics_tokens_land_on_the_next_turn`, `test_session_publishes_concierge_metrics_per_turn_with_the_llm_tokens` | FakeLLM with prompt_tokens=1234, cached=1000 gives (1234, 1000) on the next turn, published and stored | yes |
+| C6-03 | 5 | check.sh | green, 828 tests | yes |
+| C6-04 | 1 | Read `concierge/rpc.py` | `register_rpc_method` for both names. `on_forget_me` returns `'{"ok": true}'` and starts a tracked task: writer cancelled, `store.forget_me`, empty memory published, goodbye, end. `get_memory` returns `MemoryPayload.model_dump_json()` | yes |
+| C6-04 | 2 | `tests/test_rpc.py::test_forget_me_returns_ok_within_50_ms_while_the_erase_sleeps`, `test_get_memory_returns_the_topic_json` | The forget_me handler answers in <50 ms with the erase patched to sleep 1 s. After 1.5 s: 0 visitor rows, one `concierge.memory` send with facts == [], goodbye said, close stub called with "forget_me". `get_memory` validates against `memory.schema.json` | yes |
+| C6-04 | 3 | `worker.py:32-46`; `tests/test_kill_switch.py` | `on_request` rejects when `not settings.enabled` or the off file exists, else accepts. Tests cover env=0 → reject only, off file in tmp → reject only, neither → accept | yes |
+| C6-04 | 4 | `concierge/limits.py`; `test_session_timer_says_one_line_and_ends`, `test_sixth_session_of_the_day_is_capped_and_the_fifth_is_not`, `test_daily_count_survives_forget_me` | max_s=0.2: one line, ended within 0.5 s. Results are [F,F,F,F,F,T]. The count survives `forget_me`. The cap path runs before the preload in `session.py` | yes |
+| C6-04 | 5 | check.sh | green | yes |
+| C6-05 | 1 | `ls -la` and head of `review-C6.diff` in scratch; read `## Review` in the plan | The diff (207 KB) is in the run scratch dir, not literally `/tmp/voice-concierge/`; the notes say so, and CLAUDE.md bars other writes. Base 850c32d is the harness commit after C5-04. Review notes are under `## Review` | yes |
+| C6-05 | 2 | `git log 850c32d..HEAD`: RED commits 407a095, 6dc7d87, 7eba202 precede GREEN 850ea87/e7503a6 | The 2 Important findings (A-I1, C-I1) have tests committed first; `tests/test_retention.py` exists | yes |
+| C6-05 | 3 | Compared plan table with spec §6 and sampled the cited lines in `contract.py`, `rpc.py`, `dispatch.py`, `session.py`, `publish.py` | Every topic, RPC, JSON key and metadata key matches. One stale citation (`worker.py:66`; actually 82), not a name difference | yes |
+| C6-05 | 4 | `README.md:29-39`; script checking all 122 backticked test names against `tests/` | All five rows are present, and every cited test exists. The privacy paragraph says anonymous timing numbers survive Forget me (B9) and what LiveKit keeps (B11); `record_audio` defaults False (`config.py:39`, `session.py:85`) | yes |
+| C6-05 | 5 | check.sh, `ruff check .` | green; ruff clean | yes |
+
 ### 2026-10-20 08:40 · C6-05 · passes
 
 - **Changed:**
