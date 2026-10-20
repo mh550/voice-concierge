@@ -14,6 +14,7 @@ from pathlib import Path
 
 from livekit.agents import AgentServer, JobContext, JobProcess, JobRequest, cli
 from livekit.plugins import silero
+from pydantic import ValidationError
 
 from concierge.config import Settings
 from concierge.dispatch import DispatchError, parse_dispatch
@@ -28,7 +29,20 @@ def prewarm(proc: JobProcess) -> None:
 
 
 async def on_request(req: JobRequest) -> None:
-    await req.accept()  # C6-04 adds the kill switch (reject under CONCIERGE_ENABLED=0 or the off file)
+    """The kill switch (B7): decline the job under CONCIERGE_ENABLED=0 or when the off file exists, so no agent joins
+    and the page shows its offline state (§6). Settings are read per request: creating the off file takes effect at
+    the next job with no restart. Fails closed: settings that don't validate decline too."""
+    try:
+        settings = Settings()
+    except ValidationError:
+        logger.warning("declining job %s: the settings do not validate", req.id)
+        await req.reject()
+        return
+    if not settings.enabled or settings.off_file.exists():
+        logger.info("declining job %s: the kill switch is on", req.id)
+        await req.reject()
+        return
+    await req.accept()
 
 
 def _open_store(path: Path) -> Store:

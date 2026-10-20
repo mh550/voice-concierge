@@ -3,8 +3,10 @@ plan C3 "The preload sequence", "Session start and end").
 
 Every store call runs in a thread (the store blocks up to 5 s), and none sits between the preload and the greeting:
 `session_started` is written by a background task after the greeting is queued, and the page gets the visitor's
-memory (`concierge.memory`, spec §6) after `session.start` and after every merge. At the end (plan C5 "The shutdown
-sequence"): the final extraction, then the visit summary, unless the visitor was erased.
+memory (`concierge.memory`, spec §6) after `session.start` and after every merge, and can call the two §6 RPCs. The
+abuse limits (B7, plan C6 Part 5): the day's session count runs ahead of the preload, so a visitor over the cap is told
+so and ended without their memory being loaded; every other session ends after `session_max_s`. At the end (plan C5
+"The shutdown sequence"): the final extraction, then the visit summary, unless the visitor was erased.
 """
 
 from __future__ import annotations
@@ -25,16 +27,25 @@ from livekit.agents.voice.room_io import RoomOptions, TextInputOptions
 from concierge.agent import ConciergeAgent
 from concierge.compactor import Compactor
 from concierge.config import Settings, build_llm, build_stt, build_tts
-from concierge.contract import METRICS_TOPIC, MemoryPayload, build_memory_payload, empty_memory_payload
+from concierge.contract import METRICS_TOPIC
 from concierge.dispatch import DispatchInfo, parse_dispatch
 from concierge.erasure_hooks import add_erase_hook
 from concierge.greeting import greeting_instructions
 from concierge.knowledge import load_pack
+from concierge.limits import (
+    DAILY_CAP_LINE,
+    over_daily_cap,
+    preload_unless_capped,
+    say_and_end,
+    start_session_timer,
+    was_capped,
+)
 from concierge.memory_writer import MemoryWriter
 from concierge.merge import MergeResult
 from concierge.metrics import TurnMetricsCollector
 from concierge.preload import Preloaded, preload
 from concierge.publish import MemoryPublisher, publish
+from concierge.rpc import current_memory, serve_rpcs
 from concierge.session_end import journal_row, write_summary
 from concierge.store import Store
 from concierge.tasks import track
@@ -58,12 +69,13 @@ class Started:
     session: AgentSession
     preloaded: Preloaded | None
     session_id: str
-    greeting: SpeechHandle
+    greeting: SpeechHandle | None  # None: over the daily cap, no greeting
     tasks: set[asyncio.Task[Any]] = field(default_factory=set)
     writer: MemoryWriter | None = None  # None: no memory this session (no store, or the preload failed)
     compactor: Compactor | None = None
     publisher: MemoryPublisher | None = None
     collector: TurnMetricsCollector | None = None
+    timer: asyncio.Task[None] | None = None  # the session_max_s limit; cancelled first at shutdown
 
 
 def recording_options(settings: Settings | None = None) -> RecordingOptions:
@@ -142,12 +154,7 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     compactor: Compactor | None = None
     publisher: MemoryPublisher | None = None
     collector: TurnMetricsCollector | None = None
-
-    async def memory_payload() -> MemoryPayload:
-        """What `concierge.memory` carries now: read on the writer's store thread, in order with its writes."""
-        if writer is None:
-            return empty_memory_payload()
-        return await writer.call(build_memory_payload, writer.store, writer.thread_id)
+    timer: asyncio.Task[None] | None = None
 
     async def on_shutdown(reason: str) -> None:  # a plain async def: add_shutdown_callback reads its __code__
         # One ordered callback: the job runs its shutdown callbacks concurrently, so a separate close could
@@ -158,6 +165,8 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
             summarizer.append(build_llm("summarizer", settings))
             return summarizer[-1]
 
+        if timer is not None:  # first: a sleeping 10-minute task would hold the shutdown up
+            timer.cancel()
         if collector is not None:  # first: the room is disconnected before the callbacks run (plan C6)
             collector.stop_publishing()
         if publisher is not None:
@@ -192,12 +201,35 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     ctx.add_shutdown_callback(on_shutdown)  # first, so a failed connect or session.start still closes the store
     # Spec §4.0: the store reads overlap the room connection (connect is idempotent; session.start's is a no-op).
     # The preload is a tracked task, so a failed connect or a missed deadline still leaves it for on_shutdown.
-    preloading = track(tasks, preload(store, info.visitor_id, session_id), log=logger) if store is not None else None
+    # B7: the count comes first, and the preload waits for it, so a capped session never loads the memory.
+    counting = preloading = None
+    if store is not None:
+        counting = track(tasks, over_daily_cap(store, info.visitor_id, settings.sessions_per_day), log=logger)
+        loading = functools.partial(preload, store, info.visitor_id, session_id)
+        preloading = track(tasks, preload_unless_capped(counting, loading), log=logger)
     _, preloaded = await asyncio.gather(ctx.connect(), _preload_or_none(preloading))
+    # The count is done unless the preload missed its deadline (the preload waits for it). A late count is awaited
+    # after session.start instead, so RoomIO's lk.chat and pre-connect audio handlers aren't held up (D9, review I3).
+    late_count = counting if counting is not None and not counting.done() else None
+    capped = late_count is None and await was_capped(counting)
+
+    def stop_timer() -> None:  # "Forget me": the 10-minute line can't follow the goodbye
+        if timer is not None:
+            timer.cancel()
 
     session = build_session(ctx, settings)
     channels = ChannelTags()
-    publisher = MemoryPublisher(ctx.room, memory_payload)
+    # What concierge.memory and get_memory carry now: on the writer's thread, in order with its writes.
+    publisher = MemoryPublisher(ctx.room, lambda: current_memory(store, writer, info.visitor_id))
+    rpcs = functools.partial(  # after connect: local_participant exists
+        serve_rpcs, ctx.room, visitor_id=info.visitor_id, store=store, publisher=publisher, session=session,
+        end=ctx.shutdown, tasks=tasks, preloading=preloading, stop_timer=stop_timer,
+    )
+    if capped:  # memoryless, no greeting; the RPCs still answer (a capped visitor can still press "Forget me")
+        rpcs(writer=None)
+        await session.start(agent=ConciergeAgent(load_pack()), **room_start_kwargs(ctx, info, settings, channels))
+        track(tasks, say_and_end(session, DAILY_CAP_LINE, ctx.shutdown, "daily cap"), log=logger)
+        return Started(session, None, session_id, None, tasks, publisher=publisher)
 
     def on_merged(result: MergeResult) -> None:
         if collector is not None:
@@ -231,11 +263,18 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     session.on("agent_state_changed", collector.on_state_changed)
     if isinstance(session.llm, llm.LLM):
         session.llm.on("metrics_collected", collector.on_llm_metrics)
+    rpcs(writer=writer)
     await session.start(agent=agent, **room_start_kwargs(ctx, info, settings, channels))
+    if late_count is not None and await was_capped(late_count):  # no memory was loaded: the preload waits for it
+        if preloading is not None:
+            preloading.cancel()  # a count that timed out may still come back under the cap: no preload then
+        track(tasks, say_and_end(session, DAILY_CAP_LINE, ctx.shutdown, "daily cap"), log=logger)
+        return Started(session, None, session_id, None, tasks, writer, compactor, publisher, collector)
     greeting = session.generate_reply(instructions=greeting_instructions(preloaded))
     publisher.schedule()  # after the greeting is queued: the read waits behind the writer's thread, not the reply
+    timer = start_session_timer(session, settings.session_max_s, ctx.shutdown)  # B7: 10 minutes, then one line
 
     if store is not None and preloaded is not None:
         started = {"visits": preloaded.visits, "preload_ms": preloaded.ms, "returning": preloaded.block is not None}
         track(tasks, journal_row(store, preloaded.thread_id, session_id, "session_started", started), log=logger)
-    return Started(session, preloaded, session_id, greeting, tasks, writer, compactor, publisher, collector)
+    return Started(session, preloaded, session_id, greeting, tasks, writer, compactor, publisher, collector, timer)

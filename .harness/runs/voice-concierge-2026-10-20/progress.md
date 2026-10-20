@@ -13,6 +13,30 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 07:53 · C6-04 · passes
+
+- **Changed:**
+  - New `concierge/rpc.py`: `register_rpcs`, with `forget_me` answering `{"ok": true}` and then doing the erase in a task (empty memory, goodbye, `ctx.shutdown`), and `get_memory`. Both refuse any caller other than `visitor-<id>`.
+  - New `concierge/limits.py`: the timer, the daily cap and `say_and_end`.
+  - The kill switch is in `worker.on_request`.
+  - `session.py` now counts the session before it preloads, registers the RPCs after connect, and starts the 10-minute timer.
+  - Added `forget_me.schema.json` and `FakeSpeakingSession`.
+  - Tests 774 → 814.
+- **Verified:**
+  - In `test_forget_me_returns_ok_within_50_ms_while_the_erase_sleeps`, the handler answers in under 50 ms. At 1.5 s there are 0 visitor rows, 1 empty `concierge.memory` and the end stub was called.
+  - The kill-switch tests fail against the old `on_request`, and the session-level limit and RPC tests fail against the old `session.py`.
+  - `check.sh` is green with 814 tests.
+- **Opus review:** 0 Critical, 3 Important, all fixed test-first.
+  - I1: a capped session no longer preloads after its count times out.
+  - I2: "Forget me" now waits for a preload still running, which could otherwise re-create the thread.
+  - I3: a late count is awaited after `session.start`.
+  - Of the 5 Minor, 3 are fixed (M4 retry, M5 RPC errors logged by type, M7 the timer stopped by "Forget me"), 1 is a wording fix (M6), and 1 is open (M8). The plan's "C6-04 build notes" has the details.
+- **Next session (C6-05) must know:**
+  - M8 is open: a capped session can still reply while its cap line plays.
+  - `session.py` is at 280 lines and is a candidate for simplification.
+  - `tests/conftest.py` now points `CONCIERGE_OFF_FILE` at a temp path for every test.
+- **Questions for Michael:** none new (D13 is still open).
+
 ### 2026-10-20 07:32 · C6-03 · passes
 
 - **Changed:**

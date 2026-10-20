@@ -33,8 +33,10 @@ class FakeClock:
 
 @pytest.fixture(autouse=True)
 def _temp_db_path(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The entrypoint opens Settings().db_path: no test may touch ~/.local/share/voice-concierge/."""
+    """The entrypoint opens Settings().db_path: no test may touch ~/.local/share/voice-concierge/. Nor may a real
+    ~/.voice-concierge-off (the kill switch) decline a test's job."""
     monkeypatch.setenv("CONCIERGE_DB_PATH", str(tmp_path / "concierge-db" / "concierge.db"))
+    monkeypatch.setenv("CONCIERGE_OFF_FILE", str(tmp_path / "voice-concierge-off"))
 
 
 @pytest.fixture

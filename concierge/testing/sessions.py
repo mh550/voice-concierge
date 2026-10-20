@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable
 from typing import Any
@@ -20,9 +21,14 @@ VISIT_SUMMARY = "The visitor works at Acme and asked what Michael builds."  # th
 async def start(ctx: Any, store: Store | None) -> Started:  # noqa: ANN401 (fake_job_context's JobContext)
     """One session to its first reply, with session_started written and the start concierge.memory sent."""
     started = await start_session(ctx, store, Settings())
-    await started.greeting
+    if started.greeting is not None:  # None: over the daily cap
+        await started.greeting
     for task in list(started.tasks):
-        await task
+        try:
+            await task
+        except asyncio.CancelledError:  # the session cancelled it (a preload after a late daily count)
+            if not task.cancelled():
+                raise
     if started.publisher is not None:
         await started.publisher.idle()
     return started
