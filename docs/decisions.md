@@ -24,3 +24,19 @@ It's better at not cutting people off mid-thought, and in 1.8.8 it needs no down
 the agent interrupting pauses, switch.
 
 **Question for Michael.** Keep VAD only, or switch to the local turn-detector model now that it needs no download?
+
+## D8 *default*: a per-fact `forget` leaves the turn's text in the journal (2026-10-20, C2-01)
+
+**Finding.** Spec §4.2 puts turn text in the journal (`user_turn`, and `agent_turn` with the heard text), and §4.0
+offers "forget" per fact. The `forget` tool really deletes the fact (B5), but the `user_turn` journal row the fact
+came from still holds what the visitor said, until "Forget me" or the 30-day idle purge.
+
+**Choice.** Keep the turn text in the journal; journal `fact_*` payloads carry ids and slots, never values (so the
+fact's value isn't copied anywhere else); the README's limits section says that a per-fact forget removes the
+memory, not the transcript, and that "Forget me" removes both. The journal never reaches the prompt or the page.
+
+**Rejected.** Scrubbing journal text on every `forget` (it would need to find the fact's words inside free text,
+which is guesswork), or storing no turn text at all (the spec wants the journal to keep every turn, §4.8).
+
+**Question for Michael.** Is "forget removes the memory; Forget me removes the transcript too" the promise you
+want, or should a per-fact forget also blank the text of the turn it came from?

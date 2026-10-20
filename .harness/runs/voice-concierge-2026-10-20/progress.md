@@ -13,6 +13,24 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 02:05 · C2-01 · passes
+
+- **Changed:** new `docs/plans/2026-10-20-C2-store.md` (schema DDL for all seven tables, models, slot catalogue,
+  store API, fence + reload-and-reapply, erasure, TTL purge, 56 named tests for C2-02…C2-04); D8 *default* in
+  `docs/decisions.md`. No code; tests 99 → 99.
+- **Verified:** grepped each step's items in the plan (7 `CREATE TABLE`s, fence, erasure/TTL sections, 6 slot rows,
+  test lists per feature); `check.sh` green (99). Prototyped in scratch first: two spawned writers × 20 fenced writes,
+  30 runs, always 40 rows / version 40 (never a 2nd retry); WAL erasure leaves no bytes only after
+  `wal_checkpoint(TRUNCATE)`. Opus plan review: 0 Critical, 4 Important, all applied (see the plan's last section).
+- **Next session must know:** the store applies ops literally (slot ADD rules are C4's merge, via the callable form of
+  `apply_fact_ops`), because C2-03's 40-valid-facts step rules out slot rules in the store. Thread ids are uuid4
+  hex and fact ids AUTOINCREMENT so nothing is reused after erasure. Times are ms; `idle_ttl_s` stays seconds.
+- **Question for Michael (D8):** a per-fact `forget` deletes the fact but the journal still holds that turn's text
+  until "Forget me" or the 30-day purge. OK, or should `forget` blank the turn text too?
+- **Proposed changes:** C5 should add `compaction_ran` to the `JournalType` Literal (§4.8 needs it, §4.2's list lacks
+  it); C2-05 step 1's `/tmp/voice-concierge/review-C2.diff` is outside the scratch dir (use the run's scratch dir, as
+  C1-06 did).
+
 ### 2026-10-20 · verify C1
 
 Re-ran `check.sh` (99 passed, ruff clean) and read each named test's assertions. Result: 33 steps, 33 hold, 0 fail. Notes: C1-01 step 6 says "reports 1 passed", which was true when the feature shipped; now the suite has 99 tests, so I ran `pytest tests/test_smoke.py` (1 passed) plus the full check (exit 0). C1-06 step 1: the diff is in the scratch dir, not `/tmp/voice-concierge/` (the plan's `## Review` says why: CLAUDE.md forbids writing elsewhere); counted as holding.
