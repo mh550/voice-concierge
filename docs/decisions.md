@@ -196,3 +196,36 @@ Reversible: `concierge/contract.py` and the schemas in `tests/contract/` (plan C
 keys: the page would have to tell "not reported" from "not sent".
 
 **Question for Michael.** Does the page's code expect these types, in particular `id` as a number, not a string?
+
+## D14 *default*: a message's text runs the full write gate (2026-10-20, C8-02)
+
+**Finding.** Review C8-02: spec §4.4 lifts the gate for the contact only, so the message text still runs every rule.
+Ordinary messages are refused: "could you act as a mentor?" (`instruction`), "have a look at acme.dev" (`url`), "meet
+2026-10-22 10:30" (`phone`, twelve digits).
+
+**Choice.** Keep the full gate on the text, as the spec says; the reply now says why in two forms (`CONTACT_IN_TEXT`
+for an email or phone, `CANT_TAKE` otherwise), so the model asks for the contact in the right field or for plain words
+(`test_a_rejected_text_gets_the_reply_for_its_reason`). Reversible: `_rejection` in `concierge/message_tool.py`.
+
+**Rejected.** Lifting the url and instruction rules for the text: the text never goes back into a prompt, but Michael
+reads it, and a link from an anonymous visitor is what the gate exists to stop. Not mine to widen.
+
+**Question for Michael.** Should a message's text allow links (and the date-like digits the phone rule catches)?
+
+## D15 *default*: messages go with the visitor's thread at the 30-day idle purge (2026-10-20, C8-02)
+
+**Finding.** Review C8-02: `purge_idle` (B6) deletes an idle thread with its child rows, `messages_for_michael`
+included, and leaving a message doesn't count as activity beyond the session's own.
+
+**Choice.** Keep it: a message is visitor data like the rest, and the 30-day TTL is the privacy promise. MORNING.md
+says to read them within 30 days.
+
+**Rejected.** Keeping messages past the TTL: it breaks the README's retention claim.
+
+**Question for Michael.** Should messages outlive the 30-day purge (say, until you delete them)?
+
+## Health port: loopback only (Michael, 2026-10-20)
+
+**Decision.** The worker's health endpoint (8081 under `start`) binds 127.0.0.1: `AgentServer(host="127.0.0.1")` in
+`concierge/worker.py` (1.8.8's default `host=""` is every interface, `livekit/agents/worker.py:323`). Michael's INBOX
+answer of 2026-10-20; built in C8-01, asserted by `test_import_needs_no_keys`. MORNING.md no longer asks about it.

@@ -1,16 +1,22 @@
 """The concierge Agent: its instructions are the §5 prefix, built once at session start and never rewritten.
 
-Its two tools are the visitor's explicit memory requests (spec §4.4, B4, B5): `remember` and `forget` write before
-they return. Everything else about the visitor is noted in the background by the MemoryWriter.
+Its tools are the visitor's explicit requests, and each writes before it returns: `remember` and `forget` (spec §4.4,
+B4, B5) and `leave_message_for_michael` (§4.6, C8). Everything else about the visitor is noted in the background by
+the MemoryWriter.
 """
 
 from __future__ import annotations
+
+import logging
 
 from livekit.agents import Agent, llm
 
 from concierge.memory_tools import do_forget, do_remember
 from concierge.memory_writer import MemoryWriter
+from concierge.message_tool import do_leave_message
 from concierge.prompt import build_instructions
+
+logger = logging.getLogger("concierge.session")  # its warning is the session's
 
 
 class ConciergeAgent(Agent):
@@ -38,3 +44,24 @@ class ConciergeAgent(Agent):
             about: what to forget, in the visitor's words (e.g. "where I work", "my name", "Rust").
         """
         return await do_forget(self._memory, about)
+
+    @llm.function_tool
+    async def leave_message_for_michael(self, text: str, contact: str | None = None) -> str:
+        """Pass a message on to Michael, when the visitor asks to leave him one.
+
+        Args:
+            text: the message, in the visitor's words, without their contact details.
+            contact: how Michael can reach them (an email or phone number), only if they offer one; read it back
+                to them once before saving.
+        """
+        return await do_leave_message(self._memory, text, contact)
+
+
+def agent_or_memoryless(pack: str, memory_block: str | None, writer: MemoryWriter | None = None) -> ConciergeAgent:
+    """The agent with the visitor's memory block, or without one if build_instructions rejects it (the renderer
+    keeps it under the cap, so this is the backstop that keeps a session from failing over memory)."""
+    try:
+        return ConciergeAgent(pack, memory_block, memory=writer)
+    except ValueError:
+        logger.warning("no memory this session: the memory block was rejected")
+        return ConciergeAgent(pack, memory=writer)

@@ -12,6 +12,36 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+### 2026-10-20 22:00 · verify C8
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| C8-01 | 1 | `ls docs/plans`; read `2026-10-20-C8-messages.md` | exists; sections: tool, gate exception, script, erasure (tests named) | yes |
+| C8-01 | 2 | `agent.py:49` signature; ran `pytest tests/test_messages.py tests/test_scripts.py tests/test_erasure.py` (87 pass); read `test_an_email_or_phone_contact_passes_the_gate`, `test_an_email_in_a_name_fact_is_still_rejected`, cap tests (500/120) | tool is `leave_message_for_michael(text, contact=None)`; row asserted; email contact passes; email in name fact rejected as `email`; caps tested; plan says write is `Store.add_message` under thread fence | yes |
+| C8-01 | 3 | read `test_messages_lists_newest_first` (tests/test_scripts.py:479) | seeds two messages; asserts exact order newest first, tab-separated created_at, contact or `-`, text | yes |
+| C8-01 | 4 | read `test_forget_me_deletes_the_visitors_messages`; grep README.md/MORNING.md | other visitor's message survives, mine gone; README:26 mentions tool and script; MORNING:59 and :118 mention both | yes |
+| C8-01 | 5 | `lib/check.sh` | green, 940 tests | yes |
+| C8-02 | 1 | scratch `review-C8.diff` (776 lines) vs fresh `git diff 7f5cb5c..HEAD`; plan `## Review` | diff in scratch dir per Michael's 1b; it predates the final MORNING D14/D15 lines (slightly stale snapshot, differs from fresh diff); `## Review` present | yes (stale snapshot noted) |
+| C8-02 | 2 | read `## Review`: 0 Critical/Important, 7 Minor | nothing required fixing; the per-reason reply and off-loop tests exist in test_messages | yes |
+| C8-02 | 3 | `wc -l concierge/*.py` | max 250 (memory_writer.py), session.py 246 | yes |
+| C8-02 | 4 | `lib/check.sh` | green, 940 tests | yes |
+
+### 2026-10-20 21:30 · C8-02 · passes
+
+- **Changed:** review of `git diff 7f5cb5c..HEAD -- . ':!.harness'` (776 lines) in `$HARNESS_SCRATCH/review-C8.diff`, notes under `## Review` in `docs/plans/2026-10-20-C8-messages.md`. An Opus reviewer found 0 Critical, 0 Important and 7 Minor. Fixed: a rejected message text now gets a reply for its reason (`CONTACT_IN_TEXT` vs `CANT_TAKE`), and a new off-loop test for the message write (it fails when the write is forced onto the loop). `session.py` was 282 lines, now 246: `preload_or_none` → `preload.py`, `agent_or_memoryless` → `agent.py`, `recording_options` → `config.py`. Tests 935 → 940.
+- **Verified:** `wc -l concierge/*.py` max is 250 (`memory_writer.py`). `tests/test_messages.py` 25 passed, `tests/test_critical_path.py` 6 passed. `lib/check.sh` green, 940 tests, 90 s.
+- **Step 1 path:** I wrote the diff to the scratch dir, not `/tmp/voice-concierge/`, which is outside where I may write. This applies your C7-05 answer 1b to C8. The step text is unchanged.
+- **Questions for Michael:** D14 *default*: the message text still runs the full gate, so a link, "act as …" or a date with a time is refused. Should links be allowed? D15 *default*: messages are deleted with the thread at the 30-day idle purge, and MORNING now says to read them within 30 days. Should messages outlive the purge?
+- **Proposed changes:** amend C8-02 step 1 to `$HARNESS_SCRATCH/review-C8.diff`, as you did for C7-05.
+
+### 2026-10-20 20:40 · C8-01 · passes
+
+- **Changed:** `ConciergeAgent.leave_message_for_michael(text, contact=None)` → `concierge/message_tool.py` (caps 500/120, rejects rather than truncates; contact gated with `purpose="contact"`, text with the full gate; `gate_rejected` journals field + reason only); `Store.add_message` (one fenced `write`) and `Store.messages()` (newest first), `models.Message`; `scripts/messages.py <db>`; one prompt line; README "What it does" + turn-path lines; MORNING steps 5 and 11. Plan `docs/plans/2026-10-20-C8-messages.md`. Tests 909 → 935.
+- **Also (INBOX answer):** health port bound to 127.0.0.1 (`AgentServer(host="127.0.0.1")`, test-first in `test_import_needs_no_keys`); MORNING's firewall question dropped, README says 127.0.0.1:8081; recorded in `docs/decisions.md` ("Health port: loopback only").
+- **Verified:** `tests/test_messages.py` 21 passed (row + fence bump, email/spoken-email/phone contact pass, instruction/URL/secret contact rejected, email in text rejected, `name` email rejected by `check_value` and `remember`, caps 500/501 and 120/121, NULL contact, no memory and post-`forget_me` write nothing and recreate nothing); `test_messages_lists_newest_first` + 3 more in test_scripts; `test_forget_me_deletes_the_visitors_messages`; manual `scripts/messages.py` run on a scratch db; `lib/check.sh` green, 935 tests, 90 s.
+- **Next:** C8-02 (review). `concierge/store.py` is 235 lines, `memory_writer.py` 250: close to C8-02's 250-line cap.
+- **Proposed changes:** C8-02 step 1 still writes to `/tmp/voice-concierge/review-C8.diff`, outside the allowed dirs (same as C7-05 step 1, answered 1b); suggest `$HARNESS_SCRATCH/review-C8.diff`.
+
 ### 2026-10-20 17:00 · verify C7
 
 All 25 steps of C7-01..05 re-run; none flipped. Notes: spec §4.0 has 17 rows (C7-03 step 1 says 16; the README has all 17). C7-04 step 9 writes `data/concierge.db`; MORNING uses the real `db_path` default (`~/.local/share/voice-concierge/concierge.db`), a documented deviation (plan "Proposed changes", progress C7-04).

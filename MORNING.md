@@ -56,9 +56,10 @@ Check: the memory panel lists the facts with channel and time, and the second vi
 
 ## 5. Text
 
-Type a message on the page.
+Type a message on the page. Then ask it to leave Michael a message with your email (the `leave_message_for_michael` tool).
 
-Check: it's answered from the same memory, and the new fact shows channel `text`. Undo: step 6.
+Check: it's answered from the same memory, the new fact shows channel `text`, and step 11's `scripts/messages.py` lists
+the message. Undo: step 6.
 
 ## 6. Forget me
 
@@ -114,7 +115,11 @@ Check: the setting reads on. Undo: turn it off.
 
 The visitor id is in the page's local storage (browser dev tools). Run it to a terminal only: it prints visitor data.
 
-Check: one line per fact, corrected ones with a `valid_to`. Undo: none, it's read-only.
+`.venv/bin/python scripts/messages.py ~/.local/share/voice-concierge/concierge.db` lists the messages left for you.
+Read them within 30 days: the idle purge deletes them with the visitor's thread (D15).
+
+Check: one line per fact, corrected ones with a `valid_to`; one line per message, newest first. Undo: none, both are
+read-only.
 
 ## 12. Stop
 
@@ -139,5 +144,5 @@ Each is a default the build took (details in `docs/decisions.md`); say if you wa
   paraphrases)?
 - **D12:** after a compaction keep the last 6 messages verbatim (3 exchanges, the default) or the last 6 exchanges?
 - **D13:** does the page expect fact `id` as a number and timestamps as ISO-8601 `…Z` strings?
-- **Health port:** the worker's health server listens on all interfaces, port 8081. Bind it to `127.0.0.1`
-  (`AgentServer(host="127.0.0.1")`)? Until then, keep 8081 closed at the firewall.
+- **D14:** should a message for you allow links in its text (the gate refuses them now, and "act as …")?
+- **D15:** should messages outlive the 30-day idle purge, until you delete them?

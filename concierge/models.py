@@ -203,3 +203,13 @@ class TurnMetrics(BaseModel):
     prompt_tokens: int | None = Field(default=None, ge=0)
     cached_tokens: int | None = Field(default=None, ge=0)
     compacted: bool = False
+
+
+class Message(BaseModel):
+    """A `messages_for_michael` row (spec §4.6, C8): what `scripts/messages.py` lists."""
+
+    id: int
+    thread_id: str
+    text: str
+    contact: str | None
+    created_at: int

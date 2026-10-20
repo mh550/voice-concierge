@@ -1,7 +1,7 @@
-"""The operator scripts, run as subprocesses: scripts/memory_history.py (C2-04), and C7-02's eval_memory.py,
-latency_report.py, run-worker.sh and the systemd unit (plan C7 "Part 1" and "Part 3"). Nothing here starts a worker,
-calls a provider or runs systemctl: every run-worker.sh test leaves a required name unset, and those that set
-any LiveKit name run a copy that execs a stub python."""
+"""The operator scripts, run as subprocesses: scripts/memory_history.py (C2-04), C7-02's eval_memory.py,
+latency_report.py, run-worker.sh and the systemd unit (plan C7 "Part 1" and "Part 3"), and C8's messages.py.
+Nothing here starts a worker, calls a provider or runs systemctl: every run-worker.sh test leaves a required name
+unset, and those that set any LiveKit name run a copy that execs a stub python."""
 
 import configparser
 import hashlib
@@ -27,6 +27,7 @@ EVAL_MEMORY = ROOT / "scripts" / "eval_memory.py"
 LATENCY_REPORT = ROOT / "scripts" / "latency_report.py"
 RUN_WORKER = ROOT / "scripts" / "run-worker.sh"
 UNIT = ROOT / "deploy" / "voice-concierge.service"
+MESSAGES = ROOT / "scripts" / "messages.py"
 EVALS = ROOT / "evals" / "memory"
 EVAL_STEMS = sorted(p.stem for p in EVALS.glob("*.yaml"))
 
@@ -462,3 +463,55 @@ def test_systemd_unit_has_the_six_keys() -> None:
 
 def test_systemd_unit_waits_for_live_sessions_to_drain() -> None:
     assert "TimeoutStopSec=660" in UNIT.read_text().splitlines()
+
+
+# --- C8-01: scripts/messages.py (plan C8 "The script") -------------------------------------------------------------
+
+
+def seed_messages(db: Path) -> None:
+    clock = iter([1_760_000_000_000, 1_760_000_000_000, 1_760_000_060_000, 1_760_000_120_000])
+    with Store(db, clock=lambda: next(clock)) as store:
+        thread = store.get_or_create_thread(str(uuid.uuid4()))
+        store.add_message(thread.id, "Loved the RAG talk", "ann@example.com")
+        store.add_message(thread.id, "Second thought: call me", None)
+
+
+def test_messages_lists_newest_first(tmp_path, home) -> None:
+    db = tmp_path / "memory.db"
+    seed_messages(db)
+
+    result = run_py(MESSAGES, db, env=scrubbed_env(home))
+
+    assert result.returncode == 0, result.stderr
+    assert [line.split("\t") for line in result.stdout.splitlines()] == [
+        ["2025-10-09T08:54:20.000Z", "-", "Second thought: call me"],
+        ["2025-10-09T08:53:20.000Z", "ann@example.com", "Loved the RAG talk"],
+    ]
+
+
+def test_messages_on_a_store_without_messages_prints_nothing(tmp_path, home) -> None:
+    db = tmp_path / "memory.db"
+    Store(db).close()
+    result = run_py(MESSAGES, db, env=scrubbed_env(home))
+    assert (result.returncode, result.stdout) == (0, "")
+
+
+def test_messages_never_writes_the_database(tmp_path, home) -> None:
+    db = tmp_path / "memory.db"
+    seed_messages(db)
+    before = hashlib.sha256(db.read_bytes()).hexdigest()
+    assert run_py(MESSAGES, db, env=scrubbed_env(home)).returncode == 0
+    assert hashlib.sha256(db.read_bytes()).hexdigest() == before
+
+
+def test_messages_usage_missing_db_and_not_a_store_exit_2(tmp_path, home) -> None:
+    junk = tmp_path / "junk.db"
+    junk.write_bytes(b"not a database" * 100)
+    usage = run_py(MESSAGES, env=scrubbed_env(home))
+    assert usage.returncode == 2 and "usage" in usage.stderr.lower()
+    missing = tmp_path / "missing.db"
+    assert run_py(MESSAGES, missing, env=scrubbed_env(home)).returncode == 2
+    assert not missing.exists()
+    result = run_py(MESSAGES, junk, env=scrubbed_env(home))
+    assert result.returncode == 2
+    assert "not a memory store" in result.stderr and "Traceback" not in result.stderr

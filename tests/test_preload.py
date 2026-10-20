@@ -17,7 +17,7 @@ from livekit.agents.testing import fake_job_context
 
 from concierge import session as concierge_session
 from concierge import worker
-from concierge.agent import ConciergeAgent
+from concierge.agent import ConciergeAgent, agent_or_memoryless
 from concierge.knowledge import load_pack
 from concierge.models import AddFact, VisitorState
 from concierge.preload import Preloaded, preload
@@ -259,7 +259,7 @@ def test_agent_falls_back_to_no_block_when_build_instructions_raises() -> None:
     pre = Preloaded(thread_id="t", version=1, visits=2, state=VisitorState(), facts=[], block="x" * 2000, ms=0.1)
     with pytest.raises(ValueError):
         build_instructions(pack, pre.block)
-    agent = concierge_session._agent_or_memoryless(pack, pre)
+    agent = agent_or_memoryless(pack, pre.block)
     assert agent.instructions == build_instructions(pack, None)
 
 

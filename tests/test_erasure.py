@@ -23,15 +23,7 @@ def count(store: Store, table: str) -> int:
 
 
 def leave_message(store: Store, thread_id: str, text: str) -> None:
-    # messages_for_michael has no Store API until C8; seed it through the fence.
-    store.write(
-        thread_id,
-        None,
-        lambda conn: conn.execute(
-            "INSERT INTO messages_for_michael (thread_id, text, contact, created_at) VALUES (?, ?, ?, 0)",
-            (thread_id, text, "ann@example.com"),
-        ),
-    )
+    store.add_message(thread_id, text, "ann@example.com")  # C8's write, as the leave_message_for_michael tool does
 
 
 def seed_visitor(store: Store, visitor_id: str, marker: str = "Ann") -> str:
@@ -139,6 +131,21 @@ def test_forget_me_only_touches_that_visitor(store, visitor_id) -> None:
     assert store.thread_for(other) is not None
     for table in VISITOR_TABLES:
         assert count(store, table) > 0
+
+
+def test_forget_me_deletes_the_visitors_messages(store, visitor_id) -> None:
+    mine = store.get_or_create_thread(visitor_id).id
+    theirs = store.get_or_create_thread(str(uuid.uuid4())).id
+    leave_message(store, mine, "Ann says hello")
+    leave_message(store, mine, "Ann again")
+    leave_message(store, theirs, "Bob says hello")
+
+    assert store.forget_me(visitor_id) is True
+
+    assert [(m.thread_id, m.text) for m in store.messages()] == [(theirs, "Bob says hello")]
+    with pytest.raises(ThreadMissing):  # and no message can be left on the erased thread
+        leave_message(store, mine, "too late")
+    assert count(store, "messages_for_michael") == 1
 
 
 def test_forget_me_unknown_visitor_returns_false(store, visitor_id) -> None:
