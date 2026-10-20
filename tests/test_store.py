@@ -588,6 +588,14 @@ def test_delete_fact_leaves_the_value_in_neither_file(store, visitor_id) -> None
         assert b"Zqxmarker" not in (path.read_bytes() if path.exists() else b""), suffix
 
 
+def test_a_repeated_supersedes_id_is_invalidated_once_and_not_reported_skipped(store, visitor_id) -> None:
+    thread = store.get_or_create_thread(visitor_id)
+    ann = store.add_fact(thread.id, add("name", "Ann"))
+    result = store.apply_fact_ops(thread.id, [add("name", "Anne", supersedes=[ann.id, ann.id])])
+    assert result.skipped == []
+    assert [f.value for f in store.valid_facts(thread.id)] == ["Anne"]
+
+
 @pytest.mark.parametrize("form", ["list", "callable"])
 def test_apply_fact_ops_delete_leaves_the_value_in_neither_file(store, visitor_id, form) -> None:
     # C4's forget tool may delete several facts in one batch, so the checkpoint can't live only in delete_fact.

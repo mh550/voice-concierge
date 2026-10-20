@@ -1,6 +1,7 @@
 """C2-04: scripts/memory_history.py (plan C2 "scripts/memory_history.py")."""
 
 import hashlib
+import sqlite3
 import subprocess
 import sys
 import uuid
@@ -97,3 +98,16 @@ def test_memory_history_usage_exits_2(tmp_path) -> None:
     result = run(tmp_path / "memory.db")
     assert result.returncode == 2
     assert "usage" in result.stderr.lower()
+
+
+def test_memory_history_bad_fact_row_exits_2_without_a_traceback(tmp_path) -> None:
+    db, visitor_id = tmp_path / "memory.db", str(uuid.uuid4())
+    seed(db, visitor_id)
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE facts SET slot = 'not_a_slot'")
+
+    result = run(db, visitor_id)
+
+    assert result.returncode == 2
+    assert "not a memory store" in result.stderr
+    assert "Traceback" not in result.stderr and "Ann" not in result.stderr
