@@ -91,16 +91,19 @@ def test_no_await_on_the_turn_path_targets_memory_work() -> None:
 
 
 class LoopGuardStore(Store):
-    """A store that raises when called on the event loop's thread (the test runs the loop on the main thread)."""
+    """A store that records each call made on the event loop's thread (the test runs the loop on the main thread).
+    It records rather than raises: the item handler catches every exception, so a raise would be swallowed."""
 
-    def _guard(self) -> None:
+    violations: list[str]
+
+    def _guard(self, name: str) -> None:
         if threading.current_thread() is threading.main_thread():
-            raise AssertionError("a store call ran on the event loop")
+            self.violations.append(name)
 
 
 def _guarded(real: Any) -> Any:  # noqa: ANN401
     def call(self: LoopGuardStore, *args: Any, **kwargs: Any) -> Any:
-        self._guard()
+        self._guard(real.__name__)
         return real(self, *args, **kwargs)
 
     return call
@@ -116,15 +119,18 @@ async def test_handler_never_calls_the_store(tmp_path: Path, visitor_id: str) ->
     thread_id = store.get_or_create_thread(visitor_id).id
     store.close()
     guarded = LoopGuardStore(tmp_path / "guard.db")
+    guarded.violations = []
     fake = FakeLLM([emit()])
     writer = MemoryWriter(guarded, thread_id, "s1", lambda: fake, debounce_s=60)
     try:
         for item in (llm.ChatMessage(role="assistant", content=["Hello."], id="a0"),
                      llm.ChatMessage(role="user", content=["I work at Acme."], id="u1")):
-            writer.on_item_added(ConversationItemAddedEvent(item=item))  # would raise on a store call
+            writer.on_item_added(ConversationItemAddedEvent(item=item))
+        assert guarded.violations == []  # no store call, even one a helper makes and the handler's except hides
         await writer.flush()  # the run's store calls go through the writer's own thread
         rows = await asyncio.to_thread(guarded.journal_rows, thread_id)
         assert [r.type for r in rows] == ["agent_turn", "user_turn", "extraction_ran"]
+        assert guarded.violations == []
     finally:
         await writer.aclose()
         await asyncio.to_thread(guarded.close)
