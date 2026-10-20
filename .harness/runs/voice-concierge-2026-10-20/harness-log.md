@@ -50,3 +50,4 @@
 - 2026-10-20 08:13 · deadline reached
 - 2026-10-20 08:13 · run ended (deadline): 31/38 passing · 38 sessions (38 real) · 31 features passed · $131.59 · 8.0 h · by kind: init 1 ($6.04), coding 31 ($123.88), verify 6 ($1.66) · by model: claude-fable-5-1 1 ($6.04), claude-opus-5-5 31 ($123.88), claude-sonnet-5-5 6 ($1.66)
 - 2026-10-20 11:19 · merged main into harness/voice-concierge-2026-10-20
+- 2026-10-20 11:21 · C6 verified and tagged run/voice-concierge-2026-10-20/C6
