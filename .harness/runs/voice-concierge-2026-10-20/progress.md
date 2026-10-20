@@ -13,6 +13,25 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 03:15 · C1-04 · passes
+
+- **Added:** `concierge/prompt.py` (`STATIC_INSTRUCTIONS`, 1,263 chars; `MEMORY_HEADER`; `MEMORY_BLOCK_MAX_CHARS = 1500`;
+  `STATIC_AND_PACK_MAX_TOKENS = 3000`; `estimate_tokens` = ceil(len/3.5); `build_instructions(pack, memory_block)`),
+  `concierge/agent.py` (`ConciergeAgent(pack, memory_block=None)`, no tools), `tests/test_prompt.py` (13),
+  `tests/test_agent.py` (2), "C1-04 as built" in the C1 plan. Tests 45 → 60.
+- **Verified:** `.harness/check.sh` exit 0 (60 passed, ruff clean). Static + pack = 2,554 estimated tokens of 3,000.
+  In two `session.run(user_input=…)` turns, the `lk.agent_task.instructions` system item is the same in both calls and
+  call 2's items begin with call 1's (compared by `model_dump_json`). Two mutants fail the test: `update_instructions`
+  between the turns, and a system item inserted at index 1. An Opus review found no Critical issues. I applied its
+  Important finding (talk about the visitor's own earlier visits is now explicitly on-topic, so the off-topic rule no
+  longer declines it) and 3 Minor ones.
+- **Next session:** `build_instructions` takes the memory block **already rendered** with `MEMORY_HEADER` (C3-02) and
+  only places it and checks the cap. `STATIC_INSTRUCTIONS` must not contain `MEMORY_HEADER` (C3-02 asserts this). About
+  1,550 chars of budget are left for C3-03's name rule and C4's tool guidance. Typed turns never call
+  `on_user_turn_completed`. `fake_job_context` leaks a `TemporaryDirectory` (a ResourceWarning under `-W error`, upstream).
+- **Proposed change (C1-06 review):** `FakeLLM.calls` stores `chat_ctx.copy()`, which is shallow. Storing a
+  `model_dump_json()` snapshot per call would make the prefix check catch in-place edits too.
+
 ### 2026-10-20 02:30 · C1-03 · passes
 
 - **Added:** `concierge/config.py` (pydantic-settings `Settings`, prefix `CONCIERGE_`, all fields from the step;

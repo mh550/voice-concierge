@@ -51,7 +51,7 @@
         "tests/test_agent.py (fake LLM, AgentSession.run(user_input=...) twice under livekit.agents.testing.fake_job_context): both FakeLLM.calls[i].chat_ctx start with the same system/instructions item and the chat_ctx items of call 2 begin with every item of call 1 in order (prefix stability); the session's instructions are not rewritten between the two turns",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C1-05", "milestone": "C1", "kind": "build", "model": "opus",
