@@ -13,6 +13,13 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 16:30 · C7-05 · passes
+
+- **Changed:** with Michael's answers (1b, 2a), no code change was needed. I rewrote `$HARNESS_SCRATCH/review-C7.diff` (`git diff 5a59354..HEAD -- . ':!.harness'`, 2595 lines) and updated the `## Review` intro in `docs/plans/2026-10-20-C7-ops-docs.md` to cite the amended step 1. Tests 909 → 909.
+- **Verified:** step 3's amended `git grep` rc=1 (empty); the `hostname` grep on README/MORNING is empty; `*.db` and `data/` are ignored and `git ls-files '*.db'` is empty. `.venv/bin/pytest -m 'not live' -q` gives 909 passed, 4 deselected, 0 skipped, in 85 s. `lib/check.sh` is green (909 tests, 92 s). Steps 2 and 4 are unchanged since the verify run.
+- **Next:** C7 is done. Per the brief, C8 is next.
+- **Questions for Michael:** the health-port bind question in MORNING.md is still open.
+
 ### 2026-10-20 17:10 · C7-05 · not yet (parked)
 
 - **Changed:** no code. Rewrote the C7 review diff (`git diff 5a59354..HEAD -- . ':!.harness'`, 2595 lines) to scratch `review-C7.diff`; INBOX question added. Tests 909 → 909.
