@@ -210,9 +210,9 @@ class Store(ErasureStore):
             raise FactMissing(fact_id)
 
     def delete_fact(self, fact_id: int, *, thread_id: str | None = None, session_id: str = "") -> None:
-        """Really delete the row (the `forget` tool, B5), recompute the state; apply_fact_ops checkpoints the WAL,
-        so the value leaves the disk too. FactMissing if there is none. Tools pass `thread_id`, so a model-supplied id can't
-        reach another visitor's fact."""
+        """Really delete the row (the `forget` tool, B5) and recompute the state; apply_fact_ops checkpoints the
+        WAL, so the value leaves the disk too. FactMissing if there is none. Tools pass `thread_id`, so a
+        model-supplied id can't reach another visitor's fact."""
         tid = self._thread_of(fact_id) if thread_id is None else thread_id
         if fact_id in self.apply_fact_ops(tid, [DeleteFact(fact_id=fact_id)], session_id=session_id).skipped:
             raise FactMissing(fact_id)

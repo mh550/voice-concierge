@@ -155,7 +155,7 @@
         "No module under concierge/ exceeds 250 lines; store.py is split (e.g. store/schema.py, store/facts.py) if it does",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
 
     {

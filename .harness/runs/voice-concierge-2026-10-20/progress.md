@@ -13,6 +13,21 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 07:05 · C2-05 · passes
+
+- **Changed:** README "Mapping onto Agents 2.0" table (thread, lane state, journal, fence, channels, idle_ttl; "1.8 has
+  no lease, so two live sessions for one visitor can interleave turns") + `tests/test_readme.py`; `apply_fact_ops`
+  checkpoints the WAL after any delete (`ApplyResult.deleted`), without waiting; `AddFact.supersedes` deduped;
+  `memory_history.py` guards both reads; `Store` docstring gives blocking bounds and error types. Tests 281 → 290.
+- **Verified:** `check.sh` green (290). Opus review of `review-C2.diff` (in the scratch dir, as C1-06 did): 0 Critical,
+  2 Important, 12 Minor. Important #1 RED 841613b → GREEN aa81a14; #2 (a test gap) fails on a no-compaction mutant.
+  4 Minor fixed (2 RED → GREEN), the rest assigned to C3–C8 in the plan's `## Review`. Largest module: store.py, 238 lines.
+- **Next session must know:** a `DeleteFact` through any path now leaves the disk; if a reader blocks the checkpoint, the next
+  write finishes it. C4's `forget` must delete the slot's supersession chain, and its callable must re-check targets (`based_on`
+  doesn't). C5 adds `set_summary` with character checks. C6 `close()`s the store at job end and passes the UTC day.
+  C8 answers the forget_me RPC as soon as the delete commits.
+- **Proposed change:** later review steps should name the scratch dir, not `/tmp/voice-concierge/`. D8 still open.
+
 ### 2026-10-20 06:10 · C2-04 · passes
 
 - **Changed:** new `concierge/store_erasure.py` (`forget_me`, `purge_idle`, `count_session`, `purge_daily_counts`;

@@ -116,8 +116,8 @@ def apply(
 ) -> tuple[list[int], list[int], list[int]]:
     """Reload the valid facts, resolve and re-validate the ops, apply them in order, journal each, store the state.
 
-    Returns (added fact ids, skipped target ids, deleted fact ids). A target that isn't a fact of this thread is skipped, as is an
-    invalidation of an already-invalid fact (its first valid_to stands).
+    Returns (added fact ids, skipped target ids, deleted fact ids). A target that isn't a fact of this thread is
+    skipped, as is an invalidation of an already-invalid fact (its first valid_to stands).
     """
     resolved = ops(valid_facts(conn, thread_id)) if callable(ops) else ops
     # From plain data, so an op mutated after it was built (pydantic models aren't frozen) is checked again.
