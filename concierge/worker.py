@@ -16,8 +16,8 @@ from livekit.agents import AgentServer, JobContext, JobProcess, JobRequest, cli
 from livekit.plugins import silero
 from pydantic import ValidationError
 
-from concierge.config import Settings
 from concierge import retention
+from concierge.config import Settings
 from concierge.dispatch import DispatchError, parse_dispatch
 from concierge.session import start_session
 from concierge.store import Store, StoreError

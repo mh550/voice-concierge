@@ -32,16 +32,26 @@ End = Callable[[str], None]  # ctx.shutdown(reason)
 
 
 class Speaker(Protocol):
-    """What the limits need of an AgentSession: `say` (agent_session.py:1544) and `aclose` (:1445)."""
+    """What the limits need of an AgentSession: `say` (agent_session.py:1544), `interrupt` (:1648) and `aclose`
+    (:1445)."""
 
     def say(self, text: str, *, allow_interruptions: bool = ..., add_to_chat_ctx: bool = ...) -> Any: ...  # noqa: ANN401
+
+    def interrupt(self, *, force: bool = ...) -> Any: ...  # noqa: ANN401
 
     async def aclose(self) -> None: ...
 
 
 async def say_and_end(session: Speaker, line: str, end: End | None, reason: str) -> None:
-    """Say `line` (no interruptions, not in the chat context), wait for its playout up to SAY_TIMEOUT_S, then
-    `end(reason)`; with no `end`, close the session. A session that can't speak (closing, `say` raises) still ends."""
+    """Cut the reply that is playing and any queued behind it, then say `line` (no interruptions, not in the chat
+    context), wait for its playout up to SAY_TIMEOUT_S, then `end(reason)`; with no `end`, close the session. Without
+    the interrupt, `say` would queue behind the current reply (agent_activity.py `_schedule_speech`): a goodbye after
+    "Forget me" would wait while erased memory is still spoken. `force` also cuts a non-interruptible line already
+    playing (the cap line). A session that can't speak (closing, `say` raises) still ends."""
+    try:
+        session.interrupt(force=True)
+    except RuntimeError as exc:  # the session isn't running; `say` below raises too and the session ends
+        logger.info("nothing interrupted before the %s line (%s)", reason, type(exc).__name__)
     try:
         handle = session.say(line, allow_interruptions=False, add_to_chat_ctx=False)
         async with asyncio.timeout(SAY_TIMEOUT_S):

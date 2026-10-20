@@ -265,6 +265,8 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
         session.llm.on("metrics_collected", collector.on_llm_metrics)
     rpcs(writer=writer)
     await session.start(agent=agent, **room_start_kwargs(ctx, info, settings, channels))
+    if writer is not None and writer.erased:  # "Forget me" during start: it says goodbye and ends (review A-M1)
+        return Started(session, None, session_id, None, tasks, writer, compactor, publisher, collector)
     if late_count is not None and await was_capped(late_count):  # no memory was loaded: the preload waits for it
         if preloading is not None:
             preloading.cancel()  # a count that timed out may still come back under the cap: no preload then
