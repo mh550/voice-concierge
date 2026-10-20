@@ -22,13 +22,13 @@ with the portfolio site's page).
 - Live evals (`pytest -m live`) need LiveKit keys. **Only Michael runs them**, in the morning (`MORNING.md`).
 
 ## Decisions and plans
-- Spec: `docs/spec.md` (D1–D4 Michael's, B1–B10 the builder's calls). Decisions: `docs/decisions.md`. A new default is
+- Spec: `docs/spec.md` (D1–D6 Michael's, B1–B12 the builder's calls). Decisions: `docs/decisions.md`. A new default is
   recorded there as `D<n> *default*`.
 - Background research (why each memory practice): `docs/background/memory-research.md`.
 - Plans: `docs/plans/<date>-<milestone>-<topic>.md`.
 
 ## Off-limits
-- **Secrets.** Never read, print or source `~/.config/voice-concierge/env` or any `.env`. The worker reads that env
+- **Secrets.** Never read, print or source `~/.config/voice-concierge/env`, any `.env`/`.env.local`, or `~/.livekit/` (the `lk` CLI config holds the API secret). Never run `lk`. The worker reads that env
   file only when Michael runs `scripts/run-worker.sh` or the systemd unit.
 - **Build-only.** Never start the worker against LiveKit Cloud, run `pytest -m live`, or install, enable or start the
   systemd unit. Write the unit file in `deploy/` only.

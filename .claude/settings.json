@@ -67,7 +67,10 @@
       "Bash(systemctl:*)",
       "Bash(scripts/run-worker.sh:*)",
       "Bash(lk:*)",
-      "Bash(*pytest* -m live*)"
+      "Bash(*pytest* -m live*)",
+      "Read(//home/mh550/.livekit/**)",
+      "Read(./.env.local)",
+      "Read(**/.env.local)"
     ]
   }
 }
