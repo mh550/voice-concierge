@@ -46,6 +46,7 @@ def test_malformed_metadata_raises(metadata: str) -> None:
         "3f2b8c1e-9a4d-4c7b-1e21-5d6f7a8b9c0d",  # wrong variant
         "3f2b8c1e-9a4d-4c7b-8e21-5d6f7a8b9c0d0",  # too long
         "../../etc/passwd",
+        "3f2b8c1e-9a4d-4c7b-8e21-5d6f7a8b9c0d\n",  # trailing newline: `$` alone matches before it
     ],
 )
 def test_non_uuid4_visitor_id_is_rejected(visitor_id: str) -> None:
