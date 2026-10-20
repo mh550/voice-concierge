@@ -21,7 +21,7 @@ from livekit.agents import llm
 from livekit.agents.voice.events import ConversationItemAddedEvent
 
 from concierge.extractor import WINDOW_MAX_TURNS, extract, extraction_window
-from concierge.forget_match import was_forgotten
+from concierge.forget_match import split_forgotten
 from concierge.merge import MergeResult, merge
 from concierge.models import Channel, SlotName
 from concierge.store import Store, StoreError, ThreadMissing
@@ -31,7 +31,9 @@ from concierge.turns import Turn, journal_note, turn_from_message
 
 logger = logging.getLogger("concierge.memory_writer")
 
-FLUSH_TIMEOUT_S = 20.0  # fits the worker's shutdown_process_timeout=30 with C5's summary after it
+# The final extraction's share of the shutdown (plan C5 "Timing"): with the 5 s summary and a 5 s busy wait it fits
+# session.SHUTDOWN_WORK_S (25), inside the worker's shutdown_process_timeout=30.
+FLUSH_TIMEOUT_S = 15.0
 
 
 class MemoryWriter:
@@ -54,7 +56,8 @@ class MemoryWriter:
         self.last_user_turn: Turn | None = None  # what remember/forget tag their write with
         # (slot, key, len(history) when asked) for each value the forget tool deleted this session
         self.forgotten: list[tuple[SlotName, str, int]] = []
-        self._forget_requests: list[tuple[str, int]] = []  # (about, len(history) when asked)
+        self.forget_requests: list[tuple[str, int]] = []  # (about, len(history) when asked)
+        self.withheld: list[str] = []  # value_keys of extracted values a forget request dropped before they were stored
         self._closed = False
         self._llm_factory = llm_factory
         self._llm: llm.LLM | None = None
@@ -157,8 +160,8 @@ class MemoryWriter:
         facts = await self.call(self.store.valid_facts, self.thread_id)
         extraction = await extract(self._llm, window, facts)
         positions = {t.turn_id: i for i, t in enumerate(self.history)}
-        ops = [op for op in extraction.ops
-               if not was_forgotten(op, positions, self.forgotten, self._forget_requests)]
+        ops, withheld = split_forgotten(extraction.ops, positions, self.forgotten, self.forget_requests)
+        self.withheld.extend(withheld)
         meta = {
             "ms": extraction.ms,
             "prompt_tokens": extraction.prompt_tokens,
@@ -176,7 +179,7 @@ class MemoryWriter:
     def note_forget(self, about: str) -> int:
         """A forget request (the tool calls it before deleting): extracted values it covers, from turns before it,
         are never added, even when nothing was stored yet."""
-        self._forget_requests.append((about, len(self.history)))
+        self.forget_requests.append((about, len(self.history)))
         return len(self.history)
 
     async def _journal_error(self, kind: str) -> None:
@@ -188,13 +191,25 @@ class MemoryWriter:
 
     async def flush(self, timeout_s: float = FLUSH_TIMEOUT_S) -> None:
         """The shutdown callback's final extraction: skip the pending timer, wait for the run in flight, then run
-        once more over what is left. Bounded by `timeout_s`; nothing when erased."""
+        once more over what is left. Bounded by `timeout_s` (on the deadline the run is cancelled); nothing when
+        erased."""
         if self.erased:
             return
         try:
             await asyncio.wait_for(self._drain(), timeout_s)
         except TimeoutError:
             logger.warning("the final extraction missed its %.0f s deadline", timeout_s)
+            await self._cancel_pending()  # else its merge could land after the summary's write
+
+    async def _cancel_pending(self) -> None:
+        """Cancel the timer and the run in flight (no follow-up) and wait for them. A store call already on the
+        thread still finishes there, ahead of any later call."""
+        self._again = False
+        for task in list(self._tasks):
+            task.cancel()
+        await asyncio.gather(*self._tasks, return_exceptions=True)
+        self._timer = None
+        self._run = None
 
     async def _drain(self) -> None:
         while not self.erased and not self._closed:
@@ -228,17 +243,8 @@ class MemoryWriter:
         """Cancel what is left, wait for the store thread's last call, close the extractor LLM. Before store.close."""
         self._closed = True  # first: a cancelled run's finally can't start a new timer
         while self._tasks:
-            for task in list(self._tasks):
-                task.cancel()
-            await asyncio.gather(*self._tasks, return_exceptions=True)
-        self._timer = None
+            await self._cancel_pending()
         await asyncio.to_thread(self._executor.shutdown, True)
         if self._llm is not None:
             await self._llm.aclose()
 
-
-async def forget_visitor(writer: MemoryWriter, visitor_id: str) -> bool:
-    """"Forget me" (C6 wires the page's request here): cancel the pending work, then erase, after any store call
-    already in flight. False when the visitor had no thread."""
-    writer.cancel_all()
-    return await writer.call(writer.store.forget_me, visitor_id)

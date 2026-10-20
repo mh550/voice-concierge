@@ -108,6 +108,16 @@ def check_value(
     `leave_message_for_michael` contact field; a fact never uses it."""
     if source == "agent":
         return _reject("agent_attributed")
+    content = check_text(value, purpose=purpose)
+    if not content.ok:
+        return content
+    if len(value.strip()) > SLOTS[slot].cap:
+        return _reject("too_long")
+    return GateResult(ok=True)
+
+
+def check_text(value: str, *, purpose: Literal["fact", "contact"] = "fact") -> GateResult:
+    """The content rules alone, without a slot's cap (C5's visit summary runs them too)."""
     stripped = value.strip()
     if not stripped:
         return _reject("empty")
@@ -120,6 +130,4 @@ def check_value(
             continue
         if any(p.search(normal) for p in patterns):
             return _reject(reason)
-    if len(stripped) > SLOTS[slot].cap:
-        return _reject("too_long")
     return GateResult(ok=True)

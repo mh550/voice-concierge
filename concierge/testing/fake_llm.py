@@ -4,16 +4,17 @@ FakeLLMStream._run pushes ChatChunks the way the real providers do: one chunk pe
 the tool call), each with role "assistant", then a last chunk carrying only CompletionUsage. The base LLMStream's
 metrics task turns that usage into the "metrics_collected" event, so the fake never emits metrics itself.
 
-Every chat() call uses up one script entry, cancelled ones included. AgentSession's preemptive generation (on by
-default) can start a reply before a voice turn ends, so audio-path tests should turn it off; run(user_input=...)
-is not affected.
+Every chat() call uses up one script entry, cancelled ones included. `respond` instead builds each text reply from the
+chat_ctx the call received (a template that echoes what the summarizer was given). AgentSession's preemptive
+generation (on by default) can start a reply before a voice turn ends, so audio-path tests should turn it off;
+run(user_input=...) is not affected.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -66,9 +67,17 @@ def _snapshot(item: llm.ChatItem) -> llm.ChatItem:
 
 
 class FakeLLM(llm.LLM):
-    def __init__(self, script: Sequence[FakeResponse | str]) -> None:
+    def __init__(
+        self,
+        script: Sequence[FakeResponse | str] = (),
+        *,
+        respond: Callable[[llm.ChatContext], str] | None = None,
+    ) -> None:
         super().__init__()
+        if script and respond is not None:
+            raise ValueError("a FakeLLM takes a script or respond, not both")
         self._script = [r if isinstance(r, FakeResponse) else FakeResponse(text=r) for r in script]
+        self._respond = respond
         self.calls: list[FakeLLMCall] = []
 
     @property
@@ -98,7 +107,10 @@ class FakeLLM(llm.LLM):
                 parallel_tool_calls=parallel_tool_calls if utils.is_given(parallel_tool_calls) else None,
             )
         )
-        response = self._script[index] if index < len(self._script) else None
+        if self._respond is not None:
+            response: FakeResponse | None = FakeResponse(text=self._respond(self.calls[-1].chat_ctx))
+        else:
+            response = self._script[index] if index < len(self._script) else None
         return FakeLLMStream(
             self, chat_ctx=chat_ctx, tools=list(tools or []), conn_options=conn_options, response=response, index=index
         )

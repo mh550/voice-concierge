@@ -1,10 +1,10 @@
 """The SQLite thread store (spec §4.2; plan `docs/plans/2026-10-20-C2-store.md`).
 
 Every write to a thread's rows is one `BEGIN IMMEDIATE` transaction that bumps `threads.version` once (`write`, the
-fence); fact ops go through `apply_fact_ops`, which reloads and reapplies on a conflict. Only
-`get_or_create_thread` ever inserts a thread, so a write to an erased thread raises `ThreadMissing` instead of
-re-creating it. The connection, its lock and the anonymous tables are in `concierge/store_base.py`; `forget_me` and
-the TTL purge in `concierge/store_erasure.py`.
+fence, in `concierge/store_journal.py` with the journal); fact ops go through `apply_fact_ops`, which reloads and
+reapplies on a conflict. Only `get_or_create_thread` ever inserts a thread, so a write to an erased thread raises
+`ThreadMissing` instead of re-creating it. The connection, its lock and the anonymous tables are in
+`concierge/store_base.py`; `forget_me` and the TTL purge in `concierge/store_erasure.py`.
 """
 
 from __future__ import annotations
@@ -14,11 +14,8 @@ import random
 import sqlite3
 import time
 import uuid
-from collections.abc import Callable
 from functools import partial
 from typing import Any, TypeVar
-
-from pydantic import TypeAdapter
 
 from concierge import fact_ops
 from concierge.fact_ops import Ops
@@ -28,27 +25,25 @@ from concierge.models import (
     DeleteFact,
     Fact,
     InvalidateFact,
-    JournalRow,
-    JournalType,
     Thread,
     ThreadSnapshot,
     VisitorState,
 )
 from concierge.store_base import (  # noqa: F401 (the errors and now_ms are re-exported)
     FactMissing,
+    StaleSummary,
     StoreBase,
     StoreError,
     ThreadMissing,
     VersionConflict,
     now_ms,
 )
-from concierge.store_erasure import ErasureStore
+from concierge.store_journal import JournalStore
 
 T = TypeVar("T")
 
 MAX_ATTEMPTS = 5
 
-_JOURNAL_TYPE: TypeAdapter[JournalType] = TypeAdapter(JournalType)
 _THREAD_COLUMNS = "id, visitor_id, created_at, last_active_at, idle_ttl_s, attributes, version"
 _EMPTY_STATE = VisitorState().model_dump_json()
 
@@ -61,7 +56,7 @@ def _thread(row: tuple[Any, ...]) -> Thread:
     )
 
 
-class Store(ErasureStore):
+class Store(JournalStore):
     """The thread store. Every method blocks: up to the 5 s busy timeout for the write lock (plus apply_fact_ops'
     backoff), and forget_me, purge_idle and close up to 5 s more for a checkpoint a reader holds up. Call it from
     `asyncio.to_thread`, never on the event loop or the turn path (§4.4). Errors: StoreError and its subclasses,
@@ -110,60 +105,6 @@ class Store(ErasureStore):
         if snapshot is None:
             raise ThreadMissing(thread_id)
         return snapshot
-
-    # The fence
-
-    def write(self, thread_id: str, expected_version: int | None, fn: Callable[[sqlite3.Connection], T]) -> T:
-        """Run fn(conn) inside BEGIN IMMEDIATE and bump the thread's version once.
-
-        `expected_version=None` means "the version read inside the transaction": for appends that don't depend on
-        what the caller loaded, so they never conflict but still fail once the thread is gone. `fn` must use only
-        `conn`: the store's lock is held, so calling another Store method from it raises StoreError.
-        """
-        with self._transaction() as conn:
-            row = conn.execute("SELECT version FROM threads WHERE id = ?", (thread_id,)).fetchone()
-            if row is None:
-                raise ThreadMissing(thread_id)
-            current = row[0]
-            if expected_version is not None and current != expected_version:
-                raise VersionConflict(current)
-            result = fn(conn)
-            fence = current if expected_version is None else expected_version
-            bumped = conn.execute(
-                "UPDATE threads SET version = version + 1 WHERE id = ? AND version = ?", (thread_id, fence)
-            ).rowcount
-            if bumped != 1:  # can't happen under BEGIN IMMEDIATE; kept as the fence
-                raise VersionConflict(current)
-            return result
-
-    # Journal (append-only)
-
-    def journal(self, thread_id: str, session_id: str, type: JournalType, payload: dict[str, Any]) -> int:
-        kind = _JOURNAL_TYPE.validate_python(type)
-        if not isinstance(payload, dict):  # journal_rows reads every payload back as a JSON object
-            raise TypeError(f"journal payload must be a dict, not {payload.__class__.__name__}")
-        # Both fail here, before the transaction: unserializable values, and lone surrogates UTF-8 can't hold.
-        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-        body.encode()
-
-        def append(conn: sqlite3.Connection) -> int:
-            cursor = conn.execute(
-                "INSERT INTO journal (thread_id, session_id, ts_ms, type, payload) VALUES (?, ?, ?, ?, ?)",
-                (thread_id, session_id, self._clock(), kind, body),
-            )
-            return int(cursor.lastrowid or 0)
-
-        return self.write(thread_id, None, append)
-
-    def journal_rows(self, thread_id: str) -> list[JournalRow]:
-        rows = self._read(
-            "SELECT id, thread_id, session_id, ts_ms, type, payload FROM journal WHERE thread_id = ? ORDER BY id",
-            (thread_id,),
-        )
-        return [
-            JournalRow(id=i, thread_id=t, session_id=s, ts_ms=ts, type=k, payload=json.loads(p))
-            for i, t, s, ts, k, p in rows
-        ]
 
     # Facts (the ops themselves run in concierge/fact_ops.py, inside the fence)
 
@@ -245,3 +186,16 @@ class Store(ErasureStore):
     def recompute_state(self, thread_id: str) -> VisitorState:
         """Rebuild VisitorState from the valid facts and store it, in one fenced write."""
         return self.write(thread_id, None, lambda conn: fact_ops.store_state(conn, thread_id, self._clock()))
+
+    def set_summary(self, thread_id: str, version: int | None, text: str | None) -> VisitorState:
+        """Replace the last-visit summary (C5's session end), in one fenced write. `version=None`: the summary is this
+        session's own field, so a concurrent fact merge doesn't make it fail; an erased thread still raises
+        ThreadMissing and is never re-created. Later merges carry it over (`derive_state`)."""
+        return self.write(thread_id, version, lambda conn: fact_ops.store_summary(conn, thread_id, text, self._clock()))
+
+    def swap_summary(self, thread_id: str, expected: str | None, text: str | None) -> VisitorState:
+        """`set_summary` only if the stored summary is still `expected` (compare-and-set, spec §4.2: two sessions for
+        one visitor never overwrite each other's summary blindly); else StaleSummary and nothing is written."""
+        return self.write(
+            thread_id, None, lambda conn: fact_ops.store_summary(conn, thread_id, text, self._clock(), (expected,))
+        )

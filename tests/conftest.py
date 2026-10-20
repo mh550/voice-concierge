@@ -12,6 +12,7 @@ from concierge.config import Settings
 from concierge.store import Store
 from concierge.testing.fake_llm import FakeLLM, FakeResponse, FakeToolCall
 from concierge.testing.recording_session import RecordingSession
+from concierge.testing.sessions import VISIT_SUMMARY, stage_llms
 from concierge.text_input import ChannelTags
 
 
@@ -86,9 +87,15 @@ def extractor() -> FakeLLM:
 
 
 @pytest.fixture
-def fakes(monkeypatch: pytest.MonkeyPatch, extractor: FakeLLM) -> list[FakeLLM]:
+def summarizer() -> FakeLLM:
+    """The session-end summarizer (build_llm("summarizer")): one summary per visit, 4 times."""
+    return FakeLLM([VISIT_SUMMARY] * 4)
+
+
+@pytest.fixture
+def fakes(monkeypatch: pytest.MonkeyPatch, extractor: FakeLLM, summarizer: FakeLLM) -> list[FakeLLM]:
     """Each build_session gets a real AgentSession over a new FakeLLM (kept here, in order); the extractor is
-    `extractor`, so no test builds a real provider."""
+    `extractor` and the summarizer `summarizer`, so no test builds a real provider."""
     made: list[FakeLLM] = []
 
     def build(ctx: Any, settings: Settings) -> AgentSession:
@@ -97,7 +104,7 @@ def fakes(monkeypatch: pytest.MonkeyPatch, extractor: FakeLLM) -> list[FakeLLM]:
 
     monkeypatch.setattr(session, "build_session", build)
     monkeypatch.setattr(session, "room_start_kwargs", lambda *args: {})
-    monkeypatch.setattr(session, "build_llm", lambda stage, settings=None: extractor)
+    monkeypatch.setattr(session, "build_llm", stage_llms(extractor=extractor, summarizer=summarizer))
     return made
 
 

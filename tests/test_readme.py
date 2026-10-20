@@ -66,6 +66,9 @@ def _test_names() -> set[str]:
         "Only what was heard",
         "ASR errors",
         "Evaluate for harm as well as help",
+        "Context is a budget",
+        "Write / select / compress / isolate",
+        "History vs journal",
     ],
 )
 def test_memory_design_row_names_tests_that_exist(practice: str) -> None:

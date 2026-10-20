@@ -8,7 +8,8 @@ ask again. Shared by the forget tool (what to delete) and the writer (what the w
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import re
+from collections.abc import Iterable, Sequence
 
 from concierge.fact_ops import value_key
 from concierge.grounding import words
@@ -56,6 +57,33 @@ def select(facts: Iterable[Fact], about: str) -> set[int]:
 def blocks(slot: str | None, value: str, about: str) -> bool:
     """Whether a forget request for `about` covers an extracted (slot, value)."""
     return value_matches(value, about) or (slot is not None and slot == named_slot(about))
+
+
+def names_any(text: str, value_keys: Sequence[str]) -> bool:
+    """Whether `text` contains one of the values (compared as `value_key`s, as whole words)."""
+    key = value_key(text)
+    return any(v and re.search(rf"(?<!\w){re.escape(v)}(?!\w)", key) for v in value_keys)
+
+
+def value_requests(abouts: Iterable[str]) -> list[str]:
+    """The value_keys of the requests that name a value rather than a slot ("forget Acme" → "acme")."""
+    return [value_key(about) for about in abouts if named_slot(about) is None]
+
+
+def split_forgotten(
+    ops: Sequence[Op], positions: dict[str, int], forgotten: list[tuple[SlotName, str, int]],
+    requests: list[tuple[str, int]],
+) -> tuple[list[Op], list[str]]:
+    """The ops `was_forgotten` keeps, and the value_keys of the ADD/UPDATE values it dropped (a value the visitor
+    asked to forget before it was stored, which the visit summary must leave out too; C5 review A-I2)."""
+    kept: list[Op] = []
+    withheld: list[str] = []
+    for op in ops:
+        if not was_forgotten(op, positions, forgotten, requests):
+            kept.append(op)
+        elif isinstance(op, AddOp | UpdateOp):
+            withheld.append(value_key(op.value))
+    return kept, withheld
 
 
 def was_forgotten(

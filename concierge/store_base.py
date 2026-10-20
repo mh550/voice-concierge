@@ -43,6 +43,10 @@ class FactMissing(StoreError):
     """The fact isn't a fact of the thread (never was, deleted, or already invalid for an invalidation)."""
 
 
+class StaleSummary(StoreError):
+    """The stored visit summary isn't the one the caller summarized from: another session stored one since."""
+
+
 class VersionConflict(StoreError):
     """Another writer bumped the thread's version since the caller loaded it."""
 

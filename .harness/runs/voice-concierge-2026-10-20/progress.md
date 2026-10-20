@@ -13,6 +13,116 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 · verify C5
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| C5-01 | 1 | Read docs/plans/2026-10-20-C5-compaction.md; grepped `shutdown_process_timeout` in concierge/worker.py:49 | Plan has shutdown sequence, 30 s timeout (worker.py:49 = 30), summarizer prompt (3 sentences/400 chars), 24 items/4,000 tokens trigger, last 6 turns, listening apply via update_chat_ctx, 5 s timeout, fallback 12 | yes |
+| C5-01 | 2 | Read plan lines ~170-210; checked `def update_chat_ctx` in .venv voice/agent.py:250 | Plan quotes AgentStateChangedEvent (events.py:309-323) and the update_chat_ctx signature, matching the installed source | yes |
+| C5-01 | 3 | Read plan "Tests" section (lines ~385-410) | Lists test functions for C5-02 (test_summary, test_summary_of_summary, test_session) and C5-03; names exist in tests/ | yes |
+| C5-01 | 4 | `/home/mh550/projects/agent-harness/lib/check.sh` and `.harness/check.sh` | Green; 711 passed | yes |
+| C5-02 | 1 | Read tests/test_summary.py (trim to 3, 400 chars, LLM error, 6 s timeout) | test_five_sentence_output_is_trimmed_to_three, test_long_output_is_cut_to_400_chars_at_a_space, test_llm_error_returns_the_previous_summary_unchanged, test_timeout_returns_the_previous_summary_within_5_5_s all pass | yes |
+| C5-02 | 2 | Read concierge/session.py shutdown (lines 126-165); ran tests/test_session.py incl. test_no_summary_llm_call_after_forget_me | Flush then summary then store write; after forget_me summarizer.calls == [] and extractor.calls == [], all tables empty; pass | yes |
+| C5-02 | 3 | Ran tests/test_summary_of_summary.py | test_second_visit_summary_keeps_the_first_visits_key_point asserts "clinic" in after_second; test_summarizer_context_contains_the_previous_summary asserts previous_summary == FIRST_SUMMARY; pass | yes |
+| C5-02 | 4 | Ran tests/test_summary.py | 5-sentence trimmed to 3; test_failed_summary_journals_an_error_row_and_keeps_the_previous passes | yes |
+| C5-02 | 5 | `.harness/check.sh` | 711 passed | yes |
+| C5-03 | 1 | Read concierge/compaction.py (234 lines); ran test_compaction.py tests for needs_compaction, plan (last 6, tool pair), build_compacted, fallback | needs_compaction past 24 items/4000 tokens, plan keeps last 6, tool pair both-or-neither, summary cap 120 words, fallback keeps 12; pass | yes |
+| C5-03 | 2 | Read session.py:189-197 wiring; tests/test_critical_path.py:152 | on_item_added and on_state_changed registered on Compactor; AST test asserts update_chat_ctx is not called from turn hook or item handlers; pass | yes |
+| C5-03 | 3 | Read test_thirty_turns_compact_at_the_next_listening_transition (test_compaction.py:312) | asserts len(items) <= 8, one summary message holding the FakeLLM text, 30 turns journaled (31 with greeting), tool pair test present; pass | yes |
+| C5-03 | 4 | Read test_slow_summarizer_falls_back_within_5_5_s (:437) and test_existing_summary_survives_a_second_compaction | FakeLLM delay 6 s: ready under 5.5 s, last 12 turns (t18-t29) kept; existing summary survives second compaction; pass | yes |
+| C5-03 | 5 | `.harness/check.sh` | 711 passed | yes |
+| C5-04 | 1 | `wc -l` on /tmp/harness/.../review-C5.diff; read plan `## Review` (line 573) | Diff (3365 lines, 0c365fa = C4-06) and notes exist, but in the scratch dir, not /tmp/voice-concierge/ (plan explains: CLAUDE.md bars writes outside worktree/scratch). Accepted as equivalent | yes |
+| C5-04 | 2 | Read Review table; ran 13 new tests in test_session/test_summary/test_compaction | 4 Important all marked fixed with tests committed first (per commit log); tests pass | yes |
+| C5-04 | 3 | grep README.md lines 24-26; looped over every backticked test name in README against `def test_` in tests/ | All three rows present; no missing test names; test_readme.py passes | yes |
+| C5-04 | 4 | `find concierge -name '*.py' \| xargs wc -l \| awk '$1>250'` | No module over 250 (max 250) | yes |
+| C5-04 | 5 | `.harness/check.sh` | 711 passed | yes |
+
+
+### 2026-10-20 10:05 · C5-04 · passes
+
+- **Changed:**
+  - The C5 milestone review, from 2 Opus reviewers: 0 Critical, 4 Important (all fixed), 3 Minor. The table is under `## Review` in `docs/plans/2026-10-20-C5-compaction.md`.
+  - **Forget clears the summary right away.** "Forget" now clears a stored summary that names the value (A-I1), so a forgotten value can't come back through the summary if the shutdown never finishes.
+  - **Forgetting before extraction is covered.** Values a forget request kept extraction from storing are now in the summary's deterministic check (A-I2).
+  - **Second tab (A-I3).** The shutdown now summarizes from the summary stored at that moment, not the one preloaded. It stores through the new `Store.swap_summary` (compare-and-set; raises `StaleSummary`, retries once). Before, a second tab overwrote the other's summary.
+  - **Compaction test (B-I1).** The forget-me compaction test now proves the in-flight call is cancelled.
+  - README has the 3 new memory-design rows.
+  - Tests 694 → 711.
+- **Verified:**
+  - New tests in `tests/test_summary_forgetting.py` (7) and `tests/test_summary_concurrency.py` (5); the RED commit 670e8ad comes before the GREEN commit edea007.
+  - 11 mutations, each turning a test red.
+  - `test_readme.py` checks every cited test name exists.
+  - The largest module is 250 lines (`merge.py`, `memory_writer.py`).
+  - `check.sh` is green with 711 tests.
+- **Next session must know:**
+  - `write_summary(writer, summarizer)` no longer takes `previous`.
+  - `names_any` now lives in `forget_match`.
+  - `memory_writer.py` is at 250 lines, so anything new goes elsewhere.
+  - C6's "Forget me" RPC must not lose the erase after the writer closes (review A-M3, in the plan).
+- **Questions for Michael:** none new (D12 is still open).
+- **Proposed changes:**
+  - C5-04 step 1's `/tmp/voice-concierge/` path conflicts with CLAUDE.md, so the diff is in the scratch dir, as in C1–C4.
+  - Spec §4.2 could name the summary's compare-and-set (`swap_summary`).
+
+### 2026-10-20 08:55 · C5-03 · passes
+
+- **Changed:**
+  - New `concierge/compaction.py` (pure: `needs_compaction`, `plan_compaction`, `build_compacted`, `compact_or_fallback`, `fallback_truncate`, `rebase`, `COMPACTION_SYSTEM`) and `concierge/compactor.py` (`Compactor`: one task at a time, applied on `listening` via `Agent.update_chat_ctx`, journals `compacted`).
+  - `erasure_hooks.add_erase_hook`/`cancel_pending`, so "Forget me" cancels the compaction too.
+  - `"compacted"` added to `JournalType`; `Started.compactor`.
+  - Prep commit (a pure move): `session.py`'s `_journal`/`_write_summary` are now `concierge/session_end.py`'s `journal_row`/`write_summary`.
+  - Tests 655 → 694.
+- **Verified:**
+  - `tests/test_compaction.py` (38 tests), among them `test_thirty_turns_compact_at_the_next_listening_transition`: 8 items, one summary with the FakeLLM text, 31 turn rows (the 30 turns plus the greeting) and one `compacted` row.
+  - `test_slow_summarizer_falls_back_within_5_5_s`: the last 12 turns are kept, plus an `error` row and `fallback: true`.
+  - `test_existing_summary_survives_a_second_compaction`.
+  - `test_update_chat_ctx_is_never_called_from_the_turn_hook_or_item_handlers`: the only caller is `compactor.py:_apply`.
+  - 12 mutations each turn a test red.
+  - Opus review: 0 Critical, 0 Important, 5 Minor (4 fixed with tests, M1 accepted). The table is in the C5 plan under "C5-03 build notes and review".
+  - `check.sh` is green with 694 tests.
+- **Next session (C5-04) must know:** `merge.py` is at 250 lines and `memory_writer.py` at 249. The review diff base is the C4-06 commit. The plan's M1 (a narrow preemptive-generation window) was accepted, so C7's latency eval should look for it.
+- **Questions for Michael:** none new (D12 is still open).
+- **Proposed changes:**
+  - C5-03 step 2's handler logic lives in `compactor.py`, registered from `session.py`.
+  - Step 3 has 31 turn rows: the greeting is journaled too, and the test checks all 30 turn ids.
+  - Spec §4.2's journal types could add `compacted`.
+
+### 2026-10-20 07:40 · C5-02 · passes
+
+- **Changed:** new `concierge/summary.py` (`summarize`, `summarize_visit`, `trim_summary`, `SUMMARY_SYSTEM`), `concierge/store_journal.py` (the fence and the journal, moved out of `store.py` with no changes), `concierge/erasure_hooks.py` (`forget_visitor`). `Store.set_summary` and `fact_ops.store_summary` are new, and so is the `summary_written` journal type. `gate.check_text` is new. `session.py` gets the shutdown sequence (flush → summary → `set_summary`, skipped when erased, under one 25 s deadline). `FLUSH_TIMEOUT_S` is now 15, and `flush` cancels its run on timeout. Also `FakeLLM(respond=…)` and a per-stage `build_llm` fake (`stage_llms`, the `summarizer` fixture). Tests 616 → 655.
+- **Verified:**
+  - `tests/test_summary_of_summary.py` (2 tests), `tests/test_summary.py` (24) and 9 new tests in `test_session.py`, among them `test_no_summary_llm_call_after_forget_me`, where both fakes have zero calls and every visitor table has 0 rows.
+  - Mutation checks: removing the summary call, the erased guard, the flush cancel or the forgotten-value check each turns 2–7 tests red.
+  - Opus review: 0 Critical, 4 Important (all fixed, each with a test), 5 Minor (3 fixed, 2 accepted). Table in the C5 plan under "C5-02 build notes and review".
+  - `check.sh` green with 655 tests.
+- **Next session (C5-03) must know:**
+  - `forget_visitor` now lives in `concierge.erasure_hooks`; put the erase hooks there.
+  - `memory_writer.py` is at 249 lines and `session.py` at 244, so the Compactor's logic belongs in `compactor.py`.
+  - `writer.forget_requests` is public now.
+  - Add `"compacted"` to `JournalType` after `summary_written`, and update `test_journal_type_literal_matches_spec_list`.
+- **Review I1 (privacy):** a per-fact "forget" could come back through the visit summary. Now the summarizer is told what was forgotten. A reply that names a deleted value is rejected, and an earlier summary that names one is cleared.
+- **Questions for Michael:** none new (D12 is still open).
+- **Proposed changes:**
+  - C5-02 step 1 has `summarize_visit` return `str`. It returns `str | None` (None on a failed first visit).
+  - C5-02 step 2: the shutdown calls `summarize` (which returns the outcome) rather than `summarize_visit`, and it calls `set_summary` with `version=None`.
+  - Spec §4.2's list of journal types could add `summary_written`.
+
+### 2026-10-20 06:40 · C5-01 · passes
+
+- **Changed:** `docs/plans/2026-10-20-C5-compaction.md` (new). It covers the shutdown sequence (compactor.aclose → flush → summary → `set_summary`, skipped when erased, one 25 s deadline inside `shutdown_process_timeout=30`), `SUMMARY_SYSTEM` and `COMPACTION_SYSTEM`, the trigger (>24 items or >4,000 est. tokens), fold/keep (last 6 turns, tool pairs whole), the apply point (`agent_state_changed` → `listening`, `Agent.update_chat_ctx`, rebased on the live context), the 5 s timeout and the truncate-to-12 fallback. It also quotes 1.8.8's `AgentStateChangedEvent` and `update_chat_ctx`, and names the C5-02 and C5-03 tests. Added D12 *default* to `docs/decisions.md`. Tests 616 → 616 (plan only).
+- **Verified:** one scratch prototype on a real `AgentSession`: after `update_chat_ctx` there are 8 items and `session.history` still holds 32. One Opus plan review: 0 Critical, 6 Important and 4 Minor, all folded in (table under `## Plan review`). `check.sh` is green with 616 tests.
+- **Next session (C5-02) must know:**
+  - First switch `conftest.fakes` and `test_erasure_wins` to a per-stage `build_llm` fake. Today every stage gets the extractor fake.
+  - Then add `FakeLLM(respond=…)`.
+  - `store.py` is at 247 lines: move `write`/`journal`/`journal_rows` into `store_journal.py` before adding `set_summary`.
+  - Lower `FLUSH_TIMEOUT_S` to 15, and make `flush` cancel its in-flight run on timeout.
+  - 1.8's `ChatContext._summarize` drops the earlier summary from its input (the #7721 bug), so don't use it.
+- **Question for Michael (D12):** after a compaction, should the concierge keep the last 3 exchanges verbatim (the default: a "turn" is one message) or the last 6?
+- **Proposed changes:**
+  - C5-03 step 3: the greeting is journaled too, so the session has 31 rows. The test checks the 30 added turn ids.
+  - C5-03 step 2: the handler logic lives in `compactor.py`, registered from `session.py`.
+  - C5-02: `summarize()` returns an outcome so the shutdown can journal `error`. `summarize_visit` wraps it.
+
 ### 2026-10-20 06:10 · verify C4
 
 All 6 features hold (33 steps). Caveat: C4-06 step 1 path is literally absent; diff lives in the scratch dir.
