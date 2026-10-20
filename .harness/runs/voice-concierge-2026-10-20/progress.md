@@ -13,6 +13,18 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 verify P1
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| P1-01 | 1 | `grep anthropic pyproject.toml`; `pip list`; read llm.py lines 41-46,120-127,163-183,227-279,329-342 vs decisions.md cites | pin ==1.8.8 present, installed 1.8.8, import ok; every cited file:line matches the source | yes |
+| P1-01 | 2 | `env -u ANTHROPIC_API_KEY python` importing config+worker; Settings() under both providers; CONCIERGE_EXTRACTOR_MODEL override; read config.py build_llm | import ok; anthropic defaults haiku/sonnet/sonnet; openrouter all gpt-4.1-mini; override x/y works; build_llm returns Claude wrapper or with_openrouter | yes |
+| P1-01 | 3 | read concierge/claude_llm.py | conversation thinking disabled + caching ephemeral; background effort low, max_tokens=4096 in constructor, fallback header+body; no temperature; ends_on_user appends user turn | yes |
+| P1-01 | 4 | `pytest tests/test_claude_llm.py` (read assertions) | tests for model id, thinking, cache_control, effort/max_tokens/header/body, no sampling keys, trailing user, thinking-block text-only all match the step; pass | yes |
+| P1-01 | 5 | `pytest tests/test_config.py` (read test_defaults, openrouter, build_llm tests); ran build_llm with key unset | 51 pass across both files; defaults, openrouter with_openrouter monkeypatch, ValueError naming ANTHROPIC_API_KEY | yes |
+| P1-01 | 6 | read .env.example, README.md line 10, docs/decisions.md 44-84 | ANTHROPIC_API_KEY= empty, OPENROUTER commented with required note; README names it; decisions entry has per-stage table and reasons | yes |
+| P1-01 | 7 | `.harness/check.sh` | exit 0, 135 passed | yes |
+
 ### 2026-10-20 01:26 · P1-01 · passes
 
 - **Changed:** pinned `livekit-plugins-anthropic==1.8.8` (+ `anthropic>=1.15,<2`); new `concierge/claude_llm.py`
