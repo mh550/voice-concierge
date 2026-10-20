@@ -13,6 +13,21 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 04:05 · C2-03 · passes
+
+- **Changed:** `Store.apply_fact_ops` (fence + reload/reapply, 5 attempts, jittered backoff, list or callable ops),
+  `add_fact` / `invalidate_fact` / `delete_fact` / `valid_facts` / `fact_history` / `recompute_state`, new
+  `concierge/fact_ops.py` (in-transaction ops, journal, `derive_state`), `store.py` split into `store_base.py`
+  (connection, lock, errors incl. new `FactMissing`, `_checkpoint`, metrics) + `store.py`; `write_facts` child target;
+  `tests/test_concurrent_writers.py`. Tests 208 → 238.
+- **Verified:** `check.sh` green (238). Concurrency test 20/20 in a loop (40 facts, version 40). 24 mutants: 22 caught,
+  2 equivalent. Opus review: 0 Critical, 2 Important (a deleted value lingered in `-wal`; a Store call from inside
+  `write` deadlocked), 7 Minor; both Important + 5 Minor fixed RED→GREEN, the rest noted in the plan's "C2-03 build notes".
+- **Next session must know:** C2-04's `forget_me` reuses `StoreBase._checkpoint()`. Re-entrant Store calls now raise
+  `StoreError`. C4's `forget` tool must pass `thread_id` to `delete_fact`; an `apply_fact_ops` callable must be fast
+  and pure (it holds the write lock). Mutation runs need `PYTHONPATH=<copy>` or pytest imports the worktree.
+- **Questions / proposed changes:** none new. D8 is still open.
+
 ### 2026-10-20 03:10 · C2-02 · passes
 
 - **Changed:** new `concierge/models.py` (SLOTS, VisitorState with its 8 KB validator, Fact, the ops models,

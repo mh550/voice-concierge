@@ -1,58 +1,53 @@
 """The SQLite thread store (spec §4.2; plan `docs/plans/2026-10-20-C2-store.md`).
 
-One connection per `Store`, guarded by a lock; methods are synchronous, so async callers use `asyncio.to_thread`
-and never call them on the turn path (§4.4). Every write to a thread's rows is one `BEGIN IMMEDIATE` transaction
-that bumps `threads.version` once (`write`, the fence). Only `get_or_create_thread` ever inserts a thread, so a
-write to an erased thread raises `ThreadMissing` instead of re-creating it.
+Every write to a thread's rows is one `BEGIN IMMEDIATE` transaction that bumps `threads.version` once (`write`, the
+fence); fact ops go through `apply_fact_ops`, which reloads and reapplies on a conflict. Only
+`get_or_create_thread` ever inserts a thread, so a write to an erased thread raises `ThreadMissing` instead of
+re-creating it. The connection, its lock and the anonymous tables are in `concierge/store_base.py`.
 """
 
 from __future__ import annotations
 
 import json
-import re
+import random
 import sqlite3
-import threading
 import time
 import uuid
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
-from pathlib import Path
-from types import TracebackType
+from collections.abc import Callable
+from functools import partial
 from typing import Any, TypeVar
 
 from pydantic import TypeAdapter
 
-from concierge.models import JournalRow, JournalType, Thread, TurnMetrics, VisitorState
-from concierge.schema import PRAGMAS, SCHEMA, SCHEMA_VERSION
+from concierge import fact_ops
+from concierge.fact_ops import Ops
+from concierge.models import (
+    AddFact,
+    ApplyResult,
+    DeleteFact,
+    Fact,
+    InvalidateFact,
+    JournalRow,
+    JournalType,
+    Thread,
+    VisitorState,
+)
+from concierge.store_base import (  # noqa: F401 (the errors and now_ms are re-exported)
+    FactMissing,
+    StoreBase,
+    StoreError,
+    ThreadMissing,
+    VersionConflict,
+    now_ms,
+)
 
 T = TypeVar("T")
 
-BUSY_TIMEOUT_S = 5.0
-SESSION_ID_RE = re.compile(r"[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}")
+MAX_ATTEMPTS = 5
 
 _JOURNAL_TYPE: TypeAdapter[JournalType] = TypeAdapter(JournalType)
 _THREAD_COLUMNS = "id, visitor_id, created_at, last_active_at, idle_ttl_s, attributes, version"
 _EMPTY_STATE = VisitorState().model_dump_json()
-
-
-def now_ms() -> int:
-    return time.time_ns() // 1_000_000
-
-
-class StoreError(Exception):
-    """Base of the store's errors."""
-
-
-class ThreadMissing(StoreError):
-    """The thread doesn't exist (never created, or erased). Writes never re-create it."""
-
-
-class VersionConflict(StoreError):
-    """Another writer bumped the thread's version since the caller loaded it."""
-
-    def __init__(self, current: int) -> None:
-        super().__init__(f"thread is at version {current}")
-        self.current = current
 
 
 def _thread(row: tuple[Any, ...]) -> Thread:
@@ -63,84 +58,7 @@ def _thread(row: tuple[Any, ...]) -> Thread:
     )
 
 
-class Store:
-    def __init__(self, path: str | Path, clock: Callable[[], int] = now_ms) -> None:
-        self.path = Path(path)
-        self._clock = clock
-        self._lock = threading.Lock()
-        # isolation_level=None: no implicit BEGIN, the store issues BEGIN IMMEDIATE itself. timeout is SQLite's
-        # busy timeout, how long a writer waits for another process's write lock.
-        self._conn = sqlite3.connect(
-            self.path, isolation_level=None, timeout=BUSY_TIMEOUT_S, check_same_thread=False
-        )
-        try:
-            for pragma in PRAGMAS:
-                self._pragma_with_retry(pragma)
-            if self.pragma("journal_mode") != "wal":
-                raise StoreError(f"journal_mode is {self.pragma('journal_mode')!r}, not 'wal'")
-            self._create_schema()
-        except BaseException:
-            if self._conn.in_transaction:
-                self._conn.execute("ROLLBACK")
-            self._conn.close()
-            raise
-
-    def _pragma_with_retry(self, pragma: str) -> None:
-        # Switching a new file to WAL needs an exclusive lock and SQLite doesn't run the busy handler for it, so
-        # processes opening a fresh file together get "database is locked" at once. Retry up to the busy timeout.
-        deadline = time.monotonic() + BUSY_TIMEOUT_S
-        while True:
-            try:
-                self._conn.execute(pragma).fetchall()
-                return
-            except sqlite3.OperationalError as exc:
-                if "locked" not in str(exc) or time.monotonic() >= deadline:
-                    raise
-                time.sleep(0.01)
-
-    def _create_schema(self) -> None:
-        # One script (the DDL's comments hold semicolons, so it can't be split on them). executescript would COMMIT
-        # an open transaction first, so the BEGIN is part of the script and the transaction stays open after it.
-        self._conn.executescript(f"BEGIN IMMEDIATE;\n{SCHEMA}")
-        found = self._conn.execute("PRAGMA user_version").fetchone()[0]
-        if found > SCHEMA_VERSION:
-            raise StoreError(f"the file has schema version {found}; this code knows {SCHEMA_VERSION}")
-        if found < SCHEMA_VERSION:
-            self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        self._conn.execute("COMMIT")
-
-    def close(self) -> None:
-        with self._lock:
-            self._conn.close()
-
-    def __enter__(self) -> Store:
-        return self
-
-    def __exit__(
-        self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None
-    ) -> None:
-        self.close()
-
-    @contextmanager
-    def _transaction(self) -> Iterator[sqlite3.Connection]:
-        """BEGIN IMMEDIATE (the write lock now, not at the first write) ... COMMIT, or ROLLBACK on any error."""
-        with self._lock:
-            self._conn.execute("BEGIN IMMEDIATE")
-            try:
-                yield self._conn
-                self._conn.execute("COMMIT")
-            except BaseException:
-                if self._conn.in_transaction:  # SQLite may have rolled back on its own already
-                    self._conn.execute("ROLLBACK")
-                raise
-
-    def _read(self, sql: str, params: tuple[Any, ...] = ()) -> list[tuple[Any, ...]]:
-        with self._lock:
-            return self._conn.execute(sql, params).fetchall()
-
-    def pragma(self, name: str) -> Any:  # noqa: ANN401 (a pragma's value is whatever SQLite returns)
-        return self._read(f"PRAGMA {name}")[0][0]
-
+class Store(StoreBase):
     # Threads
 
     def get_or_create_thread(self, visitor_id: str) -> Thread:
@@ -184,7 +102,7 @@ class Store:
 
         `expected_version=None` means "the version read inside the transaction": for appends that don't depend on
         what the caller loaded, so they never conflict but still fail once the thread is gone. `fn` must use only
-        `conn`: the store's lock is held, so calling another Store method from it would deadlock.
+        `conn`: the store's lock is held, so calling another Store method from it raises StoreError.
         """
         with self._transaction() as conn:
             row = conn.execute("SELECT version FROM threads WHERE id = ?", (thread_id,)).fetchone()
@@ -194,8 +112,9 @@ class Store:
             if expected_version is not None and current != expected_version:
                 raise VersionConflict(current)
             result = fn(conn)
+            fence = current if expected_version is None else expected_version
             bumped = conn.execute(
-                "UPDATE threads SET version = version + 1 WHERE id = ? AND version = ?", (thread_id, current)
+                "UPDATE threads SET version = version + 1 WHERE id = ? AND version = ?", (thread_id, fence)
             ).rowcount
             if bumped != 1:  # can't happen under BEGIN IMMEDIATE; kept as the fence
                 raise VersionConflict(current)
@@ -230,20 +149,79 @@ class Store:
             for i, t, s, ts, k, p in rows
         ]
 
-    # Anonymous metrics (B9): no thread, no visitor id, no text
+    # Facts (the ops themselves run in concierge/fact_ops.py, inside the fence)
 
-    def add_turn_metrics(self, session_id: str, metrics: TurnMetrics) -> None:
-        # The one free-form key in the table: a random uuid4 hex per session, so no visitor or room id fits.
-        if not SESSION_ID_RE.fullmatch(session_id):
-            raise ValueError("session_id must be a uuid4 hex (uuid.uuid4().hex)")
-        # Durations are kept to whole milliseconds, so they are harder to line up exactly with other telemetry.
-        values = {
-            k: (float(round(v)) if isinstance(v, float) else v) for k, v in metrics.model_dump().items()
-        }
-        values["compacted"] = int(metrics.compacted)
-        columns = ", ".join(["session_id", *values])
-        marks = ", ".join("?" * (len(values) + 1))
-        with self._transaction() as conn:
-            conn.execute(
-                f"INSERT INTO anonymous_turn_metrics ({columns}) VALUES ({marks})", (session_id, *values.values())
-            )
+    def apply_fact_ops(
+        self, thread_id: str, ops: Ops, *, based_on: int | None = None, session_id: str = ""
+    ) -> ApplyResult:
+        """Apply a batch of fact ops in one fenced write: one transaction, one version bump.
+
+        `based_on` is the version the caller decided the ops at (C4's extractor, before its LLM call); by default
+        the current one. On a conflict: back off, reload the version and reapply, at most MAX_ATTEMPTS times, then
+        let the `VersionConflict` propagate. A callable `ops` is re-resolved against the facts each time.
+        """
+        expected = based_on if based_on is not None else self.version(thread_id)
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                return self.write(thread_id, expected, partial(self._apply, thread_id, ops, session_id, expected))
+            except VersionConflict as exc:
+                if exc.current < expected:
+                    raise StoreError(f"based_on {expected} is ahead of the thread's version {exc.current}") from exc
+                if attempt == MAX_ATTEMPTS:
+                    raise
+                time.sleep(random.uniform(0.01, 0.03) * attempt)  # jittered: let the other writer finish
+                expected = self.version(thread_id)  # reloaded after the sleep
+        raise AssertionError("unreachable")
+
+    def _apply(self, thread_id: str, ops: Ops, session_id: str, version: int, conn: sqlite3.Connection) -> ApplyResult:
+        added, skipped = fact_ops.apply(conn, thread_id, ops, self._clock(), session_id)
+        return ApplyResult(version=version + 1, added=added, skipped=skipped)
+
+    def add_fact(self, thread_id: str, op: AddFact, *, session_id: str = "") -> Fact:
+        """Insert one fact (created_at = valid_from = now), journal it and recompute the state. A `supersedes`
+        id that isn't a valid fact of the thread is skipped silently; use apply_fact_ops to see the skips."""
+        (fact_id,) = self.apply_fact_ops(thread_id, [op], session_id=session_id).added
+        with self._locked() as conn:
+            fact = fact_ops.fact(conn, fact_id)
+        if fact is None:  # deleted by another writer in between
+            raise FactMissing(fact_id)
+        return fact
+
+    def invalidate_fact(
+        self, fact_id: int, superseded_by: int | None = None, *, thread_id: str | None = None, session_id: str = ""
+    ) -> None:
+        """Set valid_to = now (and superseded_by, a fact of the same thread); the row stays. `thread_id` scopes
+        the call (a tool passes its visitor's). FactMissing if there is no such valid fact."""
+        op = InvalidateFact(fact_id=fact_id, superseded_by=superseded_by)
+        tid = self._thread_of(fact_id) if thread_id is None else thread_id
+        if fact_id in self.apply_fact_ops(tid, [op], session_id=session_id).skipped:
+            raise FactMissing(fact_id)
+
+    def delete_fact(self, fact_id: int, *, thread_id: str | None = None, session_id: str = "") -> None:
+        """Really delete the row (the `forget` tool, B5), recompute the state and checkpoint the WAL, so the value
+        leaves the disk too. FactMissing if there is none. Tools pass `thread_id`, so a model-supplied id can't
+        reach another visitor's fact."""
+        tid = self._thread_of(fact_id) if thread_id is None else thread_id
+        if fact_id in self.apply_fact_ops(tid, [DeleteFact(fact_id=fact_id)], session_id=session_id).skipped:
+            raise FactMissing(fact_id)
+        self._checkpoint()  # the value's old pages are still in the -wal until then
+
+    def _thread_of(self, fact_id: int) -> str:
+        rows = self._read("SELECT thread_id FROM facts WHERE id = ?", (fact_id,))
+        if not rows:
+            raise FactMissing(fact_id)
+        return rows[0][0]
+
+    def valid_facts(self, thread_id: str) -> list[Fact]:
+        """valid_to IS NULL, ordered by valid_from, id."""
+        with self._locked() as conn:
+            return fact_ops.valid_facts(conn, thread_id)
+
+    def fact_history(self, thread_id: str) -> list[Fact]:
+        """Every remaining row, valid or not, in the same order."""
+        with self._locked() as conn:
+            return fact_ops.fact_history(conn, thread_id)
+
+    def recompute_state(self, thread_id: str) -> VisitorState:
+        """Rebuild VisitorState from the valid facts and store it, in one fenced write."""
+        return self.write(thread_id, None, lambda conn: fact_ops.store_state(conn, thread_id, self._clock()))

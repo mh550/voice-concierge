@@ -130,7 +130,7 @@
         "tests/test_store.py: a write with a stale expected_version raises VersionConflict and leaves no row; add_fact on a thread that doesn't exist raises ThreadMissing and does not create the thread",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C2-04", "milestone": "C2", "kind": "build", "model": "opus",
