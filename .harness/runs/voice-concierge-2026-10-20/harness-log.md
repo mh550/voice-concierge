@@ -10,3 +10,4 @@
 - 2026-10-20 01:11 · C2-01 · claude-opus-5-5 · passes=true · 12 min · 7/37 passing
 - 2026-10-20 01:26 · P1-01 · claude-opus-5-5 · passes=true · 14 min · 8/38 passing
 - 2026-10-20 01:26 · merged main into harness/voice-concierge-2026-10-20
+- 2026-10-20 01:27 · P1 verified and tagged run/voice-concierge-2026-10-20/P1 (contains unverified work of C2-01: held until that is verified)
