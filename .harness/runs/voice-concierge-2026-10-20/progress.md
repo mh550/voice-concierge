@@ -13,6 +13,29 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 08:55 · C5-03 · passes
+
+- **Changed:**
+  - New `concierge/compaction.py` (pure: `needs_compaction`, `plan_compaction`, `build_compacted`, `compact_or_fallback`, `fallback_truncate`, `rebase`, `COMPACTION_SYSTEM`) and `concierge/compactor.py` (`Compactor`: one task at a time, applied on `listening` via `Agent.update_chat_ctx`, journals `compacted`).
+  - `erasure_hooks.add_erase_hook`/`cancel_pending`, so "Forget me" cancels the compaction too.
+  - `"compacted"` added to `JournalType`; `Started.compactor`.
+  - Prep commit (a pure move): `session.py`'s `_journal`/`_write_summary` are now `concierge/session_end.py`'s `journal_row`/`write_summary`.
+  - Tests 655 → 694.
+- **Verified:**
+  - `tests/test_compaction.py` (38 tests), among them `test_thirty_turns_compact_at_the_next_listening_transition`: 8 items, one summary with the FakeLLM text, 31 turn rows (the 30 turns plus the greeting) and one `compacted` row.
+  - `test_slow_summarizer_falls_back_within_5_5_s`: the last 12 turns are kept, plus an `error` row and `fallback: true`.
+  - `test_existing_summary_survives_a_second_compaction`.
+  - `test_update_chat_ctx_is_never_called_from_the_turn_hook_or_item_handlers`: the only caller is `compactor.py:_apply`.
+  - 12 mutations each turn a test red.
+  - Opus review: 0 Critical, 0 Important, 5 Minor (4 fixed with tests, M1 accepted). The table is in the C5 plan under "C5-03 build notes and review".
+  - `check.sh` is green with 694 tests.
+- **Next session (C5-04) must know:** `merge.py` is at 250 lines and `memory_writer.py` at 249. The review diff base is the C4-06 commit. The plan's M1 (a narrow preemptive-generation window) was accepted, so C7's latency eval should look for it.
+- **Questions for Michael:** none new (D12 is still open).
+- **Proposed changes:**
+  - C5-03 step 2's handler logic lives in `compactor.py`, registered from `session.py`.
+  - Step 3 has 31 turn rows: the greeting is journaled too, and the test checks all 30 turn ids.
+  - Spec §4.2's journal types could add `compacted`.
+
 ### 2026-10-20 07:40 · C5-02 · passes
 
 - **Changed:** new `concierge/summary.py` (`summarize`, `summarize_visit`, `trim_summary`, `SUMMARY_SYSTEM`), `concierge/store_journal.py` (the fence and the journal, moved out of `store.py` with no changes), `concierge/erasure_hooks.py` (`forget_visitor`). `Store.set_summary` and `fact_ops.store_summary` are new, and so is the `summary_written` journal type. `gate.check_text` is new. `session.py` gets the shutdown sequence (flush → summary → `set_summary`, skipped when erased, under one 25 s deadline). `FLUSH_TIMEOUT_S` is now 15, and `flush` cancels its run on timeout. Also `FakeLLM(respond=…)` and a per-stage `build_llm` fake (`stage_llms`, the `summarizer` fixture). Tests 616 → 655.

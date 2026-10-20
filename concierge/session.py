@@ -22,8 +22,10 @@ from livekit.agents.voice.agent_session import RecordingOptions
 from livekit.agents.voice.room_io import RoomOptions, TextInputOptions
 
 from concierge.agent import ConciergeAgent
+from concierge.compactor import Compactor
 from concierge.config import Settings, build_llm, build_stt, build_tts
 from concierge.dispatch import DispatchInfo, parse_dispatch
+from concierge.erasure_hooks import add_erase_hook
 from concierge.greeting import greeting_instructions
 from concierge.knowledge import load_pack
 from concierge.memory_writer import MemoryWriter
@@ -53,6 +55,7 @@ class Started:
     greeting: SpeechHandle
     tasks: set[asyncio.Task[Any]] = field(default_factory=set)
     writer: MemoryWriter | None = None  # None: no memory this session (no store, or the preload failed)
+    compactor: Compactor | None = None
 
 
 def recording_options(settings: Settings | None = None) -> RecordingOptions:
@@ -119,21 +122,20 @@ def _agent_or_memoryless(
 
 async def start_session(ctx: JobContext, store: Store | None, settings: Settings) -> Started:
     """Preload (concurrent with ctx.connect()) → ConciergeAgent → session.start → the greeting, then
-    session_started in the background. With memory, a MemoryWriter sees every conversation item. The shutdown
-    callback runs the final extraction and the visit summary (unless erased), journals session_ended and closes the
-    store."""
+    session_started in the background. With memory, a MemoryWriter sees every conversation item; a Compactor keeps
+    the in-call context short either way. The shutdown callback cancels the compaction, runs the final extraction
+    and the visit summary (unless erased), journals session_ended and closes the store."""
     info = parse_dispatch(ctx.job.metadata)  # the entrypoint validated it; pure and cheap
     session_id = uuid.uuid4().hex
     began = time.monotonic()
     tasks: set[asyncio.Task[Any]] = set()
     preloaded: Preloaded | None = None
     writer: MemoryWriter | None = None
+    compactor: Compactor | None = None
 
     async def on_shutdown(reason: str) -> None:  # a plain async def: add_shutdown_callback reads its __code__
         # One ordered callback: the job runs its shutdown callbacks concurrently, so a separate close could
         # close the store under the session_ended write.
-        if store is None:
-            return
         summarizer: list[llm.LLM] = []  # built only when a summary runs; closed in the finally
 
         def build_summarizer() -> llm.LLM:
@@ -143,6 +145,8 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
         try:
             async with asyncio.timeout(SHUTDOWN_WORK_S):
                 await asyncio.gather(*tasks, return_exceptions=True)  # errors are logged by track's callback
+                if compactor is not None:  # first: no compaction overlaps the final extraction or the summary
+                    await compactor.aclose()
                 if writer is not None:
                     await writer.flush()  # the final extraction; nothing when erased
                     # Checked after the flush too: forget_me can land during it. No visitor turn: nothing new.
@@ -155,14 +159,15 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
         except TimeoutError:
             logger.warning("the shutdown work missed its %.0f s deadline; the rest was skipped", SHUTDOWN_WORK_S)
         finally:
-            for closing in (writer, *summarizer):
+            for closing in (compactor, writer, *summarizer):
                 if closing is None:
                     continue
                 try:
                     await closing.aclose()  # the writer waits for its store thread: before store.close
                 except Exception as exc:  # e.g. an LLM's close: the store still closes
                     logger.warning("closing %s failed (%s)", type(closing).__name__, type(exc).__name__)
-            await asyncio.to_thread(store.close)
+            if store is not None:
+                await asyncio.to_thread(store.close)
 
     ctx.add_shutdown_callback(on_shutdown)  # first, so a failed connect or session.start still closes the store
     # Spec §4.0: the store reads overlap the room connection (connect is idempotent; session.start's is a no-op).
@@ -178,13 +183,21 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
             store, preloaded.thread_id, session_id, extractor, EXTRACTION_DEBOUNCE_S, channels=channels
         )
         session.on("conversation_item_added", writer.on_item_added)  # before start: the greeting is seen too
-    await session.start(
-        agent=_agent_or_memoryless(load_pack(), preloaded, writer),
-        **room_start_kwargs(ctx, info, settings, channels),
+    agent = _agent_or_memoryless(load_pack(), preloaded, writer)
+    # Compaction is about the context budget, not the store: it runs without memory too (then nothing is journaled).
+    compactor = Compactor(
+        agent, session, functools.partial(build_llm, "summarizer", settings),
+        journal=functools.partial(journal_row, store, writer.thread_id, session_id, writer=writer) if writer else None,
+        erased=(lambda: writer.erased) if writer else (lambda: False),
     )
+    if writer is not None:
+        add_erase_hook(writer, compactor.cancel)  # "Forget me" cancels the compaction too (spec §4.2)
+    session.on("conversation_item_added", compactor.on_item_added)  # after the writer's
+    session.on("agent_state_changed", compactor.on_state_changed)  # the apply point, never the turn hook
+    await session.start(agent=agent, **room_start_kwargs(ctx, info, settings, channels))
     greeting = session.generate_reply(instructions=greeting_instructions(preloaded))
 
     if store is not None and preloaded is not None:
         started = {"visits": preloaded.visits, "preload_ms": preloaded.ms, "returning": preloaded.block is not None}
         track(tasks, journal_row(store, preloaded.thread_id, session_id, "session_started", started), log=logger)
-    return Started(session, preloaded, session_id, greeting, tasks, writer)
+    return Started(session, preloaded, session_id, greeting, tasks, writer, compactor)

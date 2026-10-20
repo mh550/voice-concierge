@@ -319,7 +319,7 @@
         "tests/test_compaction.py: a FakeLLM that sleeps 6 s triggers fallback_truncate within 5.5 s and the result keeps the last 12 turns; an existing summary message survives a second compaction (summary-of-summary, livekit/agents #7721)",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C5-04", "milestone": "C5", "kind": "review", "model": "opus",

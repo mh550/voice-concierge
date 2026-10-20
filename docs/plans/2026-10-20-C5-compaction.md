@@ -534,3 +534,38 @@ Critical, 4 Important, 5 Minor.
 
 `SUMMARY_SYSTEM` gained one rule ("Leave out everything the visitor asked to forget"), and `JournalType` gained
 `summary_written` after the §4.2 list (`test_journal_type_literal_matches_spec_list` says so).
+
+## C5-03 build notes and review
+
+Built as Part 2 says, with these changes:
+
+- `session.py` was at 244 lines: `_journal` and `_write_summary` moved first, unchanged, to `concierge/session_end.py`
+  (`journal_row`, `write_summary`; a pure move, its own commit). The Compactor is built in `start_session` (also
+  without memory: then `journal=None`), registered on `conversation_item_added` after the writer and on
+  `agent_state_changed`, closed first in `on_shutdown` and again in its `finally` (`aclose` is idempotent).
+  `Started.compactor` exposes it.
+- The erase hooks live in `concierge/erasure_hooks.py` (`add_erase_hook`, `cancel_pending`), not in `MemoryWriter`
+  (249 lines). `forget_visitor` calls `cancel_pending`: `cancel_all` (so `erased` first), then each hook, once. The
+  Compactor also reads `writer.erased` (`erased=`), so an erase the writer learns of another way (`ThreadMissing`)
+  stops it too.
+- The trigger runs on a new turn only (a tool item or config update starts nothing). `compact_or_fallback` is the
+  5 s `wait_for` and the fallback in one place; the provider factory failing (no key) is a fallback too.
+- `rebase` inserts the items added since the snapshot by `created_at` (`ChatContext.insert`, as 1.8 inserts a late
+  tool pair), not at the end.
+- The Compactor's summarizer is `build_llm("summarizer")`, a second instance beside the visit summary's.
+
+One Opus reviewer read the diff (`/tmp/harness/voice-concierge/voice-concierge-2026-10-20/review-C5-03.diff`) against
+1.8.8: 0 Critical, 0 Important, 5 Minor; every LiveKit assumption checked out.
+
+| # | Finding | Change (test) |
+|---|---|---|
+| M1 | The `user_state == "speaking"` guard misses a preemptive reply started after an interruption, before the agent is back to `listening` (a narrow window: the reply is discarded, latency only) | Accepted: the fix needs the activity's private `_preemptive_generation`. C7's live latency eval would show it |
+| M2 | A trigger that folds nothing (a failing provider over 7–12 turns, or 6 very long turns) called the summarizer on every turn | After such an attempt the next waits for 6 more turns (`test_an_unproductive_attempt_waits_for_more_turns`) |
+| M3 | The hook registry's value held its own key (the Compactor holds the writer), so it was never freed | Hooks held as `WeakMethod`, popped when run (`test_the_erase_hook_is_held_weakly`) |
+| M4 | Test gaps: the late pair was inserted before the apply; the handler-timing test passed trivially; no fallback straddle or `_apply` re-check test | Renamed to `test_tool_pair_inserted_before_an_apply_lands_by_created_at`; added `test_tool_pair_inserted_after_an_apply_is_kept`, `test_fallback_keeps_a_tool_pair_straddling_its_split_whole`, `test_apply_waits_when_the_agent_is_not_listening_anymore`; the handler test times the call that starts the task |
+| M5 | `COMPACTION_SYSTEM` asked to keep "what the visitor asked to forget", which could carry a forgotten value forward | The rule now says leave it and its value out, at most note that something was forgotten |
+
+Mutation checks (each turns its test red): rebase appending instead of inserting, no listening re-check, no erase
+hook, the fallback dropping the summary, no tool-pair loop, the previous summary not passed, no `compactor.aclose`
+before the flush, the trigger rewriting the context, no backoff, a strong hook, and `update_chat_ctx` called from
+`_maybe_start` (the static test).
