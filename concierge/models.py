@@ -191,15 +191,15 @@ class TurnMetrics(BaseModel):
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    turn: int
-    eou_ms: float | None = None
-    stt_ms: float | None = None
-    llm_ttft_ms: float | None = None
-    tts_ttfb_ms: float | None = None
-    total_ms: float | None = None
-    memory_on_turn_path_ms: float | None = None
-    preload_ms: float | None = None
-    extraction_ms: float | None = None
-    prompt_tokens: int | None = None
-    cached_tokens: int | None = None
+    turn: int = Field(ge=1)
+    eou_ms: float | None = Field(default=None, ge=0)
+    stt_ms: float | None = Field(default=None, ge=0)
+    llm_ttft_ms: float | None = Field(default=None, ge=0)
+    tts_ttfb_ms: float | None = Field(default=None, ge=0)
+    total_ms: float | None = Field(default=None, ge=0)
+    memory_on_turn_path_ms: float | None = Field(default=None, ge=0)
+    preload_ms: float | None = Field(default=None, ge=0)
+    extraction_ms: float | None = Field(default=None, ge=0)
+    prompt_tokens: int | None = Field(default=None, ge=0)
+    cached_tokens: int | None = Field(default=None, ge=0)
     compacted: bool = False

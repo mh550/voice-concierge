@@ -369,7 +369,7 @@
         "tests/test_metrics.py: FakeLLM emitting metrics_collected with prompt_tokens=1234, prompt_cached_tokens=1000 results in those values on the next published turn",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C6-04", "milestone": "C6", "kind": "build", "model": "opus",

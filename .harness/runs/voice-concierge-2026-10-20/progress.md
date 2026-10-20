@@ -13,6 +13,22 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 07:32 · C6-03 · passes
+
+- **Changed:**
+  - New `concierge/metrics.py` (`TurnMetricsCollector`). It maps `ChatMessage.metrics` and the LLM's tokens to §6. A turn closes on `listening` only after a reply message, or at the next user message.
+  - Wired in `session.py`: item, state and `session.llm` `metrics_collected` handlers; `on_merged` → `note_extraction`; `stop_publishing` first in `on_shutdown`; `aclose` before the store closes.
+  - `MergeResult` moved to `concierge/merge_result.py` and gained `extraction_ms`. `TurnMetrics` gained the schema's bounds.
+  - New column `anonymous_turn_metrics.created_at` (ms, rounded down to the minute), with schema v1 → v2 migration. `RecordingSession.llm` added.
+  - Tests 738 → 774.
+- **Verified:**
+  - The session test publishes `(1, 900, 0), (2, 1234, 1000)` on `concierge.metrics`; it fails with the `session.llm.on(...)` line removed.
+  - `compacted` and the 0.0123 s → 12 ms case are both asserted.
+  - `check.sh` is green with 774 tests.
+- **Opus review:** 0 Critical, 2 Important, both fixed test-first (pause on interruption at agent_activity.py:2390 split turns and shifted tokens). Of the 4 Minor, 3 are fixed (no writes after `aclose`, the v2 migration, a sleep replaced by polling). The `cancelled` comment is corrected, and the remaining token risk is noted in the plan's "C6-03 build notes".
+- **Next session (C6-04) must know:** `Started.collector` exists. `RecordingSession` now has `llm`. Session tests that count sends must filter by topic, because `concierge.metrics` now goes out after every turn.
+- **Questions for Michael:** none new (D13 is still open).
+
 ### 2026-10-20 11:40 · C6-02 · passes
 
 - **Changed:**

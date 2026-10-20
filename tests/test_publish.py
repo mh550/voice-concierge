@@ -14,7 +14,7 @@ from livekit.agents.testing import fake_job_context
 from pydantic import BaseModel
 
 from concierge import session as concierge_session
-from concierge.contract import MAX_BODY_BYTES, MEMORY_TOPIC, MemoryPayload, empty_memory_payload
+from concierge.contract import MAX_BODY_BYTES, MEMORY_TOPIC, METRICS_TOPIC, MemoryPayload, empty_memory_payload
 from concierge.publish import MemoryPublisher, PayloadTooLarge, publish
 from concierge.store import Store
 from concierge.testing.fake_llm import FakeLLM, FakeResponse, FakeToolCall
@@ -160,8 +160,9 @@ async def test_session_start_publishes_memory_once(
         (sent,) = room.local_participant.sent_on(MEMORY_TOPIC)
         memory_validator.validate(json.loads(sent))
         assert json.loads(sent)["visitor"] == {"name": None, "visits": 1}
+        before = len(room.local_participant.sent)
         await shutdown(ctx, started)
-    assert len(room.local_participant.sent) == 1  # nothing at shutdown: the room is gone by then (plan C6)
+    assert len(room.local_participant.sent) == before  # nothing at shutdown: the room is gone by then (plan C6)
 
 
 async def test_a_session_without_memory_publishes_the_empty_payload(
@@ -201,7 +202,7 @@ async def test_two_memory_publishes_after_one_merged_extraction(
         await shutdown(ctx, started)
     assert len(extractors) == 1 and len(extractors[0].calls) == 1
     sent = [json.loads(t) for t in room.local_participant.sent_on(MEMORY_TOPIC)]
-    assert len(sent) == 2 and len(room.local_participant.sent) == 2
+    assert len(sent) == 2 and {t for _, t in room.local_participant.sent} == {MEMORY_TOPIC, METRICS_TOPIC}
     for body in sent:
         memory_validator.validate(body)
     assert sent[0]["facts"] == []
@@ -229,8 +230,10 @@ async def test_a_merge_in_the_shutdown_flush_publishes_nothing(
     with fake_job_context(job_metadata=METADATA, room=room) as ctx:
         started = await start(ctx, db)
         await started.session.run(user_input="I work at Acme.")
+        await until(lambda: len(room.local_participant.sent_on(METRICS_TOPIC)) == 2, 3)  # sent before the shutdown
+        before = len(room.local_participant.sent)
         await shutdown(ctx, started)
     with Store(db.path) as s:
         thread = s.thread_for(VISITOR)
         assert thread is not None and [f.value for f in s.valid_facts(thread.id)] == ["Acme"]  # the flush merged
-    assert len(room.local_participant.sent_on(MEMORY_TOPIC)) == 1 and len(room.local_participant.sent) == 1
+    assert len(room.local_participant.sent_on(MEMORY_TOPIC)) == 1 and len(room.local_participant.sent) == before

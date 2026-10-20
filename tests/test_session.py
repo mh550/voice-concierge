@@ -142,6 +142,8 @@ async def test_shutdown_after_forget_me_journals_nothing_and_still_closes(db: St
 
 async def test_shutdown_closes_the_store_when_session_start_fails(db: Store, monkeypatch: pytest.MonkeyPatch) -> None:
     class Failing:
+        llm = None  # AgentSession.llm
+
         def on(self, event: str, callback: Any = None) -> Any:
             return callback
 

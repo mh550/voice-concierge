@@ -44,7 +44,7 @@ def seed_visitor(store: Store, visitor_id: str, marker: str = "Ann") -> str:
 
 
 def seed_anonymous(store: Store, visitor_id: str) -> None:
-    for turn in range(3):
+    for turn in range(1, 4):
         store.add_turn_metrics(uuid.uuid4().hex, TurnMetrics(turn=turn, total_ms=900.0))
     store.count_session(visitor_id, "2025-10-09")
 

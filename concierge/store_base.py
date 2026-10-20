@@ -19,7 +19,7 @@ from types import TracebackType
 from typing import Any, Self
 
 from concierge.models import TurnMetrics
-from concierge.schema import PRAGMAS, SCHEMA, SCHEMA_VERSION
+from concierge.schema import MIGRATIONS, PRAGMAS, SCHEMA, SCHEMA_VERSION
 
 log = logging.getLogger(__name__)
 
@@ -116,6 +116,8 @@ class StoreBase:
         if found > SCHEMA_VERSION:
             raise StoreError(f"the file has schema version {found}; this code knows {SCHEMA_VERSION}")
         if found < SCHEMA_VERSION:
+            for version in range(found + 1, SCHEMA_VERSION + 1) if found else ():  # 0: a new file, made current
+                self._conn.execute(MIGRATIONS[version])
             self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         self._conn.execute("COMMIT")
 
@@ -189,6 +191,7 @@ class StoreBase:
             k: (float(round(v)) if isinstance(v, float) else v) for k, v in metrics.model_dump().items()
         }
         values["compacted"] = int(metrics.compacted)
+        values["created_at"] = self._clock() // 60_000 * 60_000  # B9: the minute, not the instant
         columns = ", ".join(["session_id", *values])
         marks = ", ".join("?" * (len(values) + 1))
         with self._transaction() as conn:

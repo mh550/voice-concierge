@@ -25,14 +25,16 @@ from livekit.agents.voice.room_io import RoomOptions, TextInputOptions
 from concierge.agent import ConciergeAgent
 from concierge.compactor import Compactor
 from concierge.config import Settings, build_llm, build_stt, build_tts
-from concierge.contract import MemoryPayload, build_memory_payload, empty_memory_payload
+from concierge.contract import METRICS_TOPIC, MemoryPayload, build_memory_payload, empty_memory_payload
 from concierge.dispatch import DispatchInfo, parse_dispatch
 from concierge.erasure_hooks import add_erase_hook
 from concierge.greeting import greeting_instructions
 from concierge.knowledge import load_pack
 from concierge.memory_writer import MemoryWriter
+from concierge.merge import MergeResult
+from concierge.metrics import TurnMetricsCollector
 from concierge.preload import Preloaded, preload
-from concierge.publish import MemoryPublisher
+from concierge.publish import MemoryPublisher, publish
 from concierge.session_end import journal_row, write_summary
 from concierge.store import Store
 from concierge.tasks import track
@@ -61,6 +63,7 @@ class Started:
     writer: MemoryWriter | None = None  # None: no memory this session (no store, or the preload failed)
     compactor: Compactor | None = None
     publisher: MemoryPublisher | None = None
+    collector: TurnMetricsCollector | None = None
 
 
 def recording_options(settings: Settings | None = None) -> RecordingOptions:
@@ -138,6 +141,7 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     writer: MemoryWriter | None = None
     compactor: Compactor | None = None
     publisher: MemoryPublisher | None = None
+    collector: TurnMetricsCollector | None = None
 
     async def memory_payload() -> MemoryPayload:
         """What `concierge.memory` carries now: read on the writer's store thread, in order with its writes."""
@@ -154,7 +158,9 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
             summarizer.append(build_llm("summarizer", settings))
             return summarizer[-1]
 
-        if publisher is not None:  # first: the room is disconnected before the callbacks run (plan C6)
+        if collector is not None:  # first: the room is disconnected before the callbacks run (plan C6)
+            collector.stop_publishing()
+        if publisher is not None:
             await publisher.aclose()
         try:
             async with asyncio.timeout(SHUTDOWN_WORK_S):
@@ -173,7 +179,7 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
         except TimeoutError:
             logger.warning("the shutdown work missed its %.0f s deadline; the rest was skipped", SHUTDOWN_WORK_S)
         finally:
-            for closing in (compactor, writer, *summarizer):
+            for closing in (collector, compactor, writer, *summarizer):  # the collector waits ≤ 5 s for its writes
                 if closing is None:
                     continue
                 try:
@@ -192,11 +198,17 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     session = build_session(ctx, settings)
     channels = ChannelTags()
     publisher = MemoryPublisher(ctx.room, memory_payload)
+
+    def on_merged(result: MergeResult) -> None:
+        if collector is not None:
+            collector.note_extraction(result.extraction_ms)  # on the next turn's concierge.metrics
+        publisher.schedule()  # a fresh concierge.memory after every merge
+
     if store is not None and preloaded is not None:  # no thread, no writer: nothing is ever scheduled
         extractor = functools.partial(build_llm, "extractor", settings)
         writer = MemoryWriter(
             store, preloaded.thread_id, session_id, extractor, EXTRACTION_DEBOUNCE_S, channels=channels,
-            on_merged=lambda _result: publisher.schedule(),  # a fresh concierge.memory after every merge
+            on_merged=on_merged,
         )
         session.on("conversation_item_added", writer.on_item_added)  # before start: the greeting is seen too
     agent = _agent_or_memoryless(load_pack(), preloaded, writer)
@@ -210,6 +222,15 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
         add_erase_hook(writer, compactor.cancel)  # "Forget me" cancels the compaction too (spec §4.2)
     session.on("conversation_item_added", compactor.on_item_added)  # after the writer's
     session.on("agent_state_changed", compactor.on_state_changed)  # the apply point, never the turn hook
+    # B9: anonymous per-turn numbers, with or without memory; the conversation LLM's calls bring the tokens.
+    collector = TurnMetricsCollector(
+        store, session_id, functools.partial(publish, ctx.room, METRICS_TOPIC),
+        preload_ms=preloaded.ms if preloaded else None, compactions=lambda: compactor.applied,
+    )
+    session.on("conversation_item_added", collector.on_item_added)
+    session.on("agent_state_changed", collector.on_state_changed)
+    if isinstance(session.llm, llm.LLM):
+        session.llm.on("metrics_collected", collector.on_llm_metrics)
     await session.start(agent=agent, **room_start_kwargs(ctx, info, settings, channels))
     greeting = session.generate_reply(instructions=greeting_instructions(preloaded))
     publisher.schedule()  # after the greeting is queued: the read waits behind the writer's thread, not the reply
@@ -217,4 +238,4 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     if store is not None and preloaded is not None:
         started = {"visits": preloaded.visits, "preload_ms": preloaded.ms, "returning": preloaded.block is not None}
         track(tasks, journal_row(store, preloaded.thread_id, session_id, "session_started", started), log=logger)
-    return Started(session, preloaded, session_id, greeting, tasks, writer, compactor, publisher)
+    return Started(session, preloaded, session_id, greeting, tasks, writer, compactor, publisher, collector)

@@ -25,6 +25,10 @@ class RecordingSession:
         self.handlers: dict[str, list[Any]] = {}
         RecordingSession.instances.append(self)
 
+    @property
+    def llm(self) -> Any:  # noqa: ANN401 (AgentSession.llm: the llm it was built with, agent_session.py:2352)
+        return self.kwargs.get("llm")
+
     def on(self, event: str, callback: Any = None) -> Any:  # noqa: ANN401 (EventEmitter.on's shape)
         inspect.signature(AgentSession.on).bind(None, event, callback)
         self.handlers.setdefault(event, []).append(callback)

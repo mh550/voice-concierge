@@ -146,3 +146,10 @@ def test_turn_metrics_forbids_extra_fields() -> None:
 def test_turn_metrics_rejects_non_finite_numbers(value: float) -> None:
     with pytest.raises(ValidationError):
         TurnMetrics(turn=1, total_ms=value)
+
+
+@pytest.mark.parametrize("fields", [{"turn": 0}, {"turn": 1, "total_ms": -1.0}, {"turn": 1, "prompt_tokens": -5}])
+def test_turn_metrics_rejects_what_the_metrics_schema_rejects(fields: dict[str, float]) -> None:
+    """metrics.schema.json: `turn` ≥ 1, every number ≥ 0 (C6-02 noted the model lacked the bounds)."""
+    with pytest.raises(ValidationError):
+        TurnMetrics(**fields)
