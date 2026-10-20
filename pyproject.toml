@@ -38,4 +38,9 @@ target-version = "py312"
 extend-exclude = [".venv"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP"]
+select = ["E", "F", "W", "I", "B", "UP", "ANN"]
+
+[tool.ruff.lint.per-file-ignores]
+# Type hints are required in concierge/ (C1-06); tests and scripts may use bare fakes.
+"tests/**" = ["ANN"]
+"scripts/**" = ["ANN"]
