@@ -13,6 +13,35 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 12:10 · C7-01 · passes
+
+- **Changed:** new `docs/plans/2026-10-20-C7-ops-docs.md`. It plans:
+  - the README outline (9 sections, with the 17 practice rows);
+  - the MORNING.md 12 steps, each with its command, check and undo;
+  - the live stages (dry run → one session → live evals → latency report → hardening);
+  - the CLIs of `eval_memory.py`, `latency_report.py` and `run-worker.sh` (`messages.py` is reserved for C8);
+  - `tests/live/test_live.py` (4 tests, in-process text mode, skipped without `LIVEKIT_URL`) and the systemd user unit;
+  - about 24 named C7-02 tests.
+
+  Plan only, no code. Tests 828 → 828.
+- **Verified:**
+  - The worker's `--help` runs offline with no keys.
+  - The first SIGINT/SIGTERM drains live jobs (`cli/cli.py:439`), so the unit sets `TimeoutStopSec=660`.
+  - p50/p95 of 10…200 is 105.0/190.5.
+  - An Opus plan review found 1 Critical, 8 Important and 6 Minor findings; all are resolved in the plan, inline or as R1–R15.
+  - `lib/check.sh` is green in 65 s with 828 tests.
+- **Next session (C7-02/C7-03) must know:**
+  - The README cites `test_two_schedules_100ms_apart_start_one_extraction`, which fails the `[0-9]+ ?ms` grep. C7-03 renames it (R1).
+  - `latency_report.py` needs a new `Store.turn_metrics()` (R8).
+  - `pytest -m "not live" --collect-only tests/live` exits 5.
+- **Proposed changes** (details in the plan):
+  - C7-03: §4.0 has 17 rows, not 16, and the LLM node is Anthropic, with OpenRouter as the fallback.
+  - C7-04 step 9: the db is `~/.local/share/voice-concierge/concierge.db`, not `data/concierge.db`.
+  - C7-04 steps 7–8: these need the env loaded, so they're wrapped in `( set -a; . ~/.config/voice-concierge/env; set +a; … )`.
+  - C7-02 step 5: says "five keys" but lists six.
+  - C7-05: write the diff to scratch.
+- **Questions for Michael:** none new.
+
 ### 2026-10-20 14:00 · verify C6
 
 Result: 5 hold, 0 fail (25 steps). `lib/check.sh`: green, 828 tests (cached for this tree). I also ran the C6 test files directly: 132 pass. `ruff check .`: all checks passed. Two small notes, neither a failure. The plan names `MetricsReport`, not `UserMessageMetrics`/`AssistantMessageMetrics`, because 1.8.8 has no such classes (grep: none). The review table cites `worker.py:66` for `agent_name="concierge"`, but the line is 82.

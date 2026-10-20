@@ -406,7 +406,7 @@
         ".harness/check.sh exits 0"
       ],
       "after": ["C5", "C6"],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C7-02", "milestone": "C7", "kind": "build", "model": "opus",
