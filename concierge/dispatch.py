@@ -12,7 +12,8 @@ import re
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
-UUID4_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+# Always fullmatch: `^...$` with match() also accepts a trailing newline.
+UUID4_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 
 
 class DispatchError(ValueError):
@@ -30,7 +31,7 @@ class DispatchInfo(BaseModel):
     def _uuid4_shaped(cls, value: str) -> str:
         # Lowercase only, never coerced: the page joins as visitor-<visitor_id> verbatim (§6), and
         # crypto.randomUUID() is lowercase.
-        if not UUID4_RE.match(value):
+        if not UUID4_RE.fullmatch(value):
             raise ValueError("visitor_id is not a lowercase UUID4")
         return value
 
