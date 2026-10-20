@@ -16,6 +16,8 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from concierge.store import Store, StoreError
 
 
@@ -39,13 +41,14 @@ def main(argv: list[str]) -> int:
     with store:
         try:
             thread = store.thread_for(visitor_id)
-        except sqlite3.DatabaseError as exc:
-            print(f"not a memory store: {db} ({exc})", file=sys.stderr)
+            history = [] if thread is None else store.fact_history(thread.id)
+        except (sqlite3.DatabaseError, ValidationError) as exc:  # the type only: its text can quote a value
+            print(f"not a memory store: {db} ({type(exc).__name__})", file=sys.stderr)
             return 2
         if thread is None:
             print("no thread for this visitor", file=sys.stderr)
             return 1
-        for fact in store.fact_history(thread.id):
+        for fact in history:
             valid_to = "current" if fact.valid_to is None else iso(fact.valid_to)
             superseded_by = "-" if fact.superseded_by is None else str(fact.superseded_by)
             print("\t".join((fact.slot, fact.value, iso(fact.valid_from), valid_to, superseded_by)))

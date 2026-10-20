@@ -61,6 +61,11 @@ def _thread(row: tuple[Any, ...]) -> Thread:
 
 
 class Store(ErasureStore):
+    """The thread store. Every method blocks: up to the 5 s busy timeout for the write lock (plus apply_fact_ops'
+    backoff), and forget_me, purge_idle and close up to 5 s more for a checkpoint a reader holds up. Call it from
+    `asyncio.to_thread`, never on the event loop or the turn path (§4.4). Errors: StoreError and its subclasses,
+    sqlite3.Error (e.g. "database is locked" after the timeout) and pydantic's ValidationError for a bad op."""
+
     # Threads
 
     def get_or_create_thread(self, visitor_id: str) -> Thread:

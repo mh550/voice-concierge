@@ -9,7 +9,7 @@ from __future__ import annotations
 import unicodedata
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 SlotName = Literal["name", "role", "company", "follow_up_wanted", "interests", "asked_about"]
 Source = Literal["user_said", "user_typed", "user_asked_to_remember"]
@@ -118,6 +118,11 @@ class AddFact(_SlotValue):
     channel: Channel
     turn_id: str
     supersedes: list[int] = Field(default_factory=list)
+
+    @field_validator("supersedes")
+    @classmethod
+    def _once_each(cls, ids: list[int]) -> list[int]:
+        return list(dict.fromkeys(ids))  # a repeat would invalidate once, then report itself skipped
 
 
 class InvalidateFact(BaseModel):
