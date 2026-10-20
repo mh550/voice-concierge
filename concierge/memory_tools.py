@@ -88,7 +88,7 @@ async def do_remember(writer: MemoryWriter | None, fact: str) -> str:
     return ALREADY_KNOWN if result.skipped else REMEMBERED
 
 
-def _forget(writer: MemoryWriter, about: str) -> list[Fact]:
+def _forget(writer: MemoryWriter, about: str, asked_at: int) -> list[Fact]:
     """On the store thread: the matching facts (valid or not) and every row they superseded, deleted in one batch."""
     history = writer.store.fact_history(writer.thread_id)
     doomed = select(history, about)
@@ -102,16 +102,16 @@ def _forget(writer: MemoryWriter, about: str) -> list[Fact]:
     deletes = [DeleteFact(fact_id=i) for i in sorted(doomed)]
     deleted = set(writer.store.apply_fact_ops(writer.thread_id, deletes, session_id=writer.session_id).deleted)
     gone = [f for f in history if f.id in deleted]
-    writer.forgotten.update((f.slot, _key(f.value)) for f in gone)  # here, before any later merge on this thread
+    writer.forgotten.extend((f.slot, _key(f.value), asked_at) for f in gone)  # here, before any later merge
     return gone
 
 
 async def do_forget(writer: MemoryWriter | None, about: str) -> str:
     if writer is None or writer.erased:
         return CANT_SAVE
-    writer.note_forget(about)  # first: a run that filters its ops after this sees it, even with nothing stored yet
+    asked_at = writer.note_forget(about)  # first: a run filtering its ops after this sees it, even with nothing stored
     try:
-        gone = await writer.call(_forget, writer, about)
+        gone = await writer.call(_forget, writer, about, asked_at)
     except ThreadMissing:
         writer.erased = True
         return CANT_SAVE

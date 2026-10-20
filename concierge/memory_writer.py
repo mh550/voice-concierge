@@ -53,7 +53,8 @@ class MemoryWriter:
         self.erased = False
         self.history: list[Turn] = []  # this session's turns, in order
         self.last_user_turn: Turn | None = None  # what remember/forget tag their write with
-        self.forgotten: set[tuple[SlotName, str]] = set()  # (slot, key) the forget tool deleted this session
+        # (slot, key, len(history) when asked) for each value the forget tool deleted this session
+        self.forgotten: list[tuple[SlotName, str, int]] = []
         self._forget_requests: list[tuple[str, int]] = []  # (about, len(history) when asked)
         self._closed = False
         self._llm_factory = llm_factory
@@ -171,10 +172,11 @@ class MemoryWriter:
         self._extracted = end
         return result
 
-    def note_forget(self, about: str) -> None:
+    def note_forget(self, about: str) -> int:
         """A forget request (the tool calls it before deleting): extracted values it covers, from turns before it,
         are never added, even when nothing was stored yet."""
         self._forget_requests.append((about, len(self.history)))
+        return len(self.history)
 
     async def _journal_error(self, kind: str) -> None:
         try:

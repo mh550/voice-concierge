@@ -59,16 +59,16 @@ def blocks(slot: str | None, value: str, about: str) -> bool:
 
 
 def was_forgotten(
-    op: Op, positions: dict[str, int], forgotten: set[tuple[SlotName, str]], requests: list[tuple[str, int]]
+    op: Op, positions: dict[str, int], forgotten: list[tuple[SlotName, str, int]], requests: list[tuple[str, int]]
 ) -> bool:
-    """An extracted ADD or UPDATE the visitor asked to forget this session: a value the tool deleted, or one a
-    request covers from a turn before the request (`positions`: turn id → its index in the session's history)."""
-    if not isinstance(op, AddOp | UpdateOp):
+    """An extracted ADD or UPDATE, from a turn before a forget request this session, that the request covers or
+    whose value the tool deleted for it (`positions`: turn id → its index in the session's history). A later turn
+    that says it again is kept, whether or not the value had been stored when the visitor asked."""
+    position = positions.get(op.turn_id)
+    if not isinstance(op, AddOp | UpdateOp) or position is None:
         return False
     key = _key(op.value)
-    if any(k == key and (op.slot is None or op.slot == slot) for slot, k in forgotten):
-        return True
-    position = positions.get(op.turn_id)
-    return position is not None and any(
-        position < asked_at and blocks(op.slot, op.value, about) for about, asked_at in requests
+    deleted = any(
+        position < asked_at and k == key and (op.slot is None or op.slot == slot) for slot, k, asked_at in forgotten
     )
+    return deleted or any(position < asked_at and blocks(op.slot, op.value, about) for about, asked_at in requests)
