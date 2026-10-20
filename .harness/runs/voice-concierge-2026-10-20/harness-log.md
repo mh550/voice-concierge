@@ -61,3 +61,5 @@
 - 2026-10-20 12:52 · verify C7: C7-05 failed the re-check, back in the queue (one more attempt)
 - 2026-10-20 12:54 · C7-05 · claude-opus-5-5 · passes=false · 1 min · 35/38 passing
 - 2026-10-20 12:54 · C7-05 parked (waiting on Michael): Michael to approve the diff path (1a/1b) and amend or approve step 3's grep (2a/2b) in INBOX.md
+- 2026-10-20 12:54 · waiting on Michael: C7-05 (parked; answer in INBOX.md, then harness continue voice-concierge-2026-10-20)
+- 2026-10-20 12:54 · run ended (waiting on Michael: C7-05): 35/38 passing · 47 sessions (47 real) · 36 features passed · $157.80 · 9.5 h · by kind: init 1 ($6.04), coding 37 ($149.04), verify 8 ($2.60), retro 1 ($0.12) · by model: claude-fable-5-1 1 ($6.04), claude-opus-5-5 36 ($148.74), claude-sonnet-5-5 10 ($3.02)
