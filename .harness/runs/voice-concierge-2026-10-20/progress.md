@@ -13,6 +13,14 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 17:10 · C7-05 · not yet (parked)
+
+- **Changed:** no code. Rewrote the C7 review diff (`git diff 5a59354..HEAD -- . ':!.harness'`, 2595 lines) to scratch `review-C7.diff`; INBOX question added. Tests 909 → 909.
+- **Verified:** `lib/check.sh` green (909 tests, cached tree); steps 2, 4, 5 hold per the verify run and the unchanged tree.
+- **Blocked:** step 1 wants the diff in `/tmp/voice-concierge/` (outside the allowed write area); step 3's grep matches its own step text and other files under `.harness`, plus the fake key C4-02 step 2 requires verbatim. Neither is fixable without editing `feature_list.json` or breaking CLAUDE.md.
+- **Questions for Michael:** see INBOX (1a/1b, 2a/2b). Health-port bind question in MORNING.md is still open.
+- **Proposed changes:** C7-05 step 1 → scratch dir; step 3 → add `':!.harness'` and the two C4 fake-key files.
+
 ### 2026-10-20 · verify C7
 
 | Feature | Step | What you ran or read | What you saw | Holds |
