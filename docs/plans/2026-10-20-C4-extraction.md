@@ -889,3 +889,49 @@ scratch dir).
 | M7 | Minor (C7) | 12 depended on op order within a batch | Three visits |
 | M8 | Minor | No `prompt_tokens` in the run's journal row; the evals package imported the fake LLM | Both fixed (`Replay` moved to `concierge/testing`) |
 | M9 | Minor | Redundant or off-topic `forbidden` entries; `read_text()` without an encoding | Trimmed; `encoding="utf-8"` |
+
+## Review
+
+C4-06: the milestone review of all of C4. The step's diff
+(`git diff 568700f^..HEAD -- concierge/ops.py concierge/gate.py concierge/merge.py concierge/extractor.py
+concierge/turns.py concierge/memory_writer.py concierge/agent.py concierge/evals evals tests`, 3,919 lines) is
+`review-C4.diff` in the run's scratch directory, not `/tmp/voice-concierge/`: as in C1-06, C2-05 and C3-04, CLAUDE.md
+bars writes outside the worktree and the scratch directory. The rest of the C4 code (`memory_tools`, `forget_match`,
+`grounding`, `session`, `tasks`, `fact_ops`, `models`, `prompt`, `concierge/testing`) is in `review-C4-extra.diff`
+(715 lines). There were two Opus reviewers, each told not to repeat the per-feature reviews' findings. A covered the
+write path's decision code and ran 31 mutations, 11 of which survived. B covered the scheduler, the tools and the
+eval twin, with probes.
+
+Totals: 0 Critical, 5 Important (4 fixed RED→GREEN or with a mutation-checked test, 1 declined), 11 Minor (10 fixed
+or covered, 1 not reachable). Tests went from 598 to 616 (6 of them are the README rows' checks).
+
+| # | Sev. | Finding | Outcome |
+|---|---|---|---|
+| A-I1 | Important | `test_name_confirmation_holes_are_closed` asked "So you're Adam, did I get that right?", which `_ASKED_NAME` never matches. Every case was rejected before the take-back and substring rules ran, so dropping the take-back check passed the suite | Cases rewritten in the prompt's form ("Did I get that right, Adam?"), plus "but wait", "Sure, whatever", the old form, and a non-name question. Dropping the take-back check now fails 3 |
+| A-I2 | Important | An in-batch replaced ADD handing its `supersedes` to the later ADD was untested. Without it, stored Acme then [ADD Initech, ADD Globex] leaves Acme and Globex both valid | `test_in_batch_replacement_inherits_the_stored_supersedes`; the mutation now fails it |
+| A-DEL | (asked) | The earlier proposal: `merge` should reject a DELETE without a known `turn_id` | **Not adopted.** Spec §4.4 has `DELETE(fact_id, reason)`, and the plan says "A DELETE needs no turn". `InvalidateFact` records no turn, and a model inventing a DELETE would just cite the newest visitor turn. `extract` already makes no call without a visitor turn. What does hold, a DELETE citing an *agent* turn, is A-M1 |
+| B-I1 | Important | `test_handler_never_calls_the_store` raised from `LoopGuardStore`, but `on_item_added` catches every exception, so a store call made through a helper only logged a warning. B's probe: the whole suite passed with `valid_facts` called in `note_item` | Fixed RED→GREEN: the guard records violations and the test asserts none. The same mutation now fails it |
+| B-I2 | Important | `writer.forgotten` blocked a deleted value for the rest of the session, whatever turn re-stated it. "Acme", "forget where I work", "actually I do work at Acme": whether the restatement was kept depended on whether extraction had run before the forget | Fixed RED→GREEN: each `forgotten` entry carries the request's position, so only ops citing earlier turns are blocked (`test_a_restatement_after_a_stored_forget_is_kept`). `forgotten` stays, because it covers superseded rows the request's words don't name (`test_a_forgotten_superseded_value_stays_blocked_from_earlier_turns`; ignoring `forgotten` fails it) |
+| B-I3 | Important → declined | Script 06 replays an extractor DELETE, which invalidates; B said §4.4 wants a real delete | **Declined.** §4.4 and §7 say an extractor DELETE invalidates and only the `forget` tool deletes. `run_script` replays the extractor and the merge, never the agent's tools, so 06 covers the extractor's half; `test_forget_deletes_the_matching_facts` and `test_forget_deletes_the_superseded_history` cover the tool's |
+| A-M1 | Minor | A DELETE citing an agent turn was applied | Fixed RED→GREEN: `agent_attributed` (`test_delete_citing_an_agent_turn_is_agent_attributed`); merge.py stays at 250 lines |
+| A-M2 | Minor | "an", "us", "no", "up", "if", "oh", "ok" and "hi" grounded values ("Are you an investor?" / "No, I'm just an observer" stored "an investor") | Fixed RED→GREEN: stop words, cases added to `test_stop_words_never_ground_a_value` |
+| A-M3 | Minor | UPDATE of a set item to a value the set already holds (invalidate as `corrected`) was untested | `test_update_to_an_item_the_set_holds_invalidates_with_corrected` |
+| A-M4/M5 | Minor | The in-batch duplicate check and the `applied`/`skipped` counts were untested | `test_two_spellings_in_one_batch_store_one_item` asserts both |
+| A-M6 | Minor | The prompt never gave confidence's range; a 0–100 rating dropped the whole op | Fixed RED→GREEN: `EXTRACTOR_SYSTEM` says "from 0 to 1" (`test_system_prompt_states_the_confidence_range`) |
+| B-M1 | Minor | `flush` retried after a failed extraction, because the turns' journal rows counted as progress. Two LLM calls against a hung provider used up the 20 s budget | Fixed RED→GREEN: flush stops when `_extracted` didn't move (`test_a_failed_final_extraction_is_not_retried`) |
+| B-M2 | Minor | `forgotten` (a set) was updated on the store thread while the loop iterated over it | Fixed with B-I2: it is a list now, which can't raise on a concurrent append |
+| B-M3 | Minor | `contextlib.suppress(CancelledError)` around `await self._timer` also swallowed a cancel aimed at `flush` | Fixed: `asyncio.wait({self._timer})` (no test; the window is one loop iteration) |
+| B-M4 | Minor | A tool call after `aclose` raised the executor's `RuntimeError` | Fixed RED→GREEN: `call` on a closed writer raises `StoreError`, and the tool answers `STORE_FAILED` (`test_a_tool_call_after_aclose_says_it_could_not_save`). **For C6:** `forget_visitor` on a closed writer now raises `StoreError`; erase through the store directly once the session has ended |
+| B-M5 | Minor | After a flush timeout, `_drain`'s `finally` clears `_run` while the run continues | Not reachable: the 2 s debounce outlasts the shutdown's next step, and `aclose` cancels the task. Noted for C5's final-extraction rework |
+
+Simplifications applied: `fact_ops._key` is the public `value_key`, because five modules imported the private name.
+The erasure test's cancel path goes through `forget_visitor`, the real order (cancel, then erase on the store thread).
+Considered but not applied: folding `_drain` into `_debounced`'s lifecycle (B). It is a bigger change than a review
+should make before C5 reworks the session-end extraction, so it is left to C5-02. Also not applied: dropping
+`_update`'s single-slot `others` loop (A). No C4 path reaches it, but it is the safe answer for a store holding two
+valid single-slot facts, so it stays.
+
+README: the "Memory design" table gains the rows "Hot path vs background writes", "Delta edits, not rewrites",
+"Temporal validity", "Only what was heard", "ASR errors" and "Evaluate for harm as well as help". Each cites its tests,
+and `test_memory_design_row_names_tests_that_exist` checks that every cited test exists. The largest modules are
+merge.py (250 lines), store.py (247) and memory_writer.py (244).
