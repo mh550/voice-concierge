@@ -13,6 +13,22 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 02:30 · C1-03 · passes
+
+- **Added:** `concierge/config.py` (pydantic-settings `Settings`, prefix `CONCIERGE_`, all fields from the step;
+  `build_llm(stage)` → `openai.LLM.with_openrouter`, `build_stt`/`build_tts` → Inference or Deepgram plugin, built only
+  when called; `speech_classes()` for the class-name test), `concierge/testing/fake_llm.py` (`FakeResponse`,
+  `FakeToolCall`, `FakeLLM`, `FakeLLMStream`, `FakeLLM.calls`), `tests/test_config.py` (15), `tests/test_fake_llm.py` (8).
+  `pyproject.toml`: + `pydantic-settings>=2,<3`, + `concierge.testing` package. Tests 22 → 45.
+- **Verified:** `check.sh` green (45 passed, ruff clean); new tests also pass with `-W error`. The no-key import test
+  runs in a fresh interpreter after `monkeypatch.delenv`. A scratch probe ran two `AgentSession.run(user_input=…)` turns
+  with `FakeLLM` under `fake_job_context`, offline. An Opus review found no Critical/Important; 5 Minor applied
+  (deepgram-id validator with a test, direct construction instead of `type: ignore`, yield between chunks, docs).
+- **Next session (C1-04):** each `chat()` uses up one script entry; `FakeLLM.calls[i].chat_ctx` is a copy. Usage
+  comes on a separate last chunk, as in `inference/llm.py`; `metrics_collected` comes from the base class. Turn off
+  preemptive generation in audio-path tests. `db_path` defaults to `~/.local/share/voice-concierge/concierge.db`
+  (expanded), and so does `off_file`.
+
 ### 2026-10-20 01:45 · C1-02 · passes
 
 - **Added:** `knowledge/michael.md` (1,121 words, 14 `## ` sections, each followed by `Source: <file>`: profile, about,

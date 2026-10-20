@@ -39,7 +39,7 @@
         "tests/test_fake_llm.py: a text script yields chunks whose concatenated content equals the script; await stream.collect() returns the text; a tool script yields a FunctionToolCall with the given name and arguments; FakeLLM emits 'metrics_collected' with an LLMMetrics carrying prompt_tokens and prompt_cached_tokens from the script",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C1-04", "milestone": "C1", "kind": "build", "model": "opus",
