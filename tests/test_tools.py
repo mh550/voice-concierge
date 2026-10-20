@@ -274,6 +274,49 @@ async def test_a_later_turn_is_not_blocked_by_an_earlier_forget(store: Store, th
         await w.aclose()
 
 
+def emit_add(slot: str, value: str, turn_id: str) -> FakeResponse:
+    ops = [{"op": "ADD", "slot": slot, "value": value, "fact_id": None, "confidence": None, "turn_id": turn_id,
+            "reason": None}]
+    return FakeResponse(tool_call=FakeToolCall(name="emit_ops", arguments={"ops": ops}))
+
+
+async def test_a_restatement_after_a_stored_forget_is_kept(store: Store, thread_id: str) -> None:
+    """Review C4-06 I2: a value the tool deleted is blocked only from the turns before the request, as when nothing
+    was stored yet, so whether the restatement is kept doesn't depend on when the first extraction ran."""
+    fake = FakeLLM([emit_add("company", "Acme", "u1"), emit_add("company", "Acme", "u3")])
+    w = MemoryWriter(store, thread_id, "s1", lambda: fake, debounce_s=60)
+    try:
+        w.note_item(user("I work at Acme.", "u1"))
+        await w.flush()
+        w.note_item(user("Forget where I work.", "u2"))
+        assert await ConciergeAgent(PACK, memory=w).forget("where I work") == FORGOTTEN
+        w.note_item(user("Actually I do work at Acme, keep it.", "u3"))
+        await w.flush()
+        assert [f.value for f in store.valid_facts(thread_id)] == ["Acme"]
+    finally:
+        await w.aclose()
+
+
+async def test_a_forgotten_superseded_value_stays_blocked_from_earlier_turns(store: Store, thread_id: str) -> None:
+    """The request's words don't name the superseded row ("Initech"), but the tool deleted it, so an extraction of
+    an earlier turn can't add it back."""
+    fake = FakeLLM([emit_add("company", "Initech", "u1"), emit_add("company", "Acme", "u2"),
+                    emit_add("company", "Initech", "u1")])
+    w = MemoryWriter(store, thread_id, "s1", lambda: fake, debounce_s=60)
+    try:
+        w.note_item(user("I worked at Initech.", "u1"))
+        await w.flush()
+        w.note_item(user("Now I work at Acme.", "u2"))
+        await w.flush()
+        assert await ConciergeAgent(PACK, memory=w).forget("Acme") == FORGOTTEN
+        w._extracted = 0  # an earlier extraction failed, so the window reaches back to u1
+        w.note_item(user("Thanks.", "u3"))
+        await w.flush()
+        assert store.fact_history(thread_id) == []
+    finally:
+        await w.aclose()
+
+
 @pytest.mark.parametrize(("about", "left"), [
     ("my interest in Rust", ["AI", "Acme", "Ada"]),  # review I3: not every interest
     ("my company's name", ["AI", "Acme", "Ada", "Rust"]),  # not the visitor's name: ambiguous, nothing
