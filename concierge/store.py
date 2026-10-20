@@ -185,3 +185,9 @@ class Store(JournalStore):
     def recompute_state(self, thread_id: str) -> VisitorState:
         """Rebuild VisitorState from the valid facts and store it, in one fenced write."""
         return self.write(thread_id, None, lambda conn: fact_ops.store_state(conn, thread_id, self._clock()))
+
+    def set_summary(self, thread_id: str, version: int | None, text: str | None) -> VisitorState:
+        """Replace the last-visit summary (C5's session end), in one fenced write. `version=None`: the summary is this
+        session's own field, so a concurrent fact merge doesn't make it fail; an erased thread still raises
+        ThreadMissing and is never re-created. Later merges carry it over (`derive_state`)."""
+        return self.write(thread_id, version, lambda conn: fact_ops.store_summary(conn, thread_id, text, self._clock()))

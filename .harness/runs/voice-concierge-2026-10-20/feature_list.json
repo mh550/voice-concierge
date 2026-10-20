@@ -307,7 +307,7 @@
         "tests/test_summary.py: a 5-sentence LLM output is trimmed to 3; a FakeLLM that raises leaves the previous summary in place and journals an 'error' row",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C5-03", "milestone": "C5", "kind": "build", "model": "opus",

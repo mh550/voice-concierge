@@ -13,10 +13,11 @@ from livekit.agents import llm
 from livekit.agents.testing import fake_job_context
 
 from concierge import session as concierge_session
-from concierge.memory_writer import MemoryWriter, forget_visitor
+from concierge.erasure_hooks import forget_visitor
+from concierge.memory_writer import MemoryWriter
 from concierge.store import Store
 from concierge.testing.fake_llm import FakeLLM, FakeResponse, FakeToolCall
-from concierge.testing.sessions import METADATA, VISITOR, shutdown, start
+from concierge.testing.sessions import METADATA, VISITOR, shutdown, stage_llms, start
 
 VISITOR_TABLES = ("threads", "facts", "state", "journal", "messages_for_michael")
 
@@ -70,10 +71,10 @@ def counts(path: Any) -> dict[str, int]:  # noqa: ANN401
 
 
 async def _erase_during_extraction(
-    db: Store, monkeypatch: pytest.MonkeyPatch, *, cancel: bool
+    db: Store, monkeypatch: pytest.MonkeyPatch, summarizer: FakeLLM, *, cancel: bool
 ) -> tuple[CitingLLM, MemoryWriter, list[dict[str, Any]]]:
     extractor = slow_extractor(1.0)
-    monkeypatch.setattr(concierge_session, "build_llm", lambda stage, settings=None: extractor)
+    monkeypatch.setattr(concierge_session, "build_llm", stage_llms(extractor=extractor, summarizer=summarizer))
     monkeypatch.setattr(concierge_session, "EXTRACTION_DEBOUNCE_S", 0.05)
     errors: list[dict[str, Any]] = []
     asyncio.get_running_loop().set_exception_handler(lambda loop, context: errors.append(context))
@@ -96,19 +97,21 @@ async def _erase_during_extraction(
 
 
 async def test_erasure_wins_over_an_inflight_extraction(
-    db: Store, fakes: list[FakeLLM], monkeypatch: pytest.MonkeyPatch
+    db: Store, fakes: list[FakeLLM], summarizer: FakeLLM, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _, writer, errors = await _erase_during_extraction(db, monkeypatch, cancel=True)
+    _, writer, errors = await _erase_during_extraction(db, monkeypatch, summarizer, cancel=True)
+    assert summarizer.calls == []  # no visit summary after forget_me
     assert counts(db.path) == dict.fromkeys(VISITOR_TABLES, 0)
     assert writer.erased
     assert errors == []
 
 
 async def test_the_fence_alone_keeps_an_erased_thread_empty(
-    db: Store, fakes: list[FakeLLM], monkeypatch: pytest.MonkeyPatch
+    db: Store, fakes: list[FakeLLM], summarizer: FakeLLM, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The run is not cancelled: its ADD (citing the real turn) reaches the merge after forget_me and fails."""
-    extractor, _, errors = await _erase_during_extraction(db, monkeypatch, cancel=False)
+    extractor, _, errors = await _erase_during_extraction(db, monkeypatch, summarizer, cancel=False)
+    assert summarizer.calls == []
     assert not extractor.cancelled
     assert counts(db.path) == dict.fromkeys(VISITOR_TABLES, 0)
     assert errors == []

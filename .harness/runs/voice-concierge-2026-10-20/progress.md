@@ -13,6 +13,26 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 07:40 · C5-02 · passes
+
+- **Changed:** new `concierge/summary.py` (`summarize`, `summarize_visit`, `trim_summary`, `SUMMARY_SYSTEM`), `concierge/store_journal.py` (the fence and the journal, moved out of `store.py` with no changes), `concierge/erasure_hooks.py` (`forget_visitor`). `Store.set_summary` and `fact_ops.store_summary` are new, and so is the `summary_written` journal type. `gate.check_text` is new. `session.py` gets the shutdown sequence (flush → summary → `set_summary`, skipped when erased, under one 25 s deadline). `FLUSH_TIMEOUT_S` is now 15, and `flush` cancels its run on timeout. Also `FakeLLM(respond=…)` and a per-stage `build_llm` fake (`stage_llms`, the `summarizer` fixture). Tests 616 → 655.
+- **Verified:**
+  - `tests/test_summary_of_summary.py` (2 tests), `tests/test_summary.py` (24) and 9 new tests in `test_session.py`, among them `test_no_summary_llm_call_after_forget_me`, where both fakes have zero calls and every visitor table has 0 rows.
+  - Mutation checks: removing the summary call, the erased guard, the flush cancel or the forgotten-value check each turns 2–7 tests red.
+  - Opus review: 0 Critical, 4 Important (all fixed, each with a test), 5 Minor (3 fixed, 2 accepted). Table in the C5 plan under "C5-02 build notes and review".
+  - `check.sh` green with 655 tests.
+- **Next session (C5-03) must know:**
+  - `forget_visitor` now lives in `concierge.erasure_hooks`; put the erase hooks there.
+  - `memory_writer.py` is at 249 lines and `session.py` at 244, so the Compactor's logic belongs in `compactor.py`.
+  - `writer.forget_requests` is public now.
+  - Add `"compacted"` to `JournalType` after `summary_written`, and update `test_journal_type_literal_matches_spec_list`.
+- **Review I1 (privacy):** a per-fact "forget" could come back through the visit summary. Now the summarizer is told what was forgotten. A reply that names a deleted value is rejected, and an earlier summary that names one is cleared.
+- **Questions for Michael:** none new (D12 is still open).
+- **Proposed changes:**
+  - C5-02 step 1 has `summarize_visit` return `str`. It returns `str | None` (None on a failed first visit).
+  - C5-02 step 2: the shutdown calls `summarize` (which returns the outcome) rather than `summarize_visit`, and it calls `set_summary` with `version=None`.
+  - Spec §4.2's list of journal types could add `summary_written`.
+
 ### 2026-10-20 06:40 · C5-01 · passes
 
 - **Changed:** `docs/plans/2026-10-20-C5-compaction.md` (new). It covers the shutdown sequence (compactor.aclose → flush → summary → `set_summary`, skipped when erased, one 25 s deadline inside `shutdown_process_timeout=30`), `SUMMARY_SYSTEM` and `COMPACTION_SYSTEM`, the trigger (>24 items or >4,000 est. tokens), fold/keep (last 6 turns, tool pairs whole), the apply point (`agent_state_changed` → `listening`, `Agent.update_chat_ctx`, rebased on the live context), the 5 s timeout and the truncate-to-12 fallback. It also quotes 1.8.8's `AgentStateChangedEvent` and `update_chat_ctx`, and names the C5-02 and C5-03 tests. Added D12 *default* to `docs/decisions.md`. Tests 616 → 616 (plan only).

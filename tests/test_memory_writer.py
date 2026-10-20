@@ -12,7 +12,7 @@ from livekit.agents import llm
 from livekit.agents.testing import fake_job_context
 
 from concierge import session as concierge_session
-from concierge.memory_writer import MemoryWriter
+from concierge.memory_writer import FLUSH_TIMEOUT_S, MemoryWriter
 from concierge.merge import MergeResult
 from concierge.store import Store
 from concierge.testing.fake_llm import FakeLLM, FakeResponse, FakeToolCall
@@ -212,6 +212,21 @@ async def test_flush_is_bounded_by_its_timeout(make: Callable[..., MemoryWriter]
     began = time.perf_counter()
     await writer.flush(timeout_s=0.3)
     assert time.perf_counter() - began < 1.0
+
+
+async def test_flush_cancels_its_run_on_timeout(make: Callable[..., MemoryWriter]) -> None:  # plan C5 step 3
+    """Its merge can't land on the store thread after the summary's write, and nothing is left running."""
+    writer = make(FakeLLM([emit(delay_s=5), emit()]), debounce_s=0.01)
+    writer.note_item(user("I work at Acme.", "u1"))
+    await until(lambda: writer._run is not None, 2)  # the debounced run, in its 5 s LLM call
+    writer.note_item(user("And I like Rust.", "u2"))  # queues a follow-up, which the timeout drops too
+    await writer.flush(timeout_s=0.3)
+    assert writer._run is None and writer._timer is None
+    assert all(task.done() for task in writer._tasks)
+
+
+def test_flush_timeout_leaves_room_for_the_summary() -> None:
+    assert FLUSH_TIMEOUT_S == 15.0
 
 
 async def test_typed_turn_is_tagged_text(make: Callable[..., MemoryWriter], store: Store, thread_id: str) -> None:

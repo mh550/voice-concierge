@@ -503,3 +503,34 @@ instructions still first, and `session.history` still holds all 32.
 - C5-02 step 1 says `summarize_visit` returns the previous summary on failure; the shutdown also needs to know it
   failed (to journal `error`), so the plan adds `summarize()` returning a `SummaryOutcome`, with `summarize_visit` as
   the step's thin wrapper.
+
+## C5-02 build notes and review
+
+Built as Part 1 says, with these changes:
+
+- `store_journal.py` holds the fence and the journal (a pure move, its own commit). `forget_visitor` moved to
+  `concierge/erasure_hooks.py`, which C5-03 extends with the erase hooks; `memory_writer.py` stays at 249 lines.
+- `MemoryWriter.flush` cancels its timer and its run on the 15 s deadline (`_cancel_pending`, which `aclose` reuses).
+- `SHUTDOWN_WORK_S = 25` is one `asyncio.timeout` around steps 1–5. The summary keeps its own 5 s; the outer deadline
+  cancels whatever is left. That cut journals no `error` row, only a log line (review M8, accepted).
+- The summarizer is built through a factory inside `_write_summary`, so a provider that can't be built (no key) is an
+  `error` row `{"stage": "summary", "type": "KeyError"…}` and `session_ended` is still written.
+- `session_ended` is journaled on the writer's store thread, after a cancelled run's last store call (review M7).
+
+One Opus reviewer read the diff (`/tmp/harness/voice-concierge/voice-concierge-2026-10-20/review-C5-02.diff`): 0
+Critical, 4 Important, 5 Minor.
+
+| # | Finding | Change (test) |
+|---|---|---|
+| I1 | A per-fact "forget" came back through the summary (the summarizer saw every turn and the previous summary) | The summarizer gets `"forgotten": [about, …]` and a rule. A reply naming a deleted value (`writer.forgotten`, whole-word `value_key` match) is rejected (`forgotten_value`), and a previous summary naming one is cleared (`test_a_forgotten_value_never_reaches_the_summary`, `test_a_previous_summary_with_a_forgotten_value_is_cleared`, `test_a_forgotten_value_stays_out_of_the_visit_summary`) |
+| I2 | A punctuation-only reply ("…") replaced the summary | A reply with no letter or digit is `EmptySummary` (`test_punctuation_only_output_counts_as_a_failure`) |
+| I3 | The summary skipped the write gate | `gate.check_text` (the content rules without a slot cap, which `check_value` now calls) runs on the trimmed reply; a rejection is `gate_<reason>` and keeps the previous (`test_a_summary_the_gate_rejects_keeps_the_previous`) |
+| I4 | Nothing proved the flush-timeout cancel | The summarizer records the writer's unfinished tasks when called: 0 (`test_the_summary_after_a_flush_timeout_still_runs`); fails with the cancel removed |
+| M5 | "Inc." / "e.g." ended a sentence | A short abbreviation list (`test_abbreviations_do_not_end_a_sentence`) |
+| M6 | No test for "Forget me" during the summary call | `test_forget_me_during_the_summary_call_stores_nothing` |
+| M7 | `session_ended` could land before a cancelled run's merge | Journaled through `writer.call` |
+| M8 | The outer 25 s cut journals nothing | Accepted (logged; above) |
+| M9 | `set_summary` → `ThreadMissing` doesn't set `writer.erased` | Accepted: caught, logged at info, `session_ended` then fails the fence quietly |
+
+`SUMMARY_SYSTEM` gained one rule ("Leave out everything the visitor asked to forget"), and `JournalType` gained
+`summary_written` after the §4.2 list (`test_journal_type_literal_matches_spec_list` says so).

@@ -116,3 +116,15 @@ def test_response_needs_exactly_one_of_text_or_tool_call() -> None:
         FakeResponse()
     with pytest.raises(ValueError):
         FakeResponse(text="x", tool_call=FakeToolCall(name="t"))
+
+
+async def test_respond_builds_the_reply_from_the_chat_ctx() -> None:
+    fake = FakeLLM(respond=lambda ctx: f"echo: {ctx.items[-1].text_content}")
+    assert (await fake.chat(chat_ctx=_ctx("first")).collect()).text == "echo: first"
+    assert (await fake.chat(chat_ctx=_ctx("second")).collect()).text == "echo: second"
+    assert [c.chat_ctx.items[-1].text_content for c in fake.calls] == ["first", "second"]
+
+
+def test_respond_and_a_script_are_exclusive() -> None:
+    with pytest.raises(ValueError, match="script or respond"):
+        FakeLLM(["scripted"], respond=lambda ctx: "built")

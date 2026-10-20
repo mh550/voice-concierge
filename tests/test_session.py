@@ -2,6 +2,7 @@
 session_started / session_ended journaled off the greeting's path. A real AgentSession runs the FakeLLM; the room
 half of session.start is patched out (fake_job_context's room never connects)."""
 
+import functools
 import sqlite3
 from typing import Any
 
@@ -11,15 +12,20 @@ from livekit.agents.testing import fake_job_context
 
 from concierge import session as concierge_session
 from concierge.config import Settings
+from concierge.erasure_hooks import forget_visitor
 from concierge.greeting import INTRODUCTION
 from concierge.knowledge import load_pack
+from concierge.memory_writer import FLUSH_TIMEOUT_S
 from concierge.models import AddFact
 from concierge.prompt import MEMORY_HEADER, build_instructions
 from concierge.session import start_session
 from concierge.store import Store
-from concierge.testing.fake_llm import FakeLLM
+from concierge.store_base import BUSY_TIMEOUT_S
+from concierge.summary import SUMMARY_TIMEOUT_S
+from concierge.testing.fake_llm import FakeLLM, FakeResponse, FakeToolCall
 from concierge.testing.recording_session import RecordingSession
-from concierge.testing.sessions import METADATA, VISITOR, shutdown, start
+from concierge.testing.sessions import METADATA, VISIT_SUMMARY, VISITOR, shutdown, stage_llms, start
+from concierge.worker import server
 
 
 def last_text(call: Any) -> str:
@@ -189,7 +195,7 @@ async def test_the_writer_sees_the_greeting_and_the_turns_and_flushes_at_shutdow
     assert len(extractor.calls) == 1  # the shutdown flush ran the final extraction
     with Store(db.path) as s:
         kinds = [r.type for r in s.journal_rows(started.preloaded.thread_id)]
-    assert kinds[-5:] == ["agent_turn", "user_turn", "agent_turn", "extraction_ran", "session_ended"]
+    assert kinds[-6:] == ["agent_turn", "user_turn", "agent_turn", "extraction_ran", "summary_written", "session_ended"]
 
 
 async def test_the_agent_gets_the_writer_as_its_memory(db: Store, fakes: list[FakeLLM]) -> None:
@@ -212,3 +218,163 @@ async def test_store_closes_even_if_the_writer_fails_to_close(
         await shutdown(ctx, started)
     with pytest.raises(sqlite3.ProgrammingError):
         db.thread_for(VISITOR)
+
+
+# --- the session-end visit summary (C5-02; plan C5 "The shutdown sequence") ---------------------------------
+
+
+async def test_shutdown_runs_the_final_extraction_then_the_summary(
+    db: Store, fakes: list[FakeLLM], extractor: FakeLLM, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[int] = []  # how many extractor calls had happened when the summarizer was called
+
+    def respond(ctx: llm.ChatContext) -> str:
+        seen.append(len(extractor.calls))
+        return VISIT_SUMMARY
+
+    summarizer = FakeLLM(respond=respond)
+    monkeypatch.setattr(concierge_session, "build_llm", stage_llms(extractor=extractor, summarizer=summarizer))
+    with fake_job_context(job_metadata=METADATA) as ctx:
+        started = await start(ctx, db)
+        assert started.preloaded is not None
+        await started.session.run(user_input="I work at Acme.")
+        assert extractor.calls == []  # still inside the 2 s debounce: the shutdown's flush is the extraction
+        await shutdown(ctx, started)
+    assert seen == [1]
+    with Store(db.path) as s:
+        kinds = [r.type for r in s.journal_rows(started.preloaded.thread_id)]
+        assert s.state(started.preloaded.thread_id).last_visit_summary == VISIT_SUMMARY
+    assert kinds.index("extraction_ran") < kinds.index("summary_written") < kinds.index("session_ended")
+
+
+async def test_no_summary_llm_call_after_forget_me(
+    db: Store, fakes: list[FakeLLM], extractor: FakeLLM, summarizer: FakeLLM
+) -> None:
+    with fake_job_context(job_metadata=METADATA) as ctx:
+        started = await start(ctx, db)
+        assert started.writer is not None
+        await started.session.run(user_input="I work at Acme.")
+        assert await forget_visitor(started.writer, VISITOR)
+        await shutdown(ctx, started)
+    assert summarizer.calls == [] and extractor.calls == []
+    conn = sqlite3.connect(db.path)
+    try:
+        for table in ("threads", "facts", "state", "journal", "messages_for_michael"):
+            assert conn.execute(f"SELECT count(*) FROM {table}").fetchone() == (0,), table
+    finally:
+        conn.close()
+
+
+async def test_no_summary_for_a_visit_without_user_turns(
+    db: Store, fakes: list[FakeLLM], summarizer: FakeLLM
+) -> None:
+    thread = db.get_or_create_thread(VISITOR)
+    db.set_summary(thread.id, None, "The visitor runs a clinic.")
+    with fake_job_context(job_metadata=METADATA) as ctx:
+        started = await start(ctx, db)  # the greeting only
+        await shutdown(ctx, started)
+    assert summarizer.calls == []
+    with Store(db.path) as s:
+        assert s.state(thread.id).last_visit_summary == "The visitor runs a clinic."
+        assert "summary_written" not in [r.type for r in s.journal_rows(thread.id)]
+
+
+def test_shutdown_timeouts_fit_the_process_timeout() -> None:
+    work = concierge_session.SHUTDOWN_WORK_S
+    assert FLUSH_TIMEOUT_S + SUMMARY_TIMEOUT_S + BUSY_TIMEOUT_S <= work < server._shutdown_process_timeout
+
+
+async def test_summary_written_journals_counts_not_text(
+    db: Store, fakes: list[FakeLLM], summarizer: FakeLLM
+) -> None:
+    with fake_job_context(job_metadata=METADATA) as ctx:
+        started = await start(ctx, db)
+        assert started.preloaded is not None
+        await started.session.run(user_input="I work at Acme.")
+        await shutdown(ctx, started)
+    assert len(summarizer.calls) == 1
+    with Store(db.path) as s:
+        (row,) = [r for r in s.journal_rows(started.preloaded.thread_id) if r.type == "summary_written"]
+    assert set(row.payload) == {"chars", "sentences", "ms"}
+    assert row.payload["chars"] == len(VISIT_SUMMARY) and row.payload["sentences"] == 1
+    assert "Acme" not in str(row.payload)
+
+
+async def test_the_summary_after_a_flush_timeout_still_runs(
+    db: Store, fakes: list[FakeLLM], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A final extraction that misses its deadline is cancelled; the summary still runs after it."""
+    slow = FakeLLM([FakeResponse(tool_call=FakeToolCall(name="emit_ops", arguments={"ops": []}), delay_s=5)])
+    pending: list[int] = []  # the writer's unfinished tasks when the summarizer was called
+
+    def respond(ctx: llm.ChatContext) -> str:
+        assert started.writer is not None
+        pending.append(sum(not t.done() for t in started.writer._tasks))
+        return VISIT_SUMMARY
+
+    monkeypatch.setattr(concierge_session, "build_llm", stage_llms(extractor=slow, summarizer=FakeLLM(respond=respond)))
+    with fake_job_context(job_metadata=METADATA) as ctx:
+        started = await start(ctx, db)
+        assert started.writer is not None and started.preloaded is not None
+        monkeypatch.setattr(started.writer, "flush", functools.partial(started.writer.flush, timeout_s=0.2))
+        await started.session.run(user_input="I work at Acme.")
+        await shutdown(ctx, started)
+    assert len(slow.calls) == 1 and pending == [0]  # the timed-out run was cancelled before the summary
+    with Store(db.path) as s:
+        assert s.state(started.preloaded.thread_id).last_visit_summary == VISIT_SUMMARY
+
+
+async def test_a_summarizer_that_cannot_be_built_still_ends_the_session(
+    db: Store, fakes: list[FakeLLM], extractor: FakeLLM, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(concierge_session, "build_llm", stage_llms(extractor=extractor))  # "summarizer": KeyError
+    with fake_job_context(job_metadata=METADATA) as ctx:
+        started = await start(ctx, db)
+        assert started.preloaded is not None
+        await started.session.run(user_input="I work at Acme.")
+        await shutdown(ctx, started)
+    with Store(db.path) as s:
+        rows = s.journal_rows(started.preloaded.thread_id)
+    assert [r.payload for r in rows if r.type == "error"] == [{"stage": "summary", "type": "KeyError"}]
+    assert rows[-1].type == "session_ended"
+
+
+async def test_forget_me_during_the_summary_call_stores_nothing(
+    db: Store, fakes: list[FakeLLM], extractor: FakeLLM, monkeypatch: pytest.MonkeyPatch
+) -> None:  # review M6
+    def respond(ctx: llm.ChatContext) -> str:
+        assert started.writer is not None
+        started.writer.cancel_all()  # "Forget me" lands while the summarizer is working
+        return VISIT_SUMMARY
+
+    summarizer = FakeLLM(respond=respond)
+    monkeypatch.setattr(concierge_session, "build_llm", stage_llms(extractor=extractor, summarizer=summarizer))
+    with fake_job_context(job_metadata=METADATA) as ctx:
+        started = await start(ctx, db)
+        assert started.preloaded is not None
+        await started.session.run(user_input="I work at Acme.")
+        await shutdown(ctx, started)
+    with Store(db.path) as s:
+        assert s.state(started.preloaded.thread_id).last_visit_summary is None
+        kinds = [r.type for r in s.journal_rows(started.preloaded.thread_id)]
+    assert "summary_written" not in kinds and "session_ended" not in kinds
+
+
+async def test_a_forgotten_value_stays_out_of_the_visit_summary(
+    db: Store, fakes: list[FakeLLM], extractor: FakeLLM, monkeypatch: pytest.MonkeyPatch
+) -> None:  # review I1
+    summarizer = FakeLLM(["The visitor works at Acme."])
+    monkeypatch.setattr(concierge_session, "build_llm", stage_llms(extractor=extractor, summarizer=summarizer))
+    with fake_job_context(job_metadata=METADATA) as ctx:
+        started = await start(ctx, db)
+        writer = started.writer
+        assert writer is not None and started.preloaded is not None
+        await started.session.run(user_input="I work at Acme.")
+        asked_at = writer.note_forget("where I work")  # what do_forget records (memory_tools.py)
+        writer.forgotten.append(("company", "acme", asked_at))
+        await shutdown(ctx, started)
+    assert '"forgotten": ["where I work"]' in (summarizer.calls[0].chat_ctx.items[-1].text_content or "")
+    with Store(db.path) as s:
+        assert s.state(started.preloaded.thread_id).last_visit_summary is None
+        rows = s.journal_rows(started.preloaded.thread_id)
+    assert [r.payload for r in rows if r.type == "error"] == [{"stage": "summary", "type": "forgotten_value"}]

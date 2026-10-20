@@ -2,7 +2,8 @@
 plan C3 "The preload sequence", "Session start and end").
 
 Every store call runs in a thread (the store blocks up to 5 s), and none sits between the preload and the greeting:
-`session_started` is written by a background task after the greeting is queued.
+`session_started` is written by a background task after the greeting is queued. At the end (plan C5 "The shutdown
+sequence"): the final extraction, then the visit summary, unless the visitor was erased.
 """
 
 from __future__ import annotations
@@ -13,10 +14,11 @@ import logging
 import sqlite3
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from livekit.agents import AgentSession, JobContext
+from livekit.agents import AgentSession, JobContext, llm
 from livekit.agents.voice import SpeechHandle
 from livekit.agents.voice.agent_session import RecordingOptions
 from livekit.agents.voice.room_io import RoomOptions, TextInputOptions
@@ -31,6 +33,7 @@ from concierge.memory_writer import MemoryWriter
 from concierge.models import JournalType
 from concierge.preload import Preloaded, preload
 from concierge.store import Store, StoreError, ThreadMissing
+from concierge.summary import SummaryOutcome, summarize
 from concierge.tasks import track
 from concierge.text_input import ChannelTags, make_text_input_cb
 
@@ -40,6 +43,9 @@ logger = logging.getLogger("concierge.session")
 # aren't registered yet (session.start registers them), so it gets a short deadline. A normal one takes < 1 ms.
 PRELOAD_TIMEOUT_S = 1.0
 EXTRACTION_DEBOUNCE_S = 2.0  # spec §4.4: a run starts 2 s after the first user turn it covers
+# The shutdown's own deadline (plan C5 "Timing"): the flush (15 s), the summary (5 s) and a busy wait (5 s) fit, and
+# it leaves the worker's shutdown_process_timeout=30 room for the session close before the callbacks.
+SHUTDOWN_WORK_S = 25.0
 
 _STORE_ERRORS = (StoreError, sqlite3.Error, ValidationError)
 
@@ -118,20 +124,58 @@ def _agent_or_memoryless(
         return ConciergeAgent(pack, memory=writer)
 
 
-async def _journal(store: Store, thread_id: str, session_id: str, kind: JournalType, payload: dict[str, Any]) -> None:
-    """One journal row, off the loop. A failure is logged by type and never raised: the session goes on."""
+async def _journal(
+    store: Store, thread_id: str, session_id: str, kind: JournalType, payload: dict[str, Any],
+    writer: MemoryWriter | None = None,
+) -> None:
+    """One journal row, off the loop (on the writer's store thread when given, in order with its writes). A failure
+    is logged by type and never raised: the session goes on."""
     try:
-        await asyncio.to_thread(store.journal, thread_id, session_id, kind, payload)
+        if writer is not None:
+            await writer.call(store.journal, thread_id, session_id, kind, payload)
+        else:
+            await asyncio.to_thread(store.journal, thread_id, session_id, kind, payload)
     except ThreadMissing:
         logger.info("not journaling %s: the visitor's memory was erased", kind)
     except _STORE_ERRORS as exc:
         logger.warning("could not journal %s (%s)", kind, type(exc).__name__)
 
 
+async def _write_summary(writer: MemoryWriter, previous: str | None, summarizer: Callable[[], llm.LLM]) -> None:
+    """The visit summary after the final extraction: a failure (building the LLM included) journals `error` and keeps
+    the previous summary (or clears it, when it names a value forgotten this visit); a new one is stored (on the
+    writer's store thread) and journaled as counts, never text."""
+    store, thread_id, session_id = writer.store, writer.thread_id, writer.session_id
+    forgotten = {"forgotten_about": [about for about, _ in writer.forget_requests],
+                 "forgotten_values": [key for _, key, _ in writer.forgotten]}
+    try:
+        outcome = await summarize(summarizer(), previous, writer.history, **forgotten)
+    except Exception as exc:  # e.g. the provider can't be built: no key
+        outcome = SummaryOutcome(text=previous, changed=False, ms=0, error=type(exc).__name__)
+    if writer.erased:  # forget_me landed during the call
+        return
+    if outcome.error is not None:
+        logger.warning("the visit summary failed (%s)", outcome.error)
+        await _journal(store, thread_id, session_id, "error", {"stage": "summary", "type": outcome.error}, writer)
+    if not outcome.changed:
+        return
+    try:
+        await writer.call(store.set_summary, thread_id, None, outcome.text)
+    except ThreadMissing:
+        logger.info("not storing the visit summary: the visitor's memory was erased")
+        return
+    except _STORE_ERRORS as exc:
+        logger.warning("could not store the visit summary (%s)", type(exc).__name__)
+        return
+    written = {"chars": len(outcome.text or ""), "sentences": outcome.sentences, "ms": outcome.ms}
+    await _journal(store, thread_id, session_id, "summary_written", written, writer)
+
+
 async def start_session(ctx: JobContext, store: Store | None, settings: Settings) -> Started:
     """Preload (concurrent with ctx.connect()) → ConciergeAgent → session.start → the greeting, then
     session_started in the background. With memory, a MemoryWriter sees every conversation item. The shutdown
-    callback runs the final extraction (unless erased), journals session_ended and closes the store."""
+    callback runs the final extraction and the visit summary (unless erased), journals session_ended and closes the
+    store."""
     info = parse_dispatch(ctx.job.metadata)  # the entrypoint validated it; pure and cheap
     session_id = uuid.uuid4().hex
     began = time.monotonic()
@@ -144,19 +188,34 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
         # close the store under the session_ended write.
         if store is None:
             return
+        summarizer: list[llm.LLM] = []  # built only when a summary runs; closed in the finally
+
+        def build_summarizer() -> llm.LLM:
+            summarizer.append(build_llm("summarizer", settings))
+            return summarizer[-1]
+
         try:
-            await asyncio.gather(*tasks, return_exceptions=True)  # errors are logged by track's callback
-            if writer is not None:
-                await writer.flush()  # the final extraction (C5's summary follows it); nothing when erased
-            if preloaded is not None and not (writer is not None and writer.erased):
-                ended = {"reason": reason, "duration_s": round(time.monotonic() - began, 1)}
-                await _journal(store, preloaded.thread_id, session_id, "session_ended", ended)
+            async with asyncio.timeout(SHUTDOWN_WORK_S):
+                await asyncio.gather(*tasks, return_exceptions=True)  # errors are logged by track's callback
+                if writer is not None:
+                    await writer.flush()  # the final extraction; nothing when erased
+                    # Checked after the flush too: forget_me can land during it. No visitor turn: nothing new.
+                    if not writer.erased and preloaded is not None and any(t.role == "user" for t in writer.history):
+                        await _write_summary(writer, preloaded.state.last_visit_summary, build_summarizer)
+                if preloaded is not None and not (writer is not None and writer.erased):
+                    ended = {"reason": reason, "duration_s": round(time.monotonic() - began, 1)}
+                    # On the writer's thread: after a cancelled run's last store call (review M7).
+                    await _journal(store, preloaded.thread_id, session_id, "session_ended", ended, writer)
+        except TimeoutError:
+            logger.warning("the shutdown work missed its %.0f s deadline; the rest was skipped", SHUTDOWN_WORK_S)
         finally:
-            if writer is not None:
+            for closing in (writer, *summarizer):
+                if closing is None:
+                    continue
                 try:
-                    await writer.aclose()  # waits for its store thread: before store.close
-                except Exception as exc:  # e.g. the extractor LLM's close: the store still closes
-                    logger.warning("closing the memory writer failed (%s)", type(exc).__name__)
+                    await closing.aclose()  # the writer waits for its store thread: before store.close
+                except Exception as exc:  # e.g. an LLM's close: the store still closes
+                    logger.warning("closing %s failed (%s)", type(closing).__name__, type(exc).__name__)
             await asyncio.to_thread(store.close)
 
     ctx.add_shutdown_callback(on_shutdown)  # first, so a failed connect or session.start still closes the store

@@ -14,10 +14,11 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 SlotName = Literal["name", "role", "company", "follow_up_wanted", "interests", "asked_about"]
 Source = Literal["user_said", "user_typed", "user_asked_to_remember"]
 Channel = Literal["voice", "text"]
-# Exactly the §4.2 list. journal.type has no SQL CHECK, so adding a type here needs no table rebuild.
+# The §4.2 list, then C5's additions (plan C5). journal.type has no SQL CHECK, so adding a type needs no table rebuild.
 JournalType = Literal[
     "session_started", "session_ended", "user_turn", "agent_turn", "memory_preloaded", "extraction_ran",
     "fact_added", "fact_invalidated", "fact_deleted", "turn_metrics", "gate_rejected", "error",
+    "summary_written",
 ]
 
 SINGLE_CAP = 120
