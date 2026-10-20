@@ -13,6 +13,20 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 01:45 · C1-02 · passes
+
+- **Added:** `knowledge/michael.md` (1,121 words, 14 `## ` sections, each followed by `Source: <file>`: profile, about,
+  experience, education, skills, and one `## Project: <exact title>` per project in projects.ts), `concierge/knowledge.py`
+  (`PACK_PATH` resolved from the package; `load_pack()` cached; `pack_word_count()` = `wc -w`), `tests/test_knowledge.py`.
+  Tests 1 → 22.
+- **Verified:** `check.sh` green (22 passed, ruff clean); `wc -w` 1121; awk check shows 14/14 sections cite a source. An
+  Opus fact-check of every claim against the sources found no errors; its 3 wording tweaks were applied (dated "not yet
+  built" items so the agent doesn't repeat stale status).
+- **Next session:** NAMES = `## Project:` titles plus every capitalised run after "at"/"At", each grepped verbatim in
+  the sources. A new pack line like "at Some Place" must therefore be in the sources too. The pack includes the public
+  email, LinkedIn, GitHub and site URLs from profile.ts, and says he lists no phone number.
+- **Note:** Bio.md spells it "Maxx Potential"; the pack uses experience.ts's "MAXX Potential".
+
 ### 2026-10-20 01:10 · C1-01 · passes
 
 - **Added:** `pyproject.toml` (livekit-agents, plugins-openai, silero and deepgram all `==1.8.8`; pydantic>=2; setuptools; dev

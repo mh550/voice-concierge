@@ -26,7 +26,7 @@
         "tests/test_knowledge.py checks: word count <= 1200, every Source: line names an existing file in knowledge/sources/, load_pack() returns the file content, and the pack contains no URL that is absent from the sources",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C1-03", "milestone": "C1", "kind": "build", "model": "opus",
