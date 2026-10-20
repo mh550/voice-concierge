@@ -14,7 +14,9 @@ from pathlib import Path
 
 from livekit.agents import AgentServer, JobContext, JobProcess, JobRequest, cli
 from livekit.plugins import silero
+from pydantic import ValidationError
 
+from concierge import retention
 from concierge.config import Settings
 from concierge.dispatch import DispatchError, parse_dispatch
 from concierge.session import start_session
@@ -28,7 +30,20 @@ def prewarm(proc: JobProcess) -> None:
 
 
 async def on_request(req: JobRequest) -> None:
-    await req.accept()  # C6-04 adds the kill switch (reject under CONCIERGE_ENABLED=0 or the off file)
+    """The kill switch (B7): decline the job under CONCIERGE_ENABLED=0 or when the off file exists, so no agent joins
+    and the page shows its offline state (§6). Settings are read per request: creating the off file takes effect at
+    the next job with no restart. Fails closed: settings that don't validate decline too."""
+    try:
+        settings = Settings()
+    except ValidationError:
+        logger.warning("declining job %s: the settings do not validate", req.id)
+        await req.reject()
+        return
+    if not settings.enabled or settings.off_file.exists():
+        logger.info("declining job %s: the kill switch is on", req.id)
+        await req.reject()
+        return
+    await req.accept()
 
 
 def _open_store(path: Path) -> Store:
@@ -47,6 +62,21 @@ async def _open_or_none(path: Path) -> Store | None:
 
 
 server = AgentServer(shutdown_process_timeout=30, setup_fnc=prewarm)
+_background: set[asyncio.Task[None]] = set()
+
+
+@server.on("worker_started")
+def _start_retention() -> None:
+    """B6: the TTL purge at worker start and daily. `worker_started` is emitted in the main process with its loop
+    running (AgentServer.run, worker.py:862 in 1.8.8)."""
+    try:
+        path = Settings().db_path
+    except ValidationError:
+        logger.warning("no retention purge: the settings do not validate")
+        return
+    task = asyncio.get_running_loop().create_task(retention.run_daily_purge(path), name="retention_purge")
+    _background.add(task)
+    task.add_done_callback(_background.discard)
 
 
 @server.rtc_session(agent_name="concierge", on_request=on_request)

@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import uuid
 from collections.abc import Iterator
@@ -5,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from jsonschema import Draft202012Validator
 from livekit.agents import AgentSession
 
 from concierge import session
@@ -31,8 +33,10 @@ class FakeClock:
 
 @pytest.fixture(autouse=True)
 def _temp_db_path(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The entrypoint opens Settings().db_path: no test may touch ~/.local/share/voice-concierge/."""
+    """The entrypoint opens Settings().db_path: no test may touch ~/.local/share/voice-concierge/. Nor may a real
+    ~/.voice-concierge-off (the kill switch) decline a test's job."""
     monkeypatch.setenv("CONCIERGE_DB_PATH", str(tmp_path / "concierge-db" / "concierge.db"))
+    monkeypatch.setenv("CONCIERGE_OFF_FILE", str(tmp_path / "voice-concierge-off"))
 
 
 @pytest.fixture
@@ -116,3 +120,25 @@ def db(tmp_path: Path) -> Iterator[Store]:
         s.close()
     except sqlite3.ProgrammingError:  # the shutdown callback closed it
         pass
+
+
+# --- the §6 JSON schemas (tests/contract/, tests/test_publish.py) ----------------------------------------------
+
+CONTRACT_DIR = Path(__file__).parent / "contract"
+
+
+def contract_validator(name: str) -> Draft202012Validator:
+    """`tests/contract/<name>.schema.json`, checked as a draft 2020-12 schema first."""
+    schema = json.loads((CONTRACT_DIR / f"{name}.schema.json").read_text())
+    Draft202012Validator.check_schema(schema)
+    return Draft202012Validator(schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
+
+
+@pytest.fixture
+def memory_validator() -> Draft202012Validator:
+    return contract_validator("memory")
+
+
+@pytest.fixture
+def metrics_validator() -> Draft202012Validator:
+    return contract_validator("metrics")

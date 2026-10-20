@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from concierge.models import AddFact, DeleteFact, Fact, InvalidateFact, Note, TurnMetrics, VisitorState
-from concierge.schema import TABLES
+from concierge.schema import SCHEMA, SCHEMA_VERSION, TABLES
 from concierge.store import FactMissing, Store, StoreError, ThreadMissing, VersionConflict
 from concierge.testing.store_writers import open_and_touch
 
@@ -43,7 +43,7 @@ def test_journal_mode_is_wal(store) -> None:
 def test_foreign_keys_and_secure_delete_are_on(store) -> None:
     assert store.pragma("foreign_keys") == 1
     assert store.pragma("secure_delete") == 1
-    assert store.pragma("user_version") == 1
+    assert store.pragma("user_version") == SCHEMA_VERSION == 2
 
 
 def test_reopening_keeps_schema_and_rows(tmp_path, clock, visitor_id) -> None:
@@ -168,6 +168,7 @@ def test_anonymous_turn_metrics_columns(store) -> None:
     assert columns == [
         "id", "session_id", "turn", "eou_ms", "stt_ms", "llm_ttft_ms", "tts_ttfb_ms", "total_ms",
         "memory_on_turn_path_ms", "preload_ms", "extraction_ms", "prompt_tokens", "cached_tokens", "compacted",
+        "created_at",
     ]
     assert "visitor_id" not in columns and "thread_id" not in columns and "text" not in columns
 
@@ -186,6 +187,7 @@ def test_add_turn_metrics_writes_one_row_of_numbers(store) -> None:
         "session_id": SESSION, "turn": 3, "eou_ms": 213.0, "stt_ms": 80.0, "llm_ttft_ms": 410.0,
         "tts_ttfb_ms": None, "total_ms": 901.0, "memory_on_turn_path_ms": None, "preload_ms": None,
         "extraction_ms": None, "prompt_tokens": 1200, "cached_tokens": 1024, "compacted": 1,
+        "created_at": 1_759_999_980_000,  # the clock's 1_760_000_000_000, rounded down to the minute
     }
 
 
@@ -252,11 +254,30 @@ def test_add_turn_metrics_session_id_must_be_uuid4_hex(store, session_id) -> Non
 def test_reopening_a_newer_schema_raises(tmp_path, clock) -> None:
     Store(tmp_path / "memory.db", clock=clock).close()
     with sqlite3.connect(tmp_path / "memory.db") as conn:
-        conn.execute("PRAGMA user_version = 2")
-    with pytest.raises(StoreError, match="schema version 2"):
+        conn.execute("PRAGMA user_version = 3")
+    with pytest.raises(StoreError, match="schema version 3"):
         Store(tmp_path / "memory.db", clock=clock)
     with sqlite3.connect(tmp_path / "memory.db") as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+
+
+def test_a_version_1_file_gains_created_at(tmp_path, clock) -> None:
+    """v1 had no anonymous_turn_metrics.created_at (C6-03 added it); opening a v1 file adds the column."""
+    path = tmp_path / "memory.db"
+    with sqlite3.connect(path) as conn:
+        v2_column = ",\n  created_at             INTEGER NOT NULL         -- ms, rounded down to the minute"
+        assert v2_column in SCHEMA
+        conn.executescript(SCHEMA.replace(v2_column, ""))
+        conn.execute("INSERT INTO anonymous_turn_metrics (session_id, turn) VALUES (?, 1)", (SESSION,))
+        conn.execute("PRAGMA user_version = 1")
+        assert "created_at" not in [r[1] for r in conn.execute("PRAGMA table_info(anonymous_turn_metrics)")]
+    with Store(path, clock=clock) as store:
+        assert store.pragma("user_version") == 2
+        store.add_turn_metrics(SESSION, TurnMetrics(turn=2))
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT turn, created_at FROM anonymous_turn_metrics ORDER BY id").fetchall() == [
+            (1, 0), (2, 1_759_999_980_000)
+        ]
 
 
 def test_last_active_at_never_moves_backwards(store, visitor_id, clock) -> None:

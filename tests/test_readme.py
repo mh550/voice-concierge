@@ -51,7 +51,7 @@ def _rows(section: str) -> dict[str, str]:
 def _test_names() -> set[str]:
     tests = Path(__file__).resolve().parent
     pattern = re.compile(r"^(?:async )?def (test_\w+)", re.MULTILINE)
-    return {name for path in tests.glob("test_*.py") for name in pattern.findall(path.read_text())}
+    return {name for path in tests.rglob("test_*.py") for name in pattern.findall(path.read_text())}
 
 
 @pytest.mark.parametrize(
@@ -69,6 +69,11 @@ def _test_names() -> set[str]:
         "Context is a budget",
         "Write / select / compress / isolate",
         "History vs journal",
+        "Profile, not collection",
+        "Provenance and confidence",
+        "Forgetting",
+        "Single writer",
+        "Observability",
     ],
 )
 def test_memory_design_row_names_tests_that_exist(practice: str) -> None:
@@ -81,3 +86,13 @@ def test_memory_design_row_names_tests_that_exist(practice: str) -> None:
 def test_preload_row_says_when_it_would_change() -> None:
     row = " ".join(_section("Memory design").split())
     assert "large collection" in row and "just in time" in row
+
+
+def test_privacy_paragraph_says_what_survives_forget_me_and_what_livekit_keeps() -> None:
+    section = " ".join(_section("Memory design").split())
+    privacy = section.split("**Privacy.**")[1:]
+    assert privacy, "no **Privacy.** paragraph in the memory-design section"
+    text = privacy[0]
+    assert "anonymous timing numbers survive" in text and "(B9)" in text
+    assert "Agent Insights" in text and "(B11)" in text
+    assert "can't erase" in text

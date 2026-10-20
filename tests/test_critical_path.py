@@ -86,7 +86,7 @@ def test_no_await_on_the_turn_path_targets_memory_work() -> None:
     ]
     handlers = [r.args[1] for r in sorted(registrations, key=lambda r: r.lineno)]
     assert [(h.value.id, h.attr) for h in handlers if isinstance(h, ast.Attribute) and isinstance(h.value, ast.Name)] \
-        == [("writer", "on_item_added"), ("compactor", "on_item_added")]
+        == [("writer", "on_item_added"), ("compactor", "on_item_added"), ("collector", "on_item_added")]
 
     compactor = _functions(ROOT / "concierge" / "compactor.py")
     for name in COMPACTOR_HANDLER_PATH:
@@ -101,6 +101,27 @@ def test_no_await_on_the_turn_path_targets_memory_work() -> None:
                 continue
             for node in (n for n in ast.walk(fn) if isinstance(n, ast.Await)):
                 assert not _called_names(node) & MEMORY_WORK, f"{path.name}:{node.lineno} awaits memory work"
+
+
+# What the TurnMetricsCollector's handlers run (plan C6 "TurnMetricsCollector"): no I/O, at most two tasks.
+COLLECTOR_HANDLER_PATH = ("on_item_added", "on_state_changed", "on_llm_metrics", "note_extraction", "_close")
+METRICS_IO = {"add_turn_metrics", "publish", "send_text", "_publish"}
+
+
+def test_the_collector_handler_awaits_nothing() -> None:
+    collector = _functions(ROOT / "concierge" / "metrics.py")
+    for name in COLLECTOR_HANDLER_PATH:
+        fn = collector[name]
+        assert isinstance(fn, ast.FunctionDef), f"TurnMetricsCollector.{name} must be a plain def"
+        assert not any(isinstance(n, ast.Await) for n in ast.walk(fn)), f"TurnMetricsCollector.{name} awaits"
+    # _close hands the store write and the publish to tasks; nothing else on the path calls either.
+    for name in COLLECTOR_HANDLER_PATH[:-1]:
+        assert not _called_names(collector[name]) & METRICS_IO, f"TurnMetricsCollector.{name} does I/O"
+    close = collector["_close"]
+    tracked = [n for n in ast.walk(close) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+               and n.func.id == "track"]
+    assert len(tracked) == 2
+    assert "add_turn_metrics" in _called_names(close) and "to_thread" in _called_names(close)
 
 
 class LoopGuardStore(Store):

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "concierge.forget_me",
+  "title": "concierge.forget_me response (spec §6): {\"ok\": true}, returned before the erase work",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ok"],
+  "properties": {
+    "ok": {"const": true}
+  }
+}

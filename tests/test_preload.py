@@ -154,6 +154,10 @@ async def test_entrypoint_connects_and_preloads_concurrently(
         await asyncio.sleep(0.2)
 
     class NoStore:
+        def count_session(self, visitor_id: str, day: str) -> int:  # B7: before the preload
+            calls.append("count_session")
+            return 1
+
         def journal(self, thread_id: str, session_id: str, kind: str, payload: dict[str, Any]) -> int:
             calls.append(kind)
             return 1
@@ -175,7 +179,8 @@ async def test_entrypoint_connects_and_preloads_concurrently(
         for callback in ctx._shutdown_callbacks:
             await callback("test")
 
-    assert sorted(calls) == ["close", "connect", "preload", "session_ended", "session_started"]
+    assert sorted(calls) == ["close", "connect", "count_session", "preload", "session_ended", "session_started"]
+    assert calls.index("count_session") < calls.index("preload")
     assert 0.2 <= elapsed < 0.35, elapsed
     (session,) = recording_session.instances
     assert session.started is not None

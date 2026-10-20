@@ -40,3 +40,13 @@
 - 2026-10-20 06:13 · C5-03 · claude-opus-5-5 · passes=true · 28 min · 25/38 passing
 - 2026-10-20 06:34 · C5-04 · claude-opus-5-5 · passes=true · 20 min · 26/38 passing
 - 2026-10-20 06:34 · merged main into harness/voice-concierge-2026-10-20
+- 2026-10-20 06:36 · C5 verified and tagged run/voice-concierge-2026-10-20/C5
+- 2026-10-20 06:36 · C5 merged into main · https://github.com/mh550/voice-concierge/pull/5
+- 2026-10-20 06:58 · C6-01 · claude-opus-5-5 · passes=true · 21 min · 27/38 passing
+- 2026-10-20 07:09 · C6-02 · claude-opus-5-5 · passes=true · 11 min · 28/38 passing
+- 2026-10-20 07:33 · C6-03 · claude-opus-5-5 · passes=true · 24 min · 29/38 passing
+- 2026-10-20 07:55 · C6-04 · claude-opus-5-5 · passes=true · 21 min · 30/38 passing
+- 2026-10-20 08:13 · C6-05 · claude-opus-5-5 · passes=true · 16 min · 31/38 passing
+- 2026-10-20 08:13 · deadline reached
+- 2026-10-20 08:13 · run ended (deadline): 31/38 passing · 38 sessions (38 real) · 31 features passed · $131.59 · 8.0 h · by kind: init 1 ($6.04), coding 31 ($123.88), verify 6 ($1.66) · by model: claude-fable-5-1 1 ($6.04), claude-opus-5-5 31 ($123.88), claude-sonnet-5-5 6 ($1.66)
+- 2026-10-20 11:19 · merged main into harness/voice-concierge-2026-10-20

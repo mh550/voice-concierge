@@ -11,46 +11,20 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal
-
-from pydantic import BaseModel
+from typing import Any
 
 from concierge.fact_ops import value_key
 from concierge.gate import check_value
 from concierge.grounding import is_confirmed_name, shares_a_word
-from concierge.models import SLOTS, AddFact, Fact, FactOp, InvalidateFact, Note, SlotName, Source, VisitorState
-from concierge.ops import AddOp, DeleteOp, Op, OpKind, UpdateOp
+from concierge.merge_result import MergeResult, Rejection, Skip
+from concierge.models import SLOTS, AddFact, Fact, FactOp, InvalidateFact, Note, SlotName, Source
+from concierge.ops import AddOp, DeleteOp, Op, UpdateOp
 from concierge.store import Store
 from concierge.turns import Turn, visible_text
 
 MIN_CONFIDENCE = 0.5
 # follow_up_wanted's value is the extractor's phrase for a request; asked_about is naturally a paraphrase (D10).
 _GROUNDING_EXEMPT: frozenset[str] = frozenset({"follow_up_wanted", "asked_about"})
-
-
-class Rejection(BaseModel):
-    """A rejected op, as journaled in gate_rejected: ids, slot and reason, never the value (D8)."""
-
-    index: int
-    op: OpKind
-    reason: str
-    slot: SlotName | None  # None for a slot that isn't one: the name is the model's text
-    turn_id: str | None  # None unless it's a turn the merge was given
-    fact_id: int | None
-
-
-class Skip(BaseModel):
-    index: int
-    reason: Literal["duplicate", "replaced_in_batch"]
-
-
-class MergeResult(BaseModel):
-    version: int
-    added: list[int]
-    invalidated: list[int]
-    rejected: list[Rejection]
-    skipped: list[Skip]
-    state: VisitorState
 
 
 @dataclass
@@ -247,4 +221,5 @@ def merge(
         rejected=final.rejected,
         skipped=sorted(final.skipped, key=lambda s: s.index),
         state=store.state(thread_id),
+        extraction_ms=(extraction or {}).get("ms"),
     )

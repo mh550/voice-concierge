@@ -6,7 +6,11 @@ AUTOINCREMENT, so nothing is reused after an erasure.
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+# What brings a file at version n - 1 up to n (the DDL below is already the newest, for a new file).
+MIGRATIONS: dict[int, str] = {
+    2: "ALTER TABLE anonymous_turn_metrics ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0",  # C6-03
+}
 
 TABLES: tuple[str, ...] = (
     "threads",
@@ -85,7 +89,8 @@ CREATE TABLE IF NOT EXISTS anonymous_turn_metrics (  -- B9: no visitor id, no te
   extraction_ms          REAL,
   prompt_tokens          INTEGER,
   cached_tokens          INTEGER,
-  compacted              INTEGER NOT NULL DEFAULT 0 CHECK (compacted IN (0, 1))
+  compacted              INTEGER NOT NULL DEFAULT 0 CHECK (compacted IN (0, 1)),
+  created_at             INTEGER NOT NULL         -- ms, rounded down to the minute
 );
 
 CREATE TABLE IF NOT EXISTS daily_session_counts (  -- B7: survives erasure; kept 2 days

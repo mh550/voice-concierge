@@ -345,7 +345,7 @@
         ".harness/check.sh exits 0"
       ],
       "after": ["C3", "C4"],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C6-02", "milestone": "C6", "kind": "build", "model": "opus",
@@ -357,7 +357,7 @@
         "concierge/session.py publishes concierge.memory once after session.start and the MemoryWriter's on_merged callback publishes again after every merge; tests/test_publish.py asserts two sends on topic concierge.memory after one merged extraction, both bodies validating against memory.schema.json",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C6-03", "milestone": "C6", "kind": "build", "model": "opus",
@@ -369,7 +369,7 @@
         "tests/test_metrics.py: FakeLLM emitting metrics_collected with prompt_tokens=1234, prompt_cached_tokens=1000 results in those values on the next published turn",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C6-04", "milestone": "C6", "kind": "build", "model": "opus",
@@ -381,7 +381,7 @@
         "concierge/limits.py: start_session_timer(session, max_s) schedules a task that after max_s says one line and closes the session; enforce_daily_cap(store, visitor_id, session, cap) counts the session and, when the count exceeds cap, says one line and closes without preloading memory; tests/test_limits.py uses max_s=0.2 and asserts the close within 0.5 s, and that a 6th count_session for the day triggers the cap path while the 5th does not; the count survives forget_me (asserted via store)",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C6-05", "milestone": "C6", "kind": "review", "model": "opus",
@@ -393,7 +393,7 @@
         "README.md's memory-design section has the rows 'Profile, not collection', 'Provenance and confidence', 'Forgetting', 'Single writer' and 'Observability' with the test names that prove each, and a privacy paragraph saying anonymous timing numbers survive 'Forget me' (B9) and what LiveKit keeps (B11)",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
 
     {

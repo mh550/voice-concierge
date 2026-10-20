@@ -180,3 +180,19 @@ compaction would run about every 6 turns instead of every ~18.
 
 **Question for Michael.** After a compaction, should the concierge keep the last 3 exchanges verbatim (this default) or
 the last 6?
+
+## D13 *default*: the field types §6 leaves open (2026-10-20, C6-01)
+
+**Finding.** Spec §6 lists the `concierge.memory` and `concierge.metrics` keys but not every type: a fact's `id`, the
+format of `learned_at` and `updated_at`, whether an unreported metric is `null` or absent, and whether the greeting is a
+metrics turn. The portfolio page is built from the same §6 by another run tonight.
+
+**Choice.** Fact `id` is the integer `facts.id`; `learned_at` and `updated_at` are ISO-8601 UTC strings ending in `Z`
+with milliseconds (`2026-10-20T09:15:02.123Z`); `confidence` is a number 0–1; every `concierge.metrics` key is always
+present, `null` when 1.8 didn't report it; the greeting is metrics turn 1 (null user fields, it carries `preload_ms`).
+Reversible: `concierge/contract.py` and the schemas in `tests/contract/` (plan C6 "Part 1").
+
+**Rejected.** String ids (`"f12"`): nothing on the page needs them, and the store's ids are integers. Omitting null
+keys: the page would have to tell "not reported" from "not sent".
+
+**Question for Michael.** Does the page's code expect these types, in particular `id` as a number, not a string?
