@@ -196,3 +196,9 @@ Reversible: `concierge/contract.py` and the schemas in `tests/contract/` (plan C
 keys: the page would have to tell "not reported" from "not sent".
 
 **Question for Michael.** Does the page's code expect these types, in particular `id` as a number, not a string?
+
+## Health port: loopback only (Michael, 2026-10-20)
+
+**Decision.** The worker's health endpoint (8081 under `start`) binds 127.0.0.1: `AgentServer(host="127.0.0.1")` in
+`concierge/worker.py` (1.8.8's default `host=""` is every interface, `livekit/agents/worker.py:323`). Michael's INBOX
+answer of 2026-10-20; built in C8-01, asserted by `test_import_needs_no_keys`. MORNING.md no longer asks about it.

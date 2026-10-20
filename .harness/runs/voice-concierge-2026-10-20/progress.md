@@ -12,6 +12,14 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+### 2026-10-20 20:40 · C8-01 · passes
+
+- **Changed:** `ConciergeAgent.leave_message_for_michael(text, contact=None)` → `concierge/message_tool.py` (caps 500/120, rejects rather than truncates; contact gated with `purpose="contact"`, text with the full gate; `gate_rejected` journals field + reason only); `Store.add_message` (one fenced `write`) and `Store.messages()` (newest first), `models.Message`; `scripts/messages.py <db>`; one prompt line; README "What it does" + turn-path lines; MORNING steps 5 and 11. Plan `docs/plans/2026-10-20-C8-messages.md`. Tests 909 → 935.
+- **Also (INBOX answer):** health port bound to 127.0.0.1 (`AgentServer(host="127.0.0.1")`, test-first in `test_import_needs_no_keys`); MORNING's firewall question dropped, README says 127.0.0.1:8081; recorded in `docs/decisions.md` ("Health port: loopback only").
+- **Verified:** `tests/test_messages.py` 21 passed (row + fence bump, email/spoken-email/phone contact pass, instruction/URL/secret contact rejected, email in text rejected, `name` email rejected by `check_value` and `remember`, caps 500/501 and 120/121, NULL contact, no memory and post-`forget_me` write nothing and recreate nothing); `test_messages_lists_newest_first` + 3 more in test_scripts; `test_forget_me_deletes_the_visitors_messages`; manual `scripts/messages.py` run on a scratch db; `lib/check.sh` green, 935 tests, 90 s.
+- **Next:** C8-02 (review). `concierge/store.py` is 235 lines, `memory_writer.py` 250: close to C8-02's 250-line cap.
+- **Proposed changes:** C8-02 step 1 still writes to `/tmp/voice-concierge/review-C8.diff`, outside the allowed dirs (same as C7-05 step 1, answered 1b); suggest `$HARNESS_SCRATCH/review-C8.diff`.
+
 ### 2026-10-20 17:00 · verify C7
 
 All 25 steps of C7-01..05 re-run; none flipped. Notes: spec §4.0 has 17 rows (C7-03 step 1 says 16; the README has all 17). C7-04 step 9 writes `data/concierge.db`; MORNING uses the real `db_path` default (`~/.local/share/voice-concierge/concierge.db`), a documented deviation (plan "Proposed changes", progress C7-04).

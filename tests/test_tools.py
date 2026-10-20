@@ -58,9 +58,9 @@ def journal(store: Store, thread_id: str, kind: str) -> list[dict[str, Any]]:
 
 def test_agent_has_remember_and_forget_tools() -> None:
     tools = {t.info.name: t for t in ConciergeAgent(PACK).tools if isinstance(t, llm.FunctionTool)}
-    assert set(tools) == {"remember", "forget"}
+    assert set(tools) == {"remember", "forget", "leave_message_for_michael"}  # the third: tests/test_messages.py
     fields = {name: list(llm.utils.function_arguments_to_pydantic_model(t).model_fields) for name, t in tools.items()}
-    assert fields == {"remember": ["fact"], "forget": ["about"]}
+    assert fields["remember"] == ["fact"] and fields["forget"] == ["about"]
 
 
 async def test_remember_writes_before_returning(
