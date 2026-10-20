@@ -2,32 +2,25 @@
 
 Explicit dispatch as `concierge` (spec §6). Providers need keys, so they're built only inside the entrypoint, never
 at import; importing this module needs no LIVEKIT_*,
-ANTHROPIC_API_KEY or OPENROUTER_API_KEY.
+ANTHROPIC_API_KEY or OPENROUTER_API_KEY. The session itself is `concierge/session.py`.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import sqlite3
+from pathlib import Path
 
-from livekit.agents import AgentServer, AgentSession, JobContext, JobProcess, JobRequest, cli
-from livekit.agents.voice.agent_session import RecordingOptions
-from livekit.agents.voice.room_io import RoomOptions, TextInputOptions
+from livekit.agents import AgentServer, JobContext, JobProcess, JobRequest, cli
 from livekit.plugins import silero
 
-from concierge.agent import ConciergeAgent
-from concierge.config import Settings, build_llm, build_stt, build_tts
+from concierge.config import Settings
 from concierge.dispatch import DispatchError, parse_dispatch
-from concierge.knowledge import load_pack
-from concierge.text_input import ChannelTags, make_text_input_cb
+from concierge.session import start_session
+from concierge.store import Store, StoreError
 
 logger = logging.getLogger("concierge.worker")
-
-
-def recording_options(settings: Settings | None = None) -> RecordingOptions:
-    """B11: no visitor audio at LiveKit unless CONCIERGE_RECORD_AUDIO=1; transcripts, traces and logs stay on
-    (unset keys default to True in `_resolve_recording_options`), with redaction requested."""
-    s = settings or Settings()
-    return {"audio": s.record_audio, "redaction": True}
 
 
 def prewarm(proc: JobProcess) -> None:
@@ -38,39 +31,35 @@ async def on_request(req: JobRequest) -> None:
     await req.accept()  # C6-04 adds the kill switch (reject under CONCIERGE_ENABLED=0 or the off file)
 
 
+def _open_store(path: Path) -> Store:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return Store(path)
+
+
+async def _open_or_none(path: Path) -> Store | None:
+    """The store, opened off the loop; None (a session without memory) when it can't open. Only the error type is
+    logged: a message can quote a path or visitor data."""
+    try:
+        return await asyncio.to_thread(_open_store, path)
+    except (StoreError, sqlite3.Error, OSError) as exc:
+        logger.warning("no memory this session: the store did not open (%s)", type(exc).__name__)
+        return None
+
+
 server = AgentServer(shutdown_process_timeout=30, setup_fnc=prewarm)
 
 
 @server.rtc_session(agent_name="concierge", on_request=on_request)
 async def entrypoint(ctx: JobContext) -> None:
     try:
-        info = parse_dispatch(ctx.job.metadata)
+        parse_dispatch(ctx.job.metadata)  # before any store or provider exists (C1-05)
     except DispatchError as exc:
         logger.warning("ending job %s: %s", ctx.job.id, exc)
         ctx.shutdown(reason="bad dispatch metadata")
         return
 
     settings = Settings()
-    channels = ChannelTags()
-    session = AgentSession(
-        llm=build_llm("conversation", settings),
-        stt=build_stt(settings),
-        tts=build_tts(settings),
-        vad=ctx.proc.userdata["vad"],
-        # D7. Interruptions by VAD too: with no mode, dev/console mode builds the hosted adaptive detector.
-        turn_handling={"turn_detection": "vad", "interruption": {"mode": "vad"}},
-    )
-    await session.start(
-        agent=ConciergeAgent(load_pack()),
-        room=ctx.room,
-        room_options=RoomOptions(
-            participant_identity=f"visitor-{info.visitor_id}",
-            text_input=TextInputOptions(
-                text_input_cb=make_text_input_cb(channels.on_text, on_dropped=channels.on_dropped),
-            ),
-        ),
-        record=recording_options(settings),
-    )
+    await start_session(ctx, await _open_or_none(settings.db_path), settings)  # it closes the store at shutdown
 
 
 if __name__ == "__main__":

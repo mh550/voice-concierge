@@ -101,3 +101,27 @@ message (5.x models reject prefill).
 **Model ids.** `claude-haiku-5-5` and `claude-sonnet-5-5` are Michael's choice and Anthropic's current ids; the
 plugin's `ChatModels` Literal (`models.py`) stops at the 4.6 ids, but `model` is typed `str | ChatModels`
 (`llm.py:67`), so any id is accepted.
+
+## D9 *default*: the preload overlaps the room connection, with a 1 s deadline (2026-10-20, C3-02)
+
+**Finding.** Spec §4.0 and C3-02 put the preload concurrent with `ctx.connect()`. In livekit-agents 1.8.8,
+`ctx.connect()` really joins the room (`job.py:691`), but RoomIO registers its `lk.chat` text handler and the
+pre-connect audio byte-stream handler only inside `session.start` (`voice/room_io/room_io.py:111-118`). A stream that
+arrives with no handler is dropped, and the pre-connect handler logs "registered after room connection" whenever the
+page's buffer is used (`_pre_connect_audio.py:51-71`). So the time the preload takes is a window in which a typed
+message or the pre-connect audio can be lost. A normal preload takes under 1 ms; a store waiting on another job's
+write lock can take 5 s.
+
+**Choice.** Keep the gather (the spec's design and the feature's step) and bound the preload with
+`PRELOAD_TIMEOUT_S`, 1.0 s (now in `concierge/session.py`). On the deadline the session runs without memory, like
+any other preload failure (logged by type, `TimeoutError`). The store thread can't be cancelled, so (C3-03 review)
+the preload is a tracked task under `asyncio.wait`, not `wait_for`, and `on_shutdown` waits for it before closing the
+store. Accepted: a late preload still counts the visit and journals `memory_preloaded`, and that session journals
+no `session_started` / `session_ended` (it ran without memory).
+
+**Rejected.** Moving the preload after `session.start` (no overlap with the connect, against §4.0), or overlapping
+it only with provider construction and awaiting it before `session.start` (smaller win, more moving parts).
+
+**Question for Michael.** Does the page send a pre-connect audio buffer or let the visitor type before the agent
+joins? If yes, the safer shape is "preload before `session.start`, overlapped only with provider setup"; say so and a
+later session switches it.

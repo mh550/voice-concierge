@@ -31,6 +31,7 @@ from concierge.models import (
     JournalRow,
     JournalType,
     Thread,
+    ThreadSnapshot,
     VisitorState,
 )
 from concierge.store_base import (  # noqa: F401 (the errors and now_ms are re-exported)
@@ -101,6 +102,14 @@ class Store(ErasureStore):
         if not rows:
             raise ThreadMissing(thread_id)
         return VisitorState.model_validate_json(rows[0][0])
+
+    def load(self, thread_id: str) -> ThreadSnapshot:
+        """Version, state and valid facts in one transaction (the preload's read; no version bump)."""
+        with self._transaction() as conn:
+            snapshot = fact_ops.snapshot(conn, thread_id)
+        if snapshot is None:
+            raise ThreadMissing(thread_id)
+        return snapshot
 
     # The fence
 

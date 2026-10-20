@@ -13,6 +13,75 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 04:10 · verify C3
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| C3-01 | 1 | Read docs/plans/2026-10-20-C3-preload.md: 'The preload sequence', 'The memory block', '1,500-character rule', 'Greetings' | Sequence parse dispatch → gather(connect, preload) → render → agent → session.start → greeting; template with `- name: "Ada" (voice, 2026-10-19)` lines + `Last visit:`; trim oldest set items then shorten summary; new vs returning greeting texts | yes |
+| C3-01 | 2 | Read plan 'Name confirmation (B12)' | Rule text for STATIC_INSTRUCTIONS (ask "Did I get that right, <name>?" once, use only after yes); extractor sees user/agent/user three-turn exchange, ADD name from the 'Yes' turn | yes |
+| C3-01 | 3 | Read plan 'Tests' (C3-02, C3-03); compared names with `grep -n def tests/...` | Test functions listed for both; the named ones exist in test_memory_block/test_preload/test_greeting/test_session/test_prompt | yes |
+| C3-01 | 4 | `.harness/check.sh`; `/home/mh550/projects/agent-harness/lib/check.sh` | exit 0; green, 351 tests | yes |
+| C3-02 | 1 | Read concierge/memory_block.py and tests/test_memory_block.py (`_maximal`, test_maximal_memory_is_capped_and_keeps_the_newest_set_items); ran file | None for empty; starts with MEMORY_HEADER; quoted lines with channel/day; `Last visit:`; test builds 8×60-char interests, 8 asked_about, 600-char summary and asserts len<=1500, oldest dropped, ids 24/25 survive; all pass | yes |
+| C3-02 | 2 | Read concierge/preload.py; tests test_preload_runs_the_store_reads_off_the_event_loop, test_preload_journals_memory_preloaded_with_ms | Preloaded(thread_id, version, visits, state, facts, block, ms) (superset of the step's fields); preload uses asyncio.to_thread and journals memory_preloaded with ms; tests pass | yes |
+| C3-02 | 3 | Read session.py:168 and worker.py; test_entrypoint_connects_and_preloads_concurrently | gather(ctx.connect(), preload) lives in session.start_session, which worker.entrypoint awaits (plan documents the move). Test uses fake_job_context, 0.2 s stub connect + preload, asserts 0.2 <= elapsed < 0.35; passes | yes |
+| C3-02 | 4 | Read test_new_visitor_instructions_have_no_memory_header, test_returning_visitor_instructions_order_static_pack_memory, test_memory_text_never_appears_above_the_pack | New visitor text == build_instructions(pack, None), no header; returning: index(STATIC)<index(pack)<index(MEMORY_HEADER); memory values only after pack end; pass | yes |
+| C3-02 | 5 | Read test_every_fact_line_is_quoted, test_injection_value_renders_inside_quotes_under_the_header, test_a_value_cannot_close_its_quotes | Each fact line matches `- slot: ".*" (chan, date)`; 'ignore previous instructions...' appears only as a quoted value on a line after MEMORY_HEADER; pass | yes |
+| C3-02 | 6 | `.harness/check.sh`; targeted `pytest tests/test_memory_block.py test_preload.py test_greeting.py test_session.py test_prompt.py test_readme.py` | check exit 0; 74 passed | yes |
+| C3-03 | 1 | Read concierge/session.py:144-180 and test_first_session_creates_the_thread_and_journals_session_started, test_shutdown_callback_journals_session_ended_and_closes_the_store | start_session: preload → agent → session.start → generate_reply(instructions=greeting_instructions(preloaded)); session_started {visits, preload_ms, returning}; on_shutdown registered via ctx.add_shutdown_callback journals session_ended; tests pass | yes |
+| C3-03 | 2 | Read concierge/greeting.py and tests/test_greeting.py | New: 'Introduce yourself in one sentence...'; named: 'Greet "Ada" by name and offer to pick up ...'; summary-only: 'Welcome the visitor back without using a name...'; three cases tested (+ nothing-to-recall); pass | yes |
+| C3-03 | 3 | Read tests/test_session.py first/second session tests | First start_session: visits==1 and session_started row; second: visits==2, FakeLLM calls[0] last item starts 'Greet "Ada" by name' with seeded name; pass | yes |
+| C3-03 | 4 | `grep -n 'confirm\|did I get that right' concierge/prompt.py`; read test_static_instructions_carry_the_name_confirmation_rule and test_static_plus_pack_within_budget | Lines 27-28 contain 'confirm' and 'did I get that right'; test asserts them and static+pack <= 3000 tokens; pass | yes |
+| C3-03 | 5 | `.harness/check.sh` | exit 0 | yes |
+| C3-04 | 1 | `ls` of review-C3.diff paths; read plan '## Review'; wc -l of diff | /tmp/voice-concierge/review-C3.diff does not exist, but scratch .../voice-concierge-2026-10-20/review-C3.diff exists (2135 lines, git diff 329c715..HEAD); written there because CLAUDE.md bars writes elsewhere; '## Review' is appended with 6 findings | yes |
+| C3-04 | 2 | `git show efe7a3b --stat`, `git log` ordering; read Review table | RED efe7a3b (tests only) precedes GREEN 1fd0d1b for the one Important (#1) and Minors #2/#3; no Critical | yes |
+| C3-04 | 3 | Read README.md 'Memory design' rows; tests/test_readme.py passes | Rows 'Just-in-time vs preload', 'Stable, cached prefix', 'Memory as an attack surface' each cite test names; test_readme checks they exist | yes |
+| C3-04 | 4 | `wc -l concierge/*.py | sort -n | tail` | largest is store.py at 247 (<=250) | yes |
+| C3-04 | 5 | `.harness/check.sh` | exit 0 (check=0) | yes |
+
+Result: 20 steps, all hold; no `passes` changed.
+
+### 2026-10-20 03:25 · C3-04 · passes
+
+- **Changed:** the README has a new "Memory design" section with the rows Just-in-time vs preload, Stable, cached prefix and Memory as an attack surface. Each row cites the tests that prove it, and `tests/test_readme.py` fails if a cited test doesn't exist. `greeting._topic` now reads the rendered block. `session._done` logs a failed background task by type. `_preload_or_none` falls back to no memory on any error. The plan's `## Review` is written. Tests 342 → 351.
+- **Verified:** all 5 steps hold. `check.sh` is green at 351. The largest module is `store.py` at 247 lines. The diff is in the scratch dir as `review-C3.diff`, the same path deviation as C1-06 and C2-05. RED `efe7a3b` comes before GREEN `1fd0d1b`, and both RED failures reproduced the bug: the greeting pointed at a missing asked_about line, and asyncio logged "boom Zephyrine". Swapping one cited test name in the README fails `test_memory_design_row_names_tests_that_exist`.
+- **Review (Opus):** 0 Critical, 1 Important (fixed), 5 Minor: #2, #3 and #5 fixed, #4 and #6 declined with reasons in the plan. The Important finding: the greeting could offer "the last asked_about line" after trimming had dropped every asked_about item, or offer a summary that `_clean` had blanked.
+- **Next session (C4-01):** the README's "Memory design" table is where C4-06 adds its write-path rows, and `test_readme.py`'s parametrize list grows with it. The attack-surface row already says the write gate and the name-after-a-yes rule arrive in C4.
+- **Proposed changes:** (1) C3-04 step 1's diff path should be the scratch dir. (2) Spec §4.0's trim rule could keep the newest asked_about item, which is the greeting's "last topic". Right now 8 newer interests can push it out, and the greeting falls back to the Last visit line.
+
+### 2026-10-20 02:57 · C3-03 · passes
+
+- **Changed:** new `concierge/session.py` (`start_session`, `Started`, `room_start_kwargs`, `build_session`, `recording_options`, one ordered `on_shutdown`), `concierge/greeting.py` (`greeting_instructions`, `INTRODUCTION`); the B12 name rule in `STATIC_INSTRUCTIONS`; `worker.py` shrinks to parse → open store → `await start_session` (66 lines). The test seams (`AgentSession`, `build_*`, `ChannelTags`, `preload`, `PRELOAD_TIMEOUT_S`, logger `concierge.session`) moved to `concierge.session`; `RecordingSession.generate_reply`. Tests 324 → 342 (`test_greeting.py` 7, `test_session.py` 8, `test_prompt.py` +1, `test_preload.py` +1, `test_worker.py` +1 param).
+- **Verified:** all 5 steps hold; `check.sh` green (342). `test_session.py` drives a real `AgentSession` over the FakeLLM (room kwargs patched to `{}`): visits 1 then 2, `calls[0]`'s last item is `Greet "Ada" by name…`, prefix byte-identical across calls. Static + pack = 2,635 of 3,000 tokens. 7 mutants of `session.py` (no `session_started`, journal awaited before greeting, no close, no `session_ended`, greeting ignores preload, sequential connect/preload, callback not registered) all caught. Timing tests 5 of 5.
+- **Review (Opus):** 1 Important, 4 Minor. Important, fixed RED→GREEN: on the D9 deadline `wait_for` left the store thread running and shutdown closed the store under it (reproduced). The preload is now a tracked task under `asyncio.wait`; `on_shutdown` waits for it, logs failed tasks by type, then closes (D9 text updated). Minor fixed: failed background tasks logged by type, a blocked-thread deadline test (`test_a_preload_thread_that_outlives_the_deadline_finishes_before_the_store_closes`), the unused helper. Not fixed (low odds, for C3-04): a job cancelled during the entrypoint's store open (≤ 5 s busy timeout) never closes that `Store`.
+- **Next session (C3-04):** the plan's `test_bad_dispatch_ends_the_job_before_any_store_or_provider` lives in `tests/test_worker.py` (`test_entrypoint_logs_and_ends_the_job_on_bad_metadata`, which asserts no db dir). A late (timed-out) preload still journals `memory_preloaded` and counts the visit; that session journals no `session_started`/`session_ended` (accepted in D9). Diff for this feature: scratch `review-C3-03.diff`.
+- **Proposed changes:** C3-03 step 2's "offer to pick up <last topic>" is a pointer to the memory section ("the last asked_about line in your notes"), not the copied topic text, per the plan's "Visitor data in the greeting".
+
+### 2026-10-20 03:40 · C3-02 · passes
+
+- **Changed:** new `concierge/memory_block.py` (`render_memory_block`), `concierge/preload.py` (`Preloaded`, `preload`), `Store.load` + `fact_ops.snapshot` + `models.ThreadSnapshot`; `worker.py` opens the store off-loop, `asyncio.gather(ctx.connect(), _preload_or_none(...))`, `_agent_or_memoryless`, a `close_store` shutdown callback. `RecordingSession` moved to `concierge/testing/recording_session.py`; conftest has an autouse `CONCIERGE_DB_PATH` temp fixture. Tests 290 → 324 (`test_memory_block.py` 16, `test_preload.py` 17, one in `test_store.py`).
+- **Verified:** all 6 steps hold; `check.sh` green (324). Mutation checks: making connect+preload sequential fails the timing test (0.42 s > 0.35 s); rendering days in local time fails `test_days_are_utc`. The timing test passed 5 of 5 repeats.
+- **Review (Opus):** 1 Important, 3 Minor, all fixed with tests. Important (checked in 1.8.8 source): `ctx.connect()` joins the room before `session.start` registers RoomIO's `lk.chat` and pre-connect audio handlers, so a slow preload drops typed text or the pre-connect buffer → **D9 *default***: the preload gets a 1 s deadline (`PRELOAD_TIMEOUT_S`), then the session runs without memory.
+- **Next session (C3-03):** move the gather, `_open_or_none`/`_preload_or_none`/`_agent_or_memoryless`, `close_store` (becomes `on_shutdown`) and the conftest `recording_session` patches into `concierge/session.py`. `store.py` is at 247/250 lines. If `ctx.connect()` raises, the preload thread may still count a visit and journal `memory_preloaded` for a session that never started (accepted).
+- **Question for Michael (D9):** does the page send a pre-connect audio buffer, or let visitors type before the agent joins? If yes, a later session should await the preload before `session.start` and overlap it only with provider setup.
+- **Proposed changes:** C3-02 step 2's field list should include `visits` (the plan's `Preloaded` has it).
+
+### 2026-10-20 02:32 · C3-01 · passes
+
+- **Changed:** `docs/plans/2026-10-20-C3-preload.md` (414 lines, plan only, no code). Tests 290 → 290.
+- **Verified:** all 4 steps hold. The plan has the preload sequence (parse → `gather(ctx.connect(), preload)` → render → agent → `session.start` → greeting), the block template (`- name: "Ada" (voice, 2026-10-19)`, `Last visit: "…"`), the 1,500-char rule, both greetings, the B12 rule text plus the C4 extractor flow, and test names for C3-02/C3-03. `check.sh` is green. I checked the 1.8.8 APIs in source, then ran two prototypes in scratch: a real `AgentSession.start(room=ctx.room)` raises under `fake_job_context` (hence the `room_start_kwargs` seam), and the greeting reaches the LLM as a trailing system message, outside the cached prefix. An Opus plan review found 1 Critical, 6 Important and 7 Minor; all are applied (listed under `## Plan review`).
+- **Next session must know:**
+  - Render from the derived `VisitorState`, not from every valid fact: the store applies ops literally.
+  - `Store.load` uses `_transaction()`. No store write sits between the gather and the greeting.
+  - Shutdown callbacks run concurrently, so everything that touches the store goes in one ordered `on_shutdown`.
+  - An autouse conftest fixture must set `CONCIERGE_DB_PATH` to a temp file.
+  - C3-03 moves the gather into `session.start_session` and the test seams with it (listed in the plan).
+  - Name rule: 281 chars; static + pack goes to about 2,635 of 3,000 tokens.
+- **Proposed changes:**
+  - C3-02 step 3: allow the gather to sit "directly or through `start_session`".
+  - C3-02 step 1: the summary should be 500 chars (`SUMMARY_CAP`), not 600; the test uses `model_construct`.
+  - C3-04 diff path: the scratch dir, as C1-06 and C2-05 did.
+  - C4: a `name_unconfirmed` merge check.
+
 ### 2026-10-20 · verify C2
 
 All 26 steps hold; no feature flipped. Note: C2-05 step 1 path deviation is documented and justified by CLAUDE.md.

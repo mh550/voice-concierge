@@ -13,7 +13,17 @@ from typing import Any
 
 from pydantic import BaseModel, TypeAdapter
 
-from concierge.models import SLOTS, AddFact, DeleteFact, Fact, FactOp, InvalidateFact, JournalType, VisitorState
+from concierge.models import (
+    SLOTS,
+    AddFact,
+    DeleteFact,
+    Fact,
+    FactOp,
+    InvalidateFact,
+    JournalType,
+    ThreadSnapshot,
+    VisitorState,
+)
 
 _FIELDS = (
     "id", "thread_id", "slot", "value", "confidence", "source", "channel", "turn_id", "created_at", "valid_from",
@@ -43,6 +53,20 @@ def fact_history(conn: sqlite3.Connection, thread_id: str) -> list[Fact]:
 def fact(conn: sqlite3.Connection, fact_id: int) -> Fact | None:
     found = _facts(conn, "id = ?", (fact_id,))
     return found[0] if found else None
+
+
+def snapshot(conn: sqlite3.Connection, thread_id: str) -> ThreadSnapshot | None:
+    """The thread's version, state row and valid facts, or None when there is no thread (the caller holds a
+    transaction, so the three reads see one snapshot)."""
+    row = conn.execute("SELECT version FROM threads WHERE id = ?", (thread_id,)).fetchone()
+    if row is None:
+        return None
+    state = conn.execute("SELECT state FROM state WHERE thread_id = ?", (thread_id,)).fetchone()
+    return ThreadSnapshot(
+        version=row[0],
+        state=VisitorState.model_validate_json(state[0]) if state else VisitorState(),
+        facts=valid_facts(conn, thread_id),
+    )
 
 
 def _key(value: str) -> str:

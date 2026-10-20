@@ -1,6 +1,5 @@
 import ast
 import asyncio
-import inspect
 import json
 import logging
 import os
@@ -18,10 +17,12 @@ from livekit.agents.voice.agent_session import RecordingOptions
 from livekit.agents.voice.room_io import RoomOptions, TextInputOptions
 from livekit.agents.voice.room_io.types import TextInputEvent, _default_text_input_cb
 
-from concierge import worker
+from concierge import session, worker
 from concierge.agent import ConciergeAgent
+from concierge.greeting import INTRODUCTION
 from concierge.knowledge import load_pack
 from concierge.testing.fake_llm import FakeLLM
+from concierge.testing.recording_session import RecordingSession
 from concierge.text_input import ChannelTags, make_text_input_cb
 
 VISITOR = "3f2b8c1e-9a4d-4c7b-8e21-5d6f7a8b9c0d"
@@ -33,16 +34,16 @@ WORKER_PY = Path(worker.__file__)
 
 def test_recording_options_default_keeps_audio_off(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("CONCIERGE_RECORD_AUDIO", raising=False)
-    assert worker.recording_options() == {"audio": False, "redaction": True}
+    assert session.recording_options() == {"audio": False, "redaction": True}
 
 
 def test_recording_options_audio_on_for_michaels_tests(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CONCIERGE_RECORD_AUDIO", "1")
-    assert worker.recording_options() == {"audio": True, "redaction": True}
+    assert session.recording_options() == {"audio": True, "redaction": True}
 
 
 def test_recording_option_keys_are_those_of_recording_options() -> None:
-    assert set(worker.recording_options()) <= set(RecordingOptions.__annotations__)
+    assert set(session.recording_options()) <= set(RecordingOptions.__annotations__)
 
 
 # --- import and registration ---------------------------------------------------------------------------------
@@ -86,9 +87,11 @@ def _module_level_calls(tree: ast.Module) -> set[str]:
     return names
 
 
-def test_no_provider_is_built_at_import() -> None:
-    calls = _module_level_calls(ast.parse(WORKER_PY.read_text()))
-    assert "AgentServer" in calls and "rtc_session" in calls  # the walker sees module-level calls
+@pytest.mark.parametrize("path", [WORKER_PY, Path(session.__file__)])
+def test_no_provider_is_built_at_import(path: Path) -> None:
+    calls = _module_level_calls(ast.parse(path.read_text()))
+    if path == WORKER_PY:
+        assert "AgentServer" in calls and "rtc_session" in calls  # the walker sees module-level calls
     assert not calls & {"with_openrouter", "build_llm", "build_stt", "build_tts", "load", "AgentSession", "LLM"}
 
 
@@ -227,43 +230,6 @@ async def test_typed_turn_through_a_real_session_is_tagged_text() -> None:
 # --- entrypoint ----------------------------------------------------------------------------------------------
 
 
-class RecordingSession:
-    """Stands in for AgentSession in the entrypoint: keeps what it was built and started with."""
-
-    instances: list["RecordingSession"] = []
-    tags: list[ChannelTags] = []
-
-    def __init__(self, **kwargs: Any) -> None:
-        inspect.signature(AgentSession.__init__).bind(None, **kwargs)  # the real constructor takes these
-        self.kwargs = kwargs
-        self.started: dict[str, Any] | None = None
-        RecordingSession.instances.append(self)
-
-    async def start(self, agent: Any = None, **kwargs: Any) -> None:
-        inspect.signature(AgentSession.start).bind(None, agent, **kwargs)
-        self.started = {"agent": agent, **kwargs}
-
-
-@pytest.fixture
-def recording_session(monkeypatch: pytest.MonkeyPatch) -> type[RecordingSession]:
-    RecordingSession.instances = []
-    monkeypatch.setattr(worker, "AgentSession", RecordingSession)
-    fake = FakeLLM([])
-    monkeypatch.setattr(worker, "build_llm", lambda stage, settings=None: fake)
-    monkeypatch.setattr(worker, "build_stt", lambda settings=None: "stt")
-    monkeypatch.setattr(worker, "build_tts", lambda settings=None: "tts")
-    monkeypatch.delenv("CONCIERGE_RECORD_AUDIO", raising=False)
-    RecordingSession.tags = []
-
-    class KeptChannelTags(ChannelTags):
-        def __init__(self) -> None:
-            super().__init__()
-            RecordingSession.tags.append(self)
-
-    monkeypatch.setattr(worker, "ChannelTags", KeptChannelTags)
-    return RecordingSession
-
-
 async def test_entrypoint_starts_the_session(recording_session: type[RecordingSession]) -> None:
     metadata = json.dumps({"visitor_id": VISITOR, "channel_hint": "web"})
     with fake_job_context(job_metadata=metadata) as ctx:
@@ -279,6 +245,7 @@ async def test_entrypoint_starts_the_session(recording_session: type[RecordingSe
     started = session.started
     assert started is not None
     assert isinstance(started["agent"], ConciergeAgent)
+    assert session.replies == [{"instructions": INTRODUCTION}]  # the greeting, queued after start
     assert started["room"] is ctx.room
     assert started["record"] == {"audio": False, "redaction": True}
     options = started["room_options"]
@@ -321,3 +288,4 @@ async def test_entrypoint_logs_and_ends_the_job_on_bad_metadata(
     assert recording_session.instances == []
     assert any("dispatch metadata" in r.getMessage() for r in caplog.records)
     assert "nope" not in caplog.text  # visitor-supplied values stay out of the journal
+    assert not Path(os.environ["CONCIERGE_DB_PATH"]).parent.exists()  # ended before the store was opened

@@ -156,6 +156,14 @@ class Thread(BaseModel):
     version: int
 
 
+class ThreadSnapshot(BaseModel):
+    """What the preload reads in one transaction (`Store.load`): the version, the state row and the valid facts."""
+
+    version: int
+    state: VisitorState
+    facts: list[Fact]
+
+
 class JournalRow(BaseModel):
     id: int
     thread_id: str

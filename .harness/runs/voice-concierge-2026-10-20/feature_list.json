@@ -168,7 +168,7 @@
         ".harness/check.sh exits 0"
       ],
       "after": ["C2"],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C3-02", "milestone": "C3", "kind": "build", "model": "opus",
@@ -181,7 +181,7 @@
         "The rendered block is data, not instructions: tests assert each fact line is wrapped in quotes and that a fact value containing 'ignore previous instructions' still renders inside quotes under MEMORY_HEADER",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C3-03", "milestone": "C3", "kind": "build", "model": "opus",
@@ -193,7 +193,7 @@
         "STATIC_INSTRUCTIONS contains the name-confirmation rule (grep for 'confirm' and 'did I get that right'); tests/test_prompt.py asserts the rule is present and the static+pack budget still <= 3000 tokens",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C3-04", "milestone": "C3", "kind": "review", "model": "opus",
@@ -205,7 +205,7 @@
         "No module under concierge/ exceeds 250 lines",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
 
     {
