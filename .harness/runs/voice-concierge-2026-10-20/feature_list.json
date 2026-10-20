@@ -393,7 +393,7 @@
         "README.md's memory-design section has the rows 'Profile, not collection', 'Provenance and confidence', 'Forgetting', 'Single writer' and 'Observability' with the test names that prove each, and a privacy paragraph saying anonymous timing numbers survive 'Forget me' (B9) and what LiveKit keeps (B11)",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
 
     {

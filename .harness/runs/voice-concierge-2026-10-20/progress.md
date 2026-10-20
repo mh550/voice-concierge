@@ -13,6 +13,26 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 08:40 · C6-05 · passes
+
+- **Changed:**
+  - The C6 review is in `docs/plans/2026-10-20-C6-contract.md` under `## Review`. Two Opus reviewers looked at `review-C6.diff` in scratch: 0 Critical, 2 Important, both fixed test-first.
+  - A-I1: "Forget me", time-up and cap lines now cut the reply that is playing (`say_and_end` calls `session.interrupt(force=True)`). Before, the agent could keep reciting erased memory, and the goodbye could be cut off.
+  - C-I1: new `concierge/retention.py`, wired on `worker_started` in `worker.py`. B6's TTL purge never ran outside tests; it now runs at worker start and daily.
+  - A-M1: a forget during `session.start` gets no greeting and no timer.
+  - README: the memory-design rows Profile / Provenance / Forgetting / Single writer / Observability, and a **Privacy.** paragraph (B9, B11).
+  - Tests 814 → 828.
+- **Verified:**
+  - Each RED commit failed for the stated reason: no module; `interrupts == []`; a greeting `SpeechHandle` where None was expected.
+  - The §6 table lists every name with `docs/spec.md:319–335` lines and code lines (re-checked with grep). All match.
+  - `.harness/check.sh` exits 0 with 828 tests.
+- **Next session must know:**
+  - `session.py` is 282 lines. C8-02 caps modules at 250, so the capped path is the candidate to move.
+  - `FakeSpeakingSession` now has `interrupts`, `handles` and `current_reply_s`.
+- **For the page (B-M4):** fact `id` is an int, `*_ms` are floats, `compacted` is never null, and `turn` starts at 1.
+- **Questions for Michael:** none new (D13 is still open).
+- **Proposed change:** C6-05 step 1's diff path should be the scratch directory, as in C1–C5.
+
 ### 2026-10-20 07:53 · C6-04 · passes
 
 - **Changed:**
