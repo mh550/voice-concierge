@@ -1,0 +1,18 @@
+name: 02-correction
+about: the company changes on the second visit; the old fact is invalidated, not overwritten
+visits:
+  - - {role: user, text: "I work at Initech on their support tooling."}
+    - {role: agent, text: "Nice. Michael has built a few support tools too."}
+  - - {role: user, text: "Actually I'm at Acme now, I switched jobs last month."}
+    - {role: agent, text: "Thanks for the update."}
+expected:
+  - {slot: company, value: Acme}
+forbidden:
+  - {slot: company, value_contains: support}
+gone:
+  - {slot: company, value: Initech}
+recorded_ops:
+  - ops:
+      - {op: ADD, slot: company, value: Initech, turn_id: v1-t1, confidence: 0.9}
+  - ops:
+      - {op: UPDATE, fact_id: 1, value: Acme, turn_id: v2-t1, confidence: 0.9}

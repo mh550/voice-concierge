@@ -21,6 +21,7 @@ from concierge.models import (
     FactOp,
     InvalidateFact,
     JournalType,
+    Note,
     ThreadSnapshot,
     VisitorState,
 )
@@ -69,7 +70,8 @@ def snapshot(conn: sqlite3.Connection, thread_id: str) -> ThreadSnapshot | None:
     )
 
 
-def _key(value: str) -> str:
+def value_key(value: str) -> str:
+    """The form two values compare in: casefolded, whitespace collapsed."""
     return " ".join(value.casefold().split())
 
 
@@ -89,8 +91,8 @@ def derive_state(valid: list[Fact], previous: VisitorState) -> VisitorState:
         else:
             newest: dict[str, str] = {}
             for v in values:  # a later equal value replaces the earlier one, at the later position
-                newest.pop(_key(v), None)
-                newest[_key(v)] = v
+                newest.pop(value_key(v), None)
+                newest[value_key(v)] = v
             fields[slot] = list(newest.values())[-spec.max_items :]
     return VisitorState.model_validate(fields)
 
@@ -150,12 +152,14 @@ def apply(
     skipped: list[int] = []
     deleted: list[int] = []
 
-    def invalidate(fact_id: int, superseded_by: int | None) -> None:
+    def invalidate(fact_id: int, superseded_by: int | None, reason: str | None = None) -> None:
         slot = _invalidate(conn, thread_id, fact_id, superseded_by, now)
         if slot is None:
             skipped.append(fact_id)
         else:
-            payload = {"fact_id": fact_id, "slot": slot, "superseded_by": superseded_by}
+            payload: dict[str, Any] = {"fact_id": fact_id, "slot": slot, "superseded_by": superseded_by}
+            if reason is not None:
+                payload["reason"] = reason
             _journal(conn, thread_id, session_id, now, "fact_invalidated", payload)
 
     for op in checked:
@@ -172,7 +176,9 @@ def apply(
                 for old in op.supersedes:
                     invalidate(old, new_id)
             case InvalidateFact():
-                invalidate(op.fact_id, op.superseded_by)
+                invalidate(op.fact_id, op.superseded_by, op.reason)
+            case Note():
+                _journal(conn, thread_id, session_id, now, op.type, op.payload)
             case DeleteFact():
                 row = conn.execute(
                     "DELETE FROM facts WHERE id = ? AND thread_id = ? RETURNING slot", (op.fact_id, thread_id)

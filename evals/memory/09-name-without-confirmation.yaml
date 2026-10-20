@@ -1,0 +1,13 @@
+name: 09-name-without-confirmation
+about: the visitor gives a name and the agent never confirms it, so it is not stored
+visits:
+  - - {role: user, text: "Hi there."}
+    - {role: agent, text: "Welcome! Want a quick tour of Michael's projects?"}
+    - {role: user, text: "Sure. I'm Ada, by the way, just browsing."}
+    - {role: agent, text: "Let's start with his voice concierge."}
+expected: []
+forbidden:
+  - {slot: name, value_contains: ada}
+recorded_ops:
+  - ops:
+      - {op: ADD, slot: name, value: Ada, turn_id: v1-t3, confidence: 0.9}

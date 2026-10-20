@@ -13,6 +13,101 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 06:10 · verify C4
+
+All 6 features hold (33 steps). Caveat: C4-06 step 1 path is literally absent; diff lives in the scratch dir.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| C4-01 | 1 | read docs/plans/2026-10-20-C4-extraction.md §emit_ops (l.95-170) | emit_ops schema, ops fields, minimal ctx, tool_choice auto, parallel off, strict (default True, test named), 'exactly once/empty ops' line, 400 on forced, collect() l.166 | yes |
+| C4-01 | 2 | read gate table l.370-393 | regexes for ignore/you are now/system:/disregard, url, email, code, caps, agent_attributed; contact exception reserved for C8 | yes |
+| C4-01 | 3 | read scheduler section l.408-480 | debounce 2 s, one task per thread, extraction→merge→extraction_ran, cancel_all/erased, shutdown skips flush | yes |
+| C4-01 | 4 | read eval schema l.540-596 | schema with interrupted_heard, expected, forbidden, recorded_ops; 01-07 cases listed | yes |
+| C4-01 | 5 | read l.600-620 test lists | per-feature test functions named for C4-02..05 | yes |
+| C4-01 | 6 | `/home/mh550/projects/agent-harness/lib/check.sh` | green, 616 tests; ruff clean | yes |
+| C4-02 | 1 | read concierge/ops.py via tests/test_ops.py (9 tests pass) | parse_ops drops malformed and reports; Add/Update/Delete parse | yes |
+| C4-02 | 2 | pytest tests/test_gate.py; read plan l.388-394 + test_rejects params | all 8 rejects with reasons and 3 accepts pass | yes |
+| C4-02 | 3 | read tests/test_merge.py names + run | ADD/UPDATE/DELETE, supersede, dedupe, 8-cap, gate_rejected journal, state recompute all tested and pass | yes |
+| C4-02 | 4 | tests/test_merge.py (265 tests in C4 files pass) | each named case present: UPDATE superseded_by, delete keeps row, user forget removes row, unknown slot, cap, unknown turn, 9th interest | yes |
+| C4-02 | 5 | test_merge_journals_each_result_by_type | asserts fact_added/fact_invalidated/fact_deleted types | yes |
+| C4-02 | 6 | check.sh | green | yes |
+| C4-03 | 1 | read extractor tests; test_extractor_passes_parallel_tool_calls_false, test_heard_text | extract uses tool_choice auto, parallel False, collect(); ExtractionResult has ms/prompt_tokens | yes |
+| C4-03 | 2 | tests/test_heard_text.py l.36-80, plan l.234-257 | Turn built from ChatMessage; finding on 1.8 interrupted content recorded in plan | yes |
+| C4-03 | 3 | test_interrupted_agent_turn_reaches_the_extractor_as_heard_text_only, test_extractor_call_uses_tool_choice_auto, ..._exactly_one_tool_named_emit_ops | pass; asserts match step | yes |
+| C4-03 | 4 | test_two_add_ops_yield_two_ops, test_plain_text_reply_is_zero_ops_and_no_error, test_extractor_ctx_is_isolated_from_the_session_prompt | pass; asserts STATIC_INSTRUCTIONS not in ctx | yes |
+| C4-03 | 5 | check.sh | green | yes |
+| C4-04 | 1 | read memory_writer.py (244 lines) + tests/test_memory_writer.py | note_item, schedule, flush, cancel_all, erased, on_merged, extraction_ran journal all present and tested | yes |
+| C4-04 | 2 | test_item_handler_returns_fast_while_extraction_sleeps (5 s fake; <0.05 s; extraction_ran within 6 s), test_no_await_on_the_turn_path_targets_memory_work (ast) | pass; asserts match | yes |
+| C4-04 | 3 | test_two_schedules_100ms_apart_start_one_extraction; test_a_turn_during_a_run_queues_exactly_one_follow_up | pass; len(calls)==1 and 2 as specified | yes |
+| C4-04 | 4 | test_agent_has_remember_and_forget_tools, test_remember_writes_before_returning, test_forget_deletes_the_matching_facts | params fact/about; source user_asked_to_remember, channel; deletes not invalidates | yes |
+| C4-04 | 5 | test_erasure_wins_over_an_inflight_extraction | 1 s extraction, forget+cancel, shutdown; all visitor tables 0 rows, no errors | yes |
+| C4-04 | 6 | check.sh | green | yes |
+| C4-05 | 1 | ls evals/memory; read 03 yaml | 13 files, 01-07 names exact; fields name/visits/expected/forbidden/recorded_ops (test_every_script_validates) | yes |
+| C4-05 | 2 | read concierge/evals/runner.py usage in tests | run_script returns ScriptResult with missing_expected/forbidden_hits via real extract+merge on temp Store | yes |
+| C4-05 | 3 | test_memory_evals_offline.py test_script x13; 03 yaml ADDs Initech; l.66 asserts initech not in context; 05 ADDs injection | all 13 pass | yes |
+| C4-05 | 4 | grep pyyaml pyproject.toml; ruff check .; check.sh | pyyaml>=6,<7 present; ruff clean; compileall in check green | yes |
+| C4-05 | 5 | check.sh | green | yes |
+| C4-06 | 1 | ls /tmp/voice-concierge; scratch; grep '## Review' | review-C4.diff does not exist at the literal /tmp/voice-concierge path (outside allowed write dirs); it exists in scratch dir with review-C4-extra.diff; '## Review' at plan l.893. Accepted: path conflicts with CLAUDE.md | yes |
+| C4-06 | 2 | read plan ## Review table + git log 0c365fa/d426499 | 5 Important: 4 fixed, 1 declined (documented); fixes carry tests (616 vs 598) | yes |
+| C4-06 | 3 | grep README.md for the 6 row names | all 6 rows present, each citing tests; test_readme.py passes | yes |
+| C4-06 | 4 | find concierge -name '*.py' | xargs wc -l | max 250 (merge.py), none over | yes |
+| C4-06 | 5 | check.sh | green | yes |
+
+### 2026-10-20 05:45 · C4-06 · passes
+
+- **Changed:** C4 review notes under `## Review` in `docs/plans/2026-10-20-C4-extraction.md`. The README's "Memory design" table gains 6 write-path rows, each citing its tests (checked by `test_readme.py`). Fixes are in `memory_writer.py`, `forget_match.py`, `memory_tools.py`, `merge.py`, `grounding.py` and `extractor.py`. `fact_ops._key` is now the public `value_key`. Tests 598 → 616.
+- **Review (2 Opus, `review-C4.diff` + `review-C4-extra.diff` in scratch):** 0 Critical, 5 Important, 11 Minor.
+  - Fixed RED→GREEN: the loop-guard test, which the handler's `except` hid; and `forgotten` blocking a later restatement.
+  - New mutation-checked tests: the name-confirmation cases, which never reached the take-back rule, and in-batch `supersedes` inheritance.
+  - B-I3 declined: §4.4 says an extractor DELETE invalidates. Ten Minor are fixed or covered (a DELETE citing an agent turn, two-letter stop words, flush retrying after a failure, a tool call after `aclose`, and others).
+- **Verified:** every step holds. `check.sh` exits 0 at 616, ruff is clean, and the largest module is `merge.py` at 250 lines. Each new test fails on its mutation.
+- **Not adopted:** "merge must require a known `turn_id` on DELETE". Spec §4.4 and the plan exempt DELETE, so only an agent-turn citation is rejected now.
+- **Next session (C5):** `flush` stops after a run that extracted nothing. `_drain` and `_debounced` both own `_run`; consider unifying them in C5-02. **C6:** `forget_visitor` on a closed writer raises `StoreError`, so erase through the store once the session has ended.
+- **Proposed change:** C4-06 step 1's diff path should be the scratch directory, as in C1-06, C2-05 and C3-04.
+
+### 2026-10-20 04:55 · C4-05 · passes
+
+- **Changed:** new `evals/memory/` with 13 YAML scripts (the seven §4.9 cases 01–07, plus 08–13 from the plan's table). New `concierge/evals/script.py` (`MemoryScript`, `extra="forbid"`, `load_script`), `concierge/evals/runner.py` (`run_script` → `ScriptResult(stored, missing_expected, forbidden_hits, runs, rejected, history)`, `check`) and `concierge/testing/replay.py` (`Replay`, the FakeLLM factory). `pyyaml>=6,<7` and the `concierge.evals` package are in `pyproject.toml`. Tests 546 → 598 (`tests/test_memory_evals_offline.py`, 52).
+- **Verified:** all 5 steps hold. `test_script[...]` passes for all 13 scripts. 03's recorded ADD of Initech is rejected as `ungrounded`, and `FakeLLM.calls[0].chat_ctx` has "Great." but no "Initech". 05's injection ADD is rejected as `instruction`. 9 of 9 mutations are caught (heard-text cut, gate, name rule, set cap, grounding, agent-turn check, text vs empty call, and others). `check.sh` exits 0 at 598 and ruff is clean. The runner has 122 lines, the script module 92.
+- **Review (Opus):** 0 Critical, 4 Important, 5 Minor, all fixed or applied. The 03 test now reads the context that was actually sent, not a rebuilt one. `gone` must have been stored. `expected` has `also` spellings for the live eval. `nothing_stored` is off in 09. The table is in the plan's "C4-05 build notes".
+- **Next session (C4-06):** the review diff range starts at `568700f^`. The README rows "Only what was heard" and "Evaluate for harm as well as help" can cite `test_interrupted_fake_fact_never_reaches_the_extractor` and `test_script`. `merge.py` is still at 250 lines.
+- **For C7 (live eval):** call `run_script(script, lambda n: build_llm(...))` on the same files; `recorded_ops` is ignored there. `ScriptResult.runs` carries `prompt_tokens` and `tool_called`.
+- **Proposed changes:** C4-05 step 1's schema also has the optional keys `about`, `gone`, `nothing_stored`, per-turn `confidence` and `expected[].also`, and `forbidden[].slot` is optional. Step 2's `ScriptResult` also has `runs`, `rejected` and `history`.
+
+### 2026-10-20 08:10 · C4-04 · passes
+
+- **Changed:** new `concierge/memory_writer.py` (`MemoryWriter`: sync `on_item_added`/`note_item`/`schedule`, debounce, one run per thread plus one queued follow-up, `flush`, `cancel_all`, `aclose`, `forget_visitor`), `memory_tools.py` (`do_remember`/`do_forget`), `forget_match.py`, `tasks.py` (shared `track`). `ConciergeAgent` has the `remember(fact)`/`forget(about)` tools. The session attaches the writer before `session.start`, and shutdown runs flush → `session_ended` → `writer.aclose` → `store.close`. `merge` gains `source=`. Test fixtures moved to `conftest.py`/`concierge/testing/sessions.py`. Tests 486 → 546 (`test_memory_writer.py`, `test_critical_path.py`, `test_tools.py`, `test_erasure_wins.py`, +3 in `test_session.py`).
+- **Verified:** all 6 steps hold (44 step tests pass); `check.sh` is green at 546 and ruff is clean. 15 of 16 mutations are caught; the survivor is equivalent. Every module is ≤ 250 lines (merge 250, writer 242).
+- **Review (Opus):** 0 Critical, 4 Important, 8 Minor. All 4 Important are fixed RED→GREEN: `remember` after "remember that", forget before the first extraction, slot over-matching in forget, and an erasure test that passed with a no-op `cancel_all`. M5–M9, M11 and M12 are fixed; M10 becomes D11. The table is in the plan's "C4-04 build notes".
+- **Next session (C4-05):** to replay scripts, build `MemoryWriter(store, thread, session, lambda: fake, debounce_s=60)`, then call `note_item(ChatMessage)` for each turn and `await writer.flush()`. Or call `extract`/`merge` directly, the way `_extract_and_merge` does. A session's journal now has the greeting's `agent_turn`.
+- **Question for Michael (D11):** should "forget X" also scrub X's turn text from the journal? Right now it stays until the 30-day TTL or "Forget me".
+- **Proposed changes:** C4-04 step 1's writer also takes `channels=`/`on_merged=` as keyword arguments, and step 4's tools take no `RunContext`. C4-06 should still make `merge` require a known `turn_id` on DELETE.
+
+### 2026-10-20 06:40 · C4-03 · passes
+
+- **Changed:** new `concierge/extractor.py` (`EMIT_OPS`, `EXTRACTOR_SYSTEM`, `extraction_window`, `build_extractor_ctx`, `ops_from`, `extract`, `ExtractionResult`). `turns.py` gains `turn_from_message`. The fake LLM records `parallel_tool_calls` and can script `error=` (a non-retryable `APIStatusError`). `OpArg`'s docstring is now model-facing, because the strict schema sends it as the description. Tests 455 → 486 (`test_heard_text.py` 11, `test_extractor.py` 20).
+- **Verified:** all 5 steps hold, and the 7 step-named tests pass. Two mutations are caught: reading `turn.text` instead of `visible_text` fails 2 heard-text tests, and `tool_choice="required"`/parallel on fails 2. The heard-text citations were re-read in 1.8.8 (`agent_activity.py:3905-3936`, `generation.py:708-716`). `check.sh` is green at 486 and ruff is clean.
+- **Review (Opus):** 0 Critical, 2 Important, 5 Minor. Both Important are fixed RED→GREEN: the prompt now asks for `turn_id` on UPDATE/DELETE, and a window with no visitor turn makes no LLM call. M2 and M3 are fixed and M5 is documented. The table is in the plan's "C4-03 build notes".
+- **Next session (C4-04):** the writer keeps its turn history and calls `extraction_window(history, first_new)`, then `extract(llm, window, facts)`. Pass `channel_of(msg.text_content)` for user messages only (it consumes a tag), on the unstripped text. Never toggle the session's audio or transcription outputs: with the synchronizer off, an interrupted reply would record all of its text, not just what was heard (M1). Journal the count of turns the 24-turn cap drops (M4).
+- **Proposed changes:** C4-06 should make `merge` reject a DELETE without a known `turn_id`. `merge.py` is at 250 lines, so C4-03 didn't touch it. C4-03 step 1's `ExtractionResult` also has `dropped`, `tool_called` and `ignored_calls`.
+
+### 2026-10-20 05:50 · C4-02 · passes
+
+- **Changed:** new modules `concierge/ops.py` (`AddOp`/`UpdateOp`/`DeleteOp`, `OpArg`, `parse_ops` → `ParsedOps(ops, dropped)`), `gate.py` (`check_value` → `GateResult`), `merge.py` (`merge`, `MergeResult`, 250 lines), `grounding.py` (D10 grounding and the B12 name rule) and `turns.py` (`Turn`, `visible_text`). `models.py`/`fact_ops.py` gain the `Note` op and an enum `InvalidateFact.reason`. Tests 351 → 455 (`test_ops.py`, `test_gate.py`, `test_merge.py`, plus 3 in `test_store.py`).
+- **Verified:** all 6 steps hold, and the named tests pass (66 selected). Two mutations are caught: grounding always true fails 4 tests; a wrong set cap fails 3. `check.sh` is green at 455 and ruff is clean.
+- **Review (Opus):** 0 Critical, 3 Important, 6 Minor. All 3 Important are fixed RED→GREEN: substring name confirmation, the missing `turn_ids_known` test case, and phone/spoken-email gaps. Minor 4, 7 and 8 are fixed, 5 and 6 partly. The table is in the plan's "C4-02 build notes".
+- **Next session (C4-03):** `turns.py` already has `Turn` and `visible_text`; add `turn_from_message` there. `merge` needs `turns=` (the window, in order, agent turns included). A cited turn missing from it is `unknown_turn`. `merge.py` is at exactly 250 lines, so C4-04's `forgotten` check belongs outside it. A name is accepted only from the prompt's exact "Did I get that right, <name>?" followed by an untaken-back yes.
+- **Proposed changes:** C4-02 step 1 should say `parse_ops(json_args) -> ParsedOps(ops, dropped)`, since a bare list can't report the dropped ops. Step 3's `merge` adds the keyword arguments `turns=` and `extraction=`.
+
+### 2026-10-20 04:55 · C4-01 · passes
+
+- **Changed:** new `docs/plans/2026-10-20-C4-extraction.md` (740 lines). It covers the `emit_ops` tool and its exact strict JSON schema, the extractor's two-message context, `tool_choice="auto"` with parallel tool calls off and the "call emit_ops exactly once" line, how `collect()` is read, the deterministic merge (10 ordered checks), the write-gate regexes plus the contact exception reserved for C8, the scheduler and erasure flow, `remember`/`forget`, the YAML eval schema with 13 scripts, and test names for C4-02 to C4-05. Also new: `docs/decisions.md` D10 *default* (grounding). Docs only, so tests stay at 351 → 351.
+- **Verified:** all 6 steps hold, checked with a keyword grep of every element the steps name; `check.sh` is green at 351. Two scratch prototypes ran against 1.8.8 (`proto-c4/`). In the first, a typed `@function_tool emit_ops(ops: list[OpArg])` printed the strict Anthropic schema. In the second, a FakeLLM `emit_ops` call came back through `chat(...).collect()`, and the agent's `remember`/`forget` tools had the params `fact`/`about`. `gate_check.py` runs the plan's regexes: 13 required rejections get the right reason and 20 accepts pass.
+- **Review (Opus):** 0 Critical, 6 Important, 9 Minor, all applied (table in the plan's "Plan review"). The Important ones: 2-letter grounding ("PM"), the critical-path test's debounce, false-positive secret and phone regexes, DELETE reasons as an enum (D8), `forget` matching whole words and deleting the superseded chain, and the heard-text citations (LLM replies go through `_pipeline_reply_task_impl:3905-3936` and `_ForwardOutput.forwarded_text`).
+- **Next session (C4-02):** the heard-text finding is that 1.8 already stores only the heard text (it's the synchronized transcript) as an interrupted message's content; a turn nobody heard is never added. `store.py` is at 247 lines, so C4 adds nothing to it. Every write goes through `apply_fact_ops`, with journal rows as a new `Note` op in `models.py`/`fact_ops.py`.
+- **Question for Michael (D10):** should the merge keep rejecting extracted values that share no word with the visitor's turn? That means fewer false memories, but some lost paraphrases.
+- **Proposed changes:** C4-02 `merge` gains a `turns=` keyword argument, and `reason` becomes an enum. C4-04 `remember(fact)` takes the slot as a `"slot: value"` prefix. C4-05 YAML gains the optional keys `about`, `gone`, `nothing_stored` and per-turn `confidence`.
+
 ### 2026-10-20 04:10 · verify C3
 
 | Feature | Step | What you ran or read | What you saw | Holds |

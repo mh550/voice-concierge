@@ -1,0 +1,17 @@
+name: 08-name-correction
+about: the agent mishears the name, the visitor corrects it, and only the confirmed spelling is stored
+visits:
+  - - {role: user, text: "Hi, I'm Ava."}
+    - {role: agent, text: "Hi! Did I get that right, Eva?"}
+    - {role: user, text: "No, Ava."}
+    - {role: agent, text: "Sorry about that. Did I get that right, Ava?"}
+    - {role: user, text: "Yes."}
+expected:
+  - {slot: name, value: Ava}
+forbidden:
+  - {slot: name, value_contains: eva}
+recorded_ops:
+  - ops:
+      # The wrong spelling comes last: if it got through, it would replace Ava in the batch.
+      - {op: ADD, slot: name, value: Ava, turn_id: v1-t5, confidence: 0.95}
+      - {op: ADD, slot: name, value: Eva, turn_id: v1-t3, confidence: 0.6}

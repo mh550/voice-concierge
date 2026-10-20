@@ -1,0 +1,18 @@
+name: 06-forget-request
+about: on the second visit the visitor asks to forget one interest; the other stays
+visits:
+  - - {role: user, text: "I've been learning Rust lately, and I like voice agents."}
+    - {role: agent, text: "Michael has a few Rust projects you might like."}
+  - - {role: user, text: "Please forget that I like Rust."}
+    - {role: agent, text: "Done."}
+expected:
+  - {slot: interests, value: voice agents}
+forbidden: []
+gone:
+  - {slot: interests, value: Rust}
+recorded_ops:
+  - ops:
+      - {op: ADD, slot: interests, value: Rust, turn_id: v1-t1, confidence: 0.9}
+      - {op: ADD, slot: interests, value: voice agents, turn_id: v1-t1, confidence: 0.9}
+  - ops:
+      - {op: DELETE, fact_id: 1, turn_id: v2-t1, reason: asked_to_forget}

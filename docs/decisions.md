@@ -125,3 +125,42 @@ it only with provider construction and awaiting it before `session.start` (small
 **Question for Michael.** Does the page send a pre-connect audio buffer or let the visitor type before the agent
 joins? If yes, the safer shape is "preload before `session.start`, overlapped only with provider setup"; say so and a
 later session switches it.
+
+## D10 *default*: an extracted value must share a word with the visitor's turn (2026-10-20, C4-01)
+
+**Finding.** Spec §4.4's merge checks that an op's source "must be a user turn that exists", and the gate rejects
+values "attributed to the agent's own words". Neither stops the extractor from citing a real user turn for a value the
+visitor never said: the agent's guess ("So you're a recruiter?" answered by "Anyway, what has he built?", spec §4.9) or
+a fact from an interrupted agent turn's unheard part. A turn id is only a pointer; the model chooses it.
+
+**Choice.** The merge (C4-02) checks grounding deterministically: an ADD or UPDATE value must share at least one word
+(casefolded, a trailing "s" dropped, not a stop word; a 2-letter token such as "PM" or "AI" matches only the
+same whole token) with the visible text of the user turn it cites. If it only shares one with an agent turn, the reason is `agent_attributed`; with neither, `ungrounded`. Names
+use B12's confirmation rule instead. `follow_up_wanted` (a phrase for a request) and `asked_about` (what they
+asked about Michael, naturally a paraphrase, low harm) are exempt. The `remember` tool applies the same rule against
+the session's user turns. The
+extractor prompt asks for the visitor's own words.
+
+**Rejected.** Trusting the turn id (the harm case would then depend on the model), or an LLM judge (a second call per
+op, and not deterministic).
+
+**Cost.** A correct paraphrase with no shared word is lost. The live memory eval (C7) reports recall, which is where
+this shows.
+
+**Question for Michael.** Keep the grounding rule (fewer false memories, some lost paraphrases), or drop it and rely on
+the extractor prompt?
+
+## D11 *default*: `forget` deletes facts, not the turn text in the journal (2026-10-20, C4-04)
+
+**Finding.** The journal keeps every turn's text (`user_turn`, `agent_turn`; spec §4.2, C5-03's "nothing lost"). When a
+visitor says "forget where I work", the `forget` tool really deletes the company facts and the rows they superseded
+(B5), but the journal row "I work at Acme." stays until the idle TTL (30 days) or "Forget me" erases the thread.
+
+**Choice.** Keep the turn text. `forget` deletes facts only, and the writer blocks the window from re-adding them this
+session. Reversible: a later feature can redact the matching `user_turn` payloads in the same `apply_fact_ops` batch.
+
+**Rejected.** Redacting now. It needs a new op in `fact_ops`/`store.py` (store.py is at 247 of 250 lines) and a rule
+for which turns "mention" a value, and it breaks C5's every-turn journal guarantee.
+
+**Question for Michael.** Should "forget X" also scrub X's turns from the journal (stronger privacy, a gap in the
+history), or is the TTL plus "Forget me" enough?

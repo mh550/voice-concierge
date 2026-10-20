@@ -2,14 +2,11 @@
 session_started / session_ended journaled off the greeting's path. A real AgentSession runs the FakeLLM; the room
 half of session.start is patched out (fake_job_context's room never connects)."""
 
-import json
 import sqlite3
-from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 
 import pytest
-from livekit.agents import AgentSession, llm
+from livekit.agents import llm
 from livekit.agents.testing import fake_job_context
 
 from concierge import session as concierge_session
@@ -18,53 +15,11 @@ from concierge.greeting import INTRODUCTION
 from concierge.knowledge import load_pack
 from concierge.models import AddFact
 from concierge.prompt import MEMORY_HEADER, build_instructions
-from concierge.session import Started, start_session
+from concierge.session import start_session
 from concierge.store import Store
 from concierge.testing.fake_llm import FakeLLM
 from concierge.testing.recording_session import RecordingSession
-
-VISITOR = "3f2b8c1e-9a4d-4c7b-8e21-5d6f7a8b9c0d"
-METADATA = json.dumps({"visitor_id": VISITOR, "channel_hint": "web"})
-
-
-@pytest.fixture
-def fakes(monkeypatch: pytest.MonkeyPatch) -> list[FakeLLM]:
-    """Each build_session gets a real AgentSession over a new FakeLLM (kept here, in order)."""
-    made: list[FakeLLM] = []
-
-    def build(ctx: Any, settings: Settings) -> AgentSession:
-        made.append(FakeLLM(["Hello there.", "Michael builds voice agents."]))
-        return AgentSession(llm=made[-1])
-
-    monkeypatch.setattr(concierge_session, "build_session", build)
-    monkeypatch.setattr(concierge_session, "room_start_kwargs", lambda *args: {})
-    return made
-
-
-@pytest.fixture
-def db(tmp_path: Path) -> Iterator[Store]:
-    s = Store(tmp_path / "session.db")
-    yield s
-    try:
-        s.close()
-    except sqlite3.ProgrammingError:  # the shutdown callback closed it
-        pass
-
-
-async def start(ctx: Any, store: Store | None) -> Started:
-    """One session to its first reply, with session_started written."""
-    started = await start_session(ctx, store, Settings())
-    await started.greeting
-    for task in list(started.tasks):
-        await task
-    return started
-
-
-async def shutdown(ctx: Any, started: Started, reason: str = "test") -> None:
-    """What the job does at shutdown: close the session, then run the callbacks (job_proc_lazy_main.py)."""
-    await started.session.aclose()
-    for callback in ctx._shutdown_callbacks:
-        await callback(reason)
+from concierge.testing.sessions import METADATA, VISITOR, shutdown, start
 
 
 def last_text(call: Any) -> str:
@@ -136,7 +91,8 @@ async def test_shutdown_callback_journals_session_ended_and_closes_the_store(db:
         db.thread_for(VISITOR)
     with Store(db.path) as s:
         rows = s.journal_rows(started.preloaded.thread_id)
-    assert [r.type for r in rows] == ["memory_preloaded", "session_started", "session_ended"]
+    # The greeting is journaled by the final flush (an agent turn: no extraction), before session_ended.
+    assert [r.type for r in rows] == ["memory_preloaded", "session_started", "agent_turn", "session_ended"]
     ended = rows[-1]
     assert ended.session_id == started.session_id
     assert ended.payload["reason"] == "participant left" and isinstance(ended.payload["duration_s"], float)
@@ -160,6 +116,9 @@ async def test_shutdown_after_forget_me_journals_nothing_and_still_closes(db: St
 
 async def test_shutdown_closes_the_store_when_session_start_fails(db: Store, monkeypatch: pytest.MonkeyPatch) -> None:
     class Failing:
+        def on(self, event: str, callback: Any = None) -> Any:
+            return callback
+
         async def start(self, **_: Any) -> None:
             raise RuntimeError("no room")
 
@@ -213,3 +172,43 @@ async def test_a_session_without_a_store_greets_as_new_and_journals_nothing(fake
         assert started.preloaded is None and started.tasks == set()
         assert last_text(fakes[0].calls[0]) == INTRODUCTION
         await shutdown(ctx, started)
+
+
+async def test_the_writer_sees_the_greeting_and_the_turns_and_flushes_at_shutdown(
+    db: Store, fakes: list[FakeLLM], extractor: FakeLLM
+) -> None:
+    with fake_job_context(job_metadata=METADATA) as ctx:
+        started = await start(ctx, db)
+        assert started.writer is not None and started.preloaded is not None
+        await started.session.run(user_input="I work at Acme.")
+        assert [(t.role, t.text) for t in started.writer.history] == [
+            ("agent", "Hello there."), ("user", "I work at Acme."), ("agent", "Michael builds voice agents.")
+        ]
+        assert extractor.calls == []  # still inside the 2 s debounce
+        await shutdown(ctx, started)
+    assert len(extractor.calls) == 1  # the shutdown flush ran the final extraction
+    with Store(db.path) as s:
+        kinds = [r.type for r in s.journal_rows(started.preloaded.thread_id)]
+    assert kinds[-5:] == ["agent_turn", "user_turn", "agent_turn", "extraction_ran", "session_ended"]
+
+
+async def test_the_agent_gets_the_writer_as_its_memory(db: Store, fakes: list[FakeLLM]) -> None:
+    with fake_job_context(job_metadata=METADATA) as ctx:
+        started = await start(ctx, db)
+        agent = started.session.current_agent
+        assert agent._memory is started.writer
+        await shutdown(ctx, started)
+
+
+async def test_store_closes_even_if_the_writer_fails_to_close(
+    db: Store, fakes: list[FakeLLM], monkeypatch: pytest.MonkeyPatch
+) -> None:  # review M11
+    async def failing_aclose(self: object) -> None:
+        raise RuntimeError("provider close failed")
+
+    monkeypatch.setattr(concierge_session.MemoryWriter, "aclose", failing_aclose)
+    with fake_job_context(job_metadata=METADATA) as ctx:
+        started = await start(ctx, db)
+        await shutdown(ctx, started)
+    with pytest.raises(sqlite3.ProgrammingError):
+        db.thread_for(VISITOR)

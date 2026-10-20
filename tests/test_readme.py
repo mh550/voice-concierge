@@ -55,7 +55,18 @@ def _test_names() -> set[str]:
 
 
 @pytest.mark.parametrize(
-    "practice", ["Just-in-time vs preload", "Stable, cached prefix", "Memory as an attack surface"]
+    "practice",
+    [
+        "Just-in-time vs preload",
+        "Stable, cached prefix",
+        "Memory as an attack surface",
+        "Hot path vs background writes",
+        "Delta edits, not rewrites",
+        "Temporal validity",
+        "Only what was heard",
+        "ASR errors",
+        "Evaluate for harm as well as help",
+    ],
 )
 def test_memory_design_row_names_tests_that_exist(practice: str) -> None:
     proved_by = _rows(_section("Memory design"))[practice]

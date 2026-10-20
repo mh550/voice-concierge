@@ -13,7 +13,7 @@ import unicodedata
 from collections.abc import Callable
 from datetime import UTC, datetime
 
-from concierge.fact_ops import _key
+from concierge.fact_ops import value_key
 from concierge.models import _UNSAFE_CATEGORIES, SLOTS, Fact, VisitorState
 from concierge.prompt import MEMORY_BLOCK_MAX_CHARS, MEMORY_HEADER
 
@@ -31,7 +31,7 @@ def _line(f: Fact) -> str:
 
 def _newest(facts: list[Fact], slot: str, value: str) -> Fact | None:
     """The newest valid fact (highest id) of `slot` whose value is `value`, compared the way derive_state keys it."""
-    matches = [f for f in facts if f.slot == slot and _key(f.value) == _key(value)]
+    matches = [f for f in facts if f.slot == slot and value_key(f.value) == value_key(value)]
     return matches[-1] if matches else None
 
 

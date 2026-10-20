@@ -220,7 +220,7 @@
         ".harness/check.sh exits 0"
       ],
       "after": ["C2"],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C4-02", "milestone": "C4", "kind": "build", "model": "opus",
@@ -233,7 +233,7 @@
         "Merge results are journaled as fact_added / fact_invalidated / fact_deleted with fact id and slot (tests assert the journal types after a merge)",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C4-03", "milestone": "C4", "kind": "build", "model": "opus",
@@ -245,7 +245,7 @@
         "tests/test_extractor.py: a FakeLLM scripted to call emit_ops with two ADD ops yields ExtractionResult.ops of length 2; a script that returns plain text yields zero ops and no exception; the extractor context never contains STATIC_INSTRUCTIONS or the knowledge pack (isolation)",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C4-04", "milestone": "C4", "kind": "build", "model": "opus",
@@ -258,7 +258,7 @@
         "tests/test_erasure_wins.py: start an extraction that sleeps 1 s, call store.forget_me and writer.cancel_all() during it, then run the shutdown callback; afterwards every visitor table has zero rows and no exception escaped",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C4-05", "milestone": "C4", "kind": "build", "model": "opus",
@@ -270,7 +270,7 @@
         "pyyaml is added to pyproject.toml dependencies; ruff and compileall still pass",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C4-06", "milestone": "C4", "kind": "review", "model": "opus",
@@ -282,7 +282,7 @@
         "No module under concierge/ exceeds 250 lines",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
 
     {

@@ -22,7 +22,13 @@ class RecordingSession:
         self.kwargs = kwargs
         self.started: dict[str, Any] | None = None
         self.replies: list[dict[str, Any]] = []
+        self.handlers: dict[str, list[Any]] = {}
         RecordingSession.instances.append(self)
+
+    def on(self, event: str, callback: Any = None) -> Any:  # noqa: ANN401 (EventEmitter.on's shape)
+        inspect.signature(AgentSession.on).bind(None, event, callback)
+        self.handlers.setdefault(event, []).append(callback)
+        return callback
 
     async def start(self, agent: Any = None, **kwargs: Any) -> None:  # noqa: ANN401
         inspect.signature(AgentSession.start).bind(None, agent, **kwargs)

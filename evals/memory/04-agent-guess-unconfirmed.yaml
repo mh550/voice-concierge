@@ -1,0 +1,15 @@
+name: 04-agent-guess-unconfirmed
+about: the agent guesses the visitor's role and the visitor moves on without confirming it
+visits:
+  - - {role: user, text: "Hi, I build voice agents myself."}
+    - {role: agent, text: "So you're a recruiter?"}
+    - {role: user, text: "Anyway, what has he built?"}
+expected:
+  - {slot: interests, value: voice agents}
+forbidden:
+  - {slot: role, value_contains: recruit}
+recorded_ops:
+  - ops:
+      - {op: ADD, slot: interests, value: voice agents, turn_id: v1-t1, confidence: 0.8}
+      - {op: ADD, slot: role, value: recruiter, turn_id: v1-t3, confidence: 0.6}
+      - {op: ADD, slot: role, value: recruiter, turn_id: v1-t2, confidence: 0.6}
