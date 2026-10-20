@@ -13,6 +13,15 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 04:55 · C4-01 · passes
+
+- **Changed:** new `docs/plans/2026-10-20-C4-extraction.md` (740 lines). It covers the `emit_ops` tool and its exact strict JSON schema, the extractor's two-message context, `tool_choice="auto"` with parallel tool calls off and the "call emit_ops exactly once" line, how `collect()` is read, the deterministic merge (10 ordered checks), the write-gate regexes plus the contact exception reserved for C8, the scheduler and erasure flow, `remember`/`forget`, the YAML eval schema with 13 scripts, and test names for C4-02 to C4-05. Also new: `docs/decisions.md` D10 *default* (grounding). Docs only, so tests stay at 351 → 351.
+- **Verified:** all 6 steps hold, checked with a keyword grep of every element the steps name; `check.sh` is green at 351. Two scratch prototypes ran against 1.8.8 (`proto-c4/`). In the first, a typed `@function_tool emit_ops(ops: list[OpArg])` printed the strict Anthropic schema. In the second, a FakeLLM `emit_ops` call came back through `chat(...).collect()`, and the agent's `remember`/`forget` tools had the params `fact`/`about`. `gate_check.py` runs the plan's regexes: 13 required rejections get the right reason and 20 accepts pass.
+- **Review (Opus):** 0 Critical, 6 Important, 9 Minor, all applied (table in the plan's "Plan review"). The Important ones: 2-letter grounding ("PM"), the critical-path test's debounce, false-positive secret and phone regexes, DELETE reasons as an enum (D8), `forget` matching whole words and deleting the superseded chain, and the heard-text citations (LLM replies go through `_pipeline_reply_task_impl:3905-3936` and `_ForwardOutput.forwarded_text`).
+- **Next session (C4-02):** the heard-text finding is that 1.8 already stores only the heard text (it's the synchronized transcript) as an interrupted message's content; a turn nobody heard is never added. `store.py` is at 247 lines, so C4 adds nothing to it. Every write goes through `apply_fact_ops`, with journal rows as a new `Note` op in `models.py`/`fact_ops.py`.
+- **Question for Michael (D10):** should the merge keep rejecting extracted values that share no word with the visitor's turn? That means fewer false memories, but some lost paraphrases.
+- **Proposed changes:** C4-02 `merge` gains a `turns=` keyword argument, and `reason` becomes an enum. C4-04 `remember(fact)` takes the slot as a `"slot: value"` prefix. C4-05 YAML gains the optional keys `about`, `gone`, `nothing_stored` and per-turn `confidence`.
+
 ### 2026-10-20 04:10 · verify C3
 
 | Feature | Step | What you ran or read | What you saw | Holds |

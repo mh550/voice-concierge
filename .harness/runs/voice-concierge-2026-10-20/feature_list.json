@@ -220,7 +220,7 @@
         ".harness/check.sh exits 0"
       ],
       "after": ["C2"],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C4-02", "milestone": "C4", "kind": "build", "model": "opus",
