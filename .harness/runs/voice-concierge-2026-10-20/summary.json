@@ -3,7 +3,7 @@
   "project": "voice-concierge",
   "branch": "harness/voice-concierge-2026-10-20",
   "started": "2026-10-20T04:07:34.000Z",
-  "ended_at": "2026-10-20T12:13:13.000Z",
+  "ended_at": "2026-10-20T12:13:38.000Z",
   "end_reason": "deadline",
   "continuations": 0,
   "features": {
@@ -82,37 +82,39 @@
     "end": 828
   },
   "cost": {
-    "total": 131.59,
-    "per_passing_feature": 4.24,
+    "total": 131.71,
+    "per_passing_feature": 4.25,
     "by_role": {
       "init": 6.04,
       "plan": 24.54,
       "build": 70.94,
       "review": 28.38,
-      "verify": 1.66
+      "verify": 1.66,
+      "retro": 0.12
     },
     "by_model": {
       "claude-fable-5-1": 6.04,
       "claude-opus-5-5": 123.86,
-      "claude-sonnet-5-5": 1.66
+      "claude-sonnet-5-5": 1.78
     },
     "manager": 0
   },
   "time": {
-    "wall_h": 8.09,
-    "sessions_h": 7.97,
+    "wall_h": 8.1,
+    "sessions_h": 7.98,
     "driver_h": 0.13,
     "by_role_h": {
       "init": 0.21,
       "plan": 1.41,
       "build": 4.81,
       "review": 1.39,
-      "verify": 0.16
+      "verify": 0.16,
+      "retro": 0.01
     }
   },
   "sessions": {
-    "total": 38,
-    "real": 38,
+    "total": 39,
+    "real": 39,
     "environmental": 0
   },
   "guards": {
