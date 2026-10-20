@@ -86,6 +86,35 @@ async def test_say_and_end_ends_when_the_playout_hangs(monkeypatch: pytest.Monke
     assert ended == ["test"]
 
 
+async def test_say_and_end_interrupts_the_reply_that_is_playing_before_it_speaks() -> None:
+    # Review A-I1: say() queues behind the current reply (agent_activity.py _schedule_speech), so the line must cut it.
+    session = FakeSpeakingSession(current_reply_s=10)
+    ended: list[str] = []
+    await asyncio.wait_for(say_and_end(session, "Bye.", ended.append, "test"), 1)
+    assert session.interrupts == [True]  # force: a non-interruptible line already queued (the cap line) yields too
+    inspect.signature(AgentSession.interrupt).bind(None, force=True)  # the real interrupt takes it
+    ((handle,),) = [session.handles]
+    assert handle.played_out and ended == ["test"]
+
+
+async def test_say_and_end_still_speaks_when_interrupt_raises() -> None:
+    class Uninterruptible(FakeSpeakingSession):
+        def interrupt(self, *, force: bool = False) -> asyncio.Future[None]:
+            raise RuntimeError("the speech currently playing disallows interruptions")
+
+    session = Uninterruptible()
+    ended: list[str] = []
+    await say_and_end(session, "Bye.", ended.append, "test")
+    assert [text for text, _ in session.said] == ["Bye."] and ended == ["test"]
+
+
+async def test_the_time_up_line_cuts_a_long_reply() -> None:
+    session = FakeSpeakingSession(current_reply_s=10)
+    ended: list[str] = []
+    await asyncio.wait_for(start_session_timer(session, 0.01, ended.append), 1)
+    assert session.interrupts == [True] and session.handles[0].played_out and ended == ["time limit"]
+
+
 def test_utc_day() -> None:
     assert utc_day(1_792_454_400_000) == "2026-10-20"  # 2026-10-20T00:00:00Z
     assert utc_day(1_792_454_400_000 - 1) == "2026-10-19"

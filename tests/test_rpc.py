@@ -130,6 +130,7 @@ async def test_forget_me_returns_ok_within_50_ms_while_the_erase_sleeps(
     assert sent["facts"] == [] and sent["visitor"] == {"name": None, "visits": 0}
     validator("memory.schema.json").validate(sent)
     assert [text for text, _ in rig.session.said] == [GOODBYE_LINE]
+    assert rig.session.interrupts == [True]  # review A-I1: the goodbye cuts the reply that is playing
     assert rig.ended == ["forget_me"]  # the close stub (ctx.shutdown in a session)
     assert rig.writer is not None and rig.writer.erased
     await rig.aclose()
