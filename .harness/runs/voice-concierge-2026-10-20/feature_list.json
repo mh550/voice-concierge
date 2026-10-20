@@ -181,7 +181,7 @@
         "The rendered block is data, not instructions: tests assert each fact line is wrapped in quotes and that a fact value containing 'ignore previous instructions' still renders inside quotes under MEMORY_HEADER",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C3-03", "milestone": "C3", "kind": "build", "model": "opus",

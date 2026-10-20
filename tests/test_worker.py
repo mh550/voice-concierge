@@ -1,6 +1,5 @@
 import ast
 import asyncio
-import inspect
 import json
 import logging
 import os
@@ -22,6 +21,7 @@ from concierge import worker
 from concierge.agent import ConciergeAgent
 from concierge.knowledge import load_pack
 from concierge.testing.fake_llm import FakeLLM
+from concierge.testing.recording_session import RecordingSession
 from concierge.text_input import ChannelTags, make_text_input_cb
 
 VISITOR = "3f2b8c1e-9a4d-4c7b-8e21-5d6f7a8b9c0d"
@@ -227,43 +227,6 @@ async def test_typed_turn_through_a_real_session_is_tagged_text() -> None:
 # --- entrypoint ----------------------------------------------------------------------------------------------
 
 
-class RecordingSession:
-    """Stands in for AgentSession in the entrypoint: keeps what it was built and started with."""
-
-    instances: list["RecordingSession"] = []
-    tags: list[ChannelTags] = []
-
-    def __init__(self, **kwargs: Any) -> None:
-        inspect.signature(AgentSession.__init__).bind(None, **kwargs)  # the real constructor takes these
-        self.kwargs = kwargs
-        self.started: dict[str, Any] | None = None
-        RecordingSession.instances.append(self)
-
-    async def start(self, agent: Any = None, **kwargs: Any) -> None:
-        inspect.signature(AgentSession.start).bind(None, agent, **kwargs)
-        self.started = {"agent": agent, **kwargs}
-
-
-@pytest.fixture
-def recording_session(monkeypatch: pytest.MonkeyPatch) -> type[RecordingSession]:
-    RecordingSession.instances = []
-    monkeypatch.setattr(worker, "AgentSession", RecordingSession)
-    fake = FakeLLM([])
-    monkeypatch.setattr(worker, "build_llm", lambda stage, settings=None: fake)
-    monkeypatch.setattr(worker, "build_stt", lambda settings=None: "stt")
-    monkeypatch.setattr(worker, "build_tts", lambda settings=None: "tts")
-    monkeypatch.delenv("CONCIERGE_RECORD_AUDIO", raising=False)
-    RecordingSession.tags = []
-
-    class KeptChannelTags(ChannelTags):
-        def __init__(self) -> None:
-            super().__init__()
-            RecordingSession.tags.append(self)
-
-    monkeypatch.setattr(worker, "ChannelTags", KeptChannelTags)
-    return RecordingSession
-
-
 async def test_entrypoint_starts_the_session(recording_session: type[RecordingSession]) -> None:
     metadata = json.dumps({"visitor_id": VISITOR, "channel_hint": "web"})
     with fake_job_context(job_metadata=metadata) as ctx:
@@ -321,3 +284,4 @@ async def test_entrypoint_logs_and_ends_the_job_on_bad_metadata(
     assert recording_session.instances == []
     assert any("dispatch metadata" in r.getMessage() for r in caplog.records)
     assert "nope" not in caplog.text  # visitor-supplied values stay out of the journal
+    assert not Path(os.environ["CONCIERGE_DB_PATH"]).parent.exists()  # ended before the store was opened

@@ -700,3 +700,26 @@ def test_count_session_key_is_sha256_of_visitor_and_day(store, visitor_id) -> No
 def test_count_session_rejects_a_day_that_is_not_yyyy_mm_dd(store, visitor_id, day) -> None:
     with pytest.raises(ValueError):
         store.count_session(visitor_id, day)
+
+
+# --- one read snapshot for the preload (C3-02) ----------------------------------------------------------------
+
+
+def test_load_returns_version_state_and_facts_from_one_snapshot(store, visitor_id) -> None:
+    thread = store.get_or_create_thread(visitor_id)
+    store.apply_fact_ops(
+        thread.id,
+        [
+            AddFact(slot="name", value="Ada", source="user_said", channel="voice", turn_id="t1"),
+            AddFact(slot="interests", value="evals", source="user_said", channel="text", turn_id="t2"),
+        ],
+    )
+    snapshot = store.load(thread.id)
+    assert snapshot.version == store.version(thread.id)
+    assert snapshot.state == store.state(thread.id)
+    assert snapshot.state.name == "Ada" and snapshot.state.interests == ["evals"]
+    assert snapshot.facts == store.valid_facts(thread.id)
+    assert store.version(thread.id) == snapshot.version  # a read: no version bump
+
+    with pytest.raises(ThreadMissing):
+        store.load(uuid.uuid4().hex)

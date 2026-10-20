@@ -7,20 +7,31 @@ ANTHROPIC_API_KEY or OPENROUTER_API_KEY.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import sqlite3
+import uuid
+from pathlib import Path
 
 from livekit.agents import AgentServer, AgentSession, JobContext, JobProcess, JobRequest, cli
 from livekit.agents.voice.agent_session import RecordingOptions
 from livekit.agents.voice.room_io import RoomOptions, TextInputOptions
 from livekit.plugins import silero
+from pydantic import ValidationError
 
 from concierge.agent import ConciergeAgent
 from concierge.config import Settings, build_llm, build_stt, build_tts
 from concierge.dispatch import DispatchError, parse_dispatch
 from concierge.knowledge import load_pack
+from concierge.preload import Preloaded, preload
+from concierge.store import Store, StoreError
 from concierge.text_input import ChannelTags, make_text_input_cb
 
 logger = logging.getLogger("concierge.worker")
+
+# D9: the preload runs while the room is already connected and RoomIO's lk.chat and pre-connect audio handlers
+# aren't registered yet (session.start registers them), so it gets a short deadline. A normal one takes < 1 ms.
+PRELOAD_TIMEOUT_S = 1.0
 
 
 def recording_options(settings: Settings | None = None) -> RecordingOptions:
@@ -38,6 +49,41 @@ async def on_request(req: JobRequest) -> None:
     await req.accept()  # C6-04 adds the kill switch (reject under CONCIERGE_ENABLED=0 or the off file)
 
 
+def _open_store(path: Path) -> Store:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return Store(path)
+
+
+async def _open_or_none(path: Path) -> Store | None:
+    """The store, opened off the loop; None (a session without memory) when it can't open. Only the error type is
+    logged: a message can quote a path or visitor data."""
+    try:
+        return await asyncio.to_thread(_open_store, path)
+    except (StoreError, sqlite3.Error, OSError) as exc:
+        logger.warning("no memory this session: the store did not open (%s)", type(exc).__name__)
+        return None
+
+
+async def _preload_or_none(store: Store | None, visitor_id: str, session_id: str) -> Preloaded | None:
+    if store is None:
+        return None
+    try:
+        return await asyncio.wait_for(preload(store, visitor_id, session_id), PRELOAD_TIMEOUT_S)
+    except (StoreError, sqlite3.Error, ValidationError, TimeoutError) as exc:
+        logger.warning("no memory this session: the preload failed (%s)", type(exc).__name__)
+        return None
+
+
+def _agent_or_memoryless(pack: str, preloaded: Preloaded | None) -> ConciergeAgent:
+    """The agent with the visitor's memory block, or without one if build_instructions rejects it (the renderer
+    keeps it under the cap, so this is the backstop that keeps a session from failing over memory)."""
+    try:
+        return ConciergeAgent(pack, preloaded.block if preloaded else None)
+    except ValueError:
+        logger.warning("no memory this session: the memory block was rejected")
+        return ConciergeAgent(pack)
+
+
 server = AgentServer(shutdown_process_timeout=30, setup_fnc=prewarm)
 
 
@@ -51,6 +97,16 @@ async def entrypoint(ctx: JobContext) -> None:
         return
 
     settings = Settings()
+    store = await _open_or_none(settings.db_path)
+
+    async def close_store() -> None:  # a plain async def: add_shutdown_callback reads its __code__
+        if store is not None:
+            await asyncio.to_thread(store.close)
+
+    ctx.add_shutdown_callback(close_store)  # first, so a failed connect still closes the store
+    # Spec §4.0: the store reads overlap the room connection (connect is idempotent; session.start's is a no-op).
+    _, preloaded = await asyncio.gather(ctx.connect(), _preload_or_none(store, info.visitor_id, uuid.uuid4().hex))
+
     channels = ChannelTags()
     session = AgentSession(
         llm=build_llm("conversation", settings),
@@ -61,7 +117,7 @@ async def entrypoint(ctx: JobContext) -> None:
         turn_handling={"turn_detection": "vad", "interruption": {"mode": "vad"}},
     )
     await session.start(
-        agent=ConciergeAgent(load_pack()),
+        agent=_agent_or_memoryless(load_pack(), preloaded),
         room=ctx.room,
         room_options=RoomOptions(
             participant_identity=f"visitor-{info.visitor_id}",

@@ -13,6 +13,15 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 03:40 · C3-02 · passes
+
+- **Changed:** new `concierge/memory_block.py` (`render_memory_block`), `concierge/preload.py` (`Preloaded`, `preload`), `Store.load` + `fact_ops.snapshot` + `models.ThreadSnapshot`; `worker.py` opens the store off-loop, `asyncio.gather(ctx.connect(), _preload_or_none(...))`, `_agent_or_memoryless`, a `close_store` shutdown callback. `RecordingSession` moved to `concierge/testing/recording_session.py`; conftest has an autouse `CONCIERGE_DB_PATH` temp fixture. Tests 290 → 324 (`test_memory_block.py` 16, `test_preload.py` 17, one in `test_store.py`).
+- **Verified:** all 6 steps hold; `check.sh` green (324). Mutation checks: making connect+preload sequential fails the timing test (0.42 s > 0.35 s); rendering days in local time fails `test_days_are_utc`. The timing test passed 5 of 5 repeats.
+- **Review (Opus):** 1 Important, 3 Minor, all fixed with tests. Important (checked in 1.8.8 source): `ctx.connect()` joins the room before `session.start` registers RoomIO's `lk.chat` and pre-connect audio handlers, so a slow preload drops typed text or the pre-connect buffer → **D9 *default***: the preload gets a 1 s deadline (`PRELOAD_TIMEOUT_S`), then the session runs without memory.
+- **Next session (C3-03):** move the gather, `_open_or_none`/`_preload_or_none`/`_agent_or_memoryless`, `close_store` (becomes `on_shutdown`) and the conftest `recording_session` patches into `concierge/session.py`. `store.py` is at 247/250 lines. If `ctx.connect()` raises, the preload thread may still count a visit and journal `memory_preloaded` for a session that never started (accepted).
+- **Question for Michael (D9):** does the page send a pre-connect audio buffer, or let visitors type before the agent joins? If yes, a later session should await the preload before `session.start` and overlap it only with provider setup.
+- **Proposed changes:** C3-02 step 2's field list should include `visits` (the plan's `Preloaded` has it).
+
 ### 2026-10-20 02:32 · C3-01 · passes
 
 - **Changed:** `docs/plans/2026-10-20-C3-preload.md` (414 lines, plan only, no code). Tests 290 → 290.
