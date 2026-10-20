@@ -13,6 +13,32 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 10:05 · C5-04 · passes
+
+- **Changed:**
+  - The C5 milestone review, from 2 Opus reviewers: 0 Critical, 4 Important (all fixed), 3 Minor. The table is under `## Review` in `docs/plans/2026-10-20-C5-compaction.md`.
+  - **Forget clears the summary right away.** "Forget" now clears a stored summary that names the value (A-I1), so a forgotten value can't come back through the summary if the shutdown never finishes.
+  - **Forgetting before extraction is covered.** Values a forget request kept extraction from storing are now in the summary's deterministic check (A-I2).
+  - **Second tab (A-I3).** The shutdown now summarizes from the summary stored at that moment, not the one preloaded. It stores through the new `Store.swap_summary` (compare-and-set; raises `StaleSummary`, retries once). Before, a second tab overwrote the other's summary.
+  - **Compaction test (B-I1).** The forget-me compaction test now proves the in-flight call is cancelled.
+  - README has the 3 new memory-design rows.
+  - Tests 694 → 711.
+- **Verified:**
+  - New tests in `tests/test_summary_forgetting.py` (7) and `tests/test_summary_concurrency.py` (5); the RED commit 670e8ad comes before the GREEN commit edea007.
+  - 11 mutations, each turning a test red.
+  - `test_readme.py` checks every cited test name exists.
+  - The largest module is 250 lines (`merge.py`, `memory_writer.py`).
+  - `check.sh` is green with 711 tests.
+- **Next session must know:**
+  - `write_summary(writer, summarizer)` no longer takes `previous`.
+  - `names_any` now lives in `forget_match`.
+  - `memory_writer.py` is at 250 lines, so anything new goes elsewhere.
+  - C6's "Forget me" RPC must not lose the erase after the writer closes (review A-M3, in the plan).
+- **Questions for Michael:** none new (D12 is still open).
+- **Proposed changes:**
+  - C5-04 step 1's `/tmp/voice-concierge/` path conflicts with CLAUDE.md, so the diff is in the scratch dir, as in C1–C4.
+  - Spec §4.2 could name the summary's compare-and-set (`swap_summary`).
+
 ### 2026-10-20 08:55 · C5-03 · passes
 
 - **Changed:**
