@@ -13,6 +13,25 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 03:10 · C2-02 · passes
+
+- **Changed:** new `concierge/models.py` (SLOTS, VisitorState with its 8 KB validator, Fact, the ops models,
+  JournalType, Thread, JournalRow, TurnMetrics), `concierge/schema.py` (the plan's DDL), `concierge/store.py`
+  (`Store`: WAL, schema, `get_or_create_thread`, `thread_for`, `version`, `state`, `write` (the fence), `journal`,
+  `journal_rows`, `add_turn_metrics`), `concierge/testing/store_writers.py`, `tests/conftest.py` (FakeClock, store
+  fixture), `tests/test_models.py`, `tests/test_store.py`. Tests 135 → 208.
+- **Verified:** `check.sh` green (208 tests). 13 mutants: 12 caught at first; the 13th (a revisit that doesn't bump
+  the version) survived, so I added an assertion that now catches it. A maximal state is 2098 bytes in ASCII and
+  7918 in 4-byte UTF-8. The multi-process fresh-open test passed 10 of 10 runs in a loop. Opus review: 0 Critical,
+  2 Important (several processes opening a new file together got `database is locked`; values with U+2028,
+  bidi or surrogate characters were accepted), 9 Minor. Both Important and 7 Minor fixed with tests written first
+  (21 RED → GREEN); 1 documented, 1 deferred. Details in the plan's "C2-02 build notes".
+- **Next session must know:** `store.py` is 249 lines, so the fact helpers go in `concierge/fact_ops.py`.
+  `write(fn)`: `fn` may use only `conn`, because calling a Store method from it deadlocks. `recompute_state` must
+  build the state with `model_validate` (VisitorState isn't frozen). A revisit bumps the version. `add_turn_metrics`
+  needs `uuid.uuid4().hex` as the session id. `store_writers.py` exists; add `write_facts` there.
+- **Questions / proposed changes:** none new. D8 is still open.
+
 ### 2026-10-20 verify P1
 
 | Feature | Step | What you ran or read | What you saw | Holds |

@@ -118,7 +118,7 @@
         "Store.add_turn_metrics(session_id, metrics: TurnMetrics) writes to anonymous_turn_metrics with no visitor_id column and no text column (tests assert the column list)",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C2-03", "milestone": "C2", "kind": "build", "model": "opus",
