@@ -1,10 +1,16 @@
+import sqlite3
 import uuid
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
 
 import pytest
+from livekit.agents import AgentSession
 
 from concierge import session
+from concierge.config import Settings
 from concierge.store import Store
-from concierge.testing.fake_llm import FakeLLM
+from concierge.testing.fake_llm import FakeLLM, FakeResponse, FakeToolCall
 from concierge.testing.recording_session import RecordingSession
 from concierge.text_input import ChannelTags
 
@@ -66,3 +72,40 @@ def recording_session(monkeypatch: pytest.MonkeyPatch) -> type[RecordingSession]
 
     monkeypatch.setattr(session, "ChannelTags", KeptChannelTags)
     return RecordingSession
+
+
+# --- a real AgentSession over FakeLLMs (tests/test_session.py, tests/test_erasure_wins.py) --------------------
+
+NO_OPS = FakeResponse(tool_call=FakeToolCall(name="emit_ops", arguments={"ops": []}))
+
+
+@pytest.fixture
+def extractor() -> FakeLLM:
+    """The extractor LLM start_session's MemoryWriter builds (via build_llm("extractor")): no change, 8 times."""
+    return FakeLLM([NO_OPS] * 8)
+
+
+@pytest.fixture
+def fakes(monkeypatch: pytest.MonkeyPatch, extractor: FakeLLM) -> list[FakeLLM]:
+    """Each build_session gets a real AgentSession over a new FakeLLM (kept here, in order); the extractor is
+    `extractor`, so no test builds a real provider."""
+    made: list[FakeLLM] = []
+
+    def build(ctx: Any, settings: Settings) -> AgentSession:
+        made.append(FakeLLM(["Hello there.", "Michael builds voice agents."]))
+        return AgentSession(llm=made[-1])
+
+    monkeypatch.setattr(session, "build_session", build)
+    monkeypatch.setattr(session, "room_start_kwargs", lambda *args: {})
+    monkeypatch.setattr(session, "build_llm", lambda stage, settings=None: extractor)
+    return made
+
+
+@pytest.fixture
+def db(tmp_path: Path) -> Iterator[Store]:
+    s = Store(tmp_path / "session.db")
+    yield s
+    try:
+        s.close()
+    except sqlite3.ProgrammingError:  # the shutdown callback closed it
+        pass

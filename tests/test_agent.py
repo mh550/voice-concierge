@@ -15,13 +15,14 @@ def _instructions_text(item: llm.ChatItem) -> str:
     return "".join(part for part in item.content if isinstance(part, str))
 
 
-def test_agent_takes_built_instructions_and_no_tools() -> None:
+def test_agent_takes_built_instructions_and_only_the_memory_tools() -> None:
     pack = load_pack()
     agent = ConciergeAgent(pack, MEMORY)
     assert isinstance(agent, Agent)
     assert agent.instructions == build_instructions(pack, MEMORY)
     assert ConciergeAgent(pack).instructions == build_instructions(pack, None)
-    assert agent.tools == []
+    assert sorted(t.info.name for t in agent.tools if isinstance(t, llm.FunctionTool)) == ["forget", "remember"]
+    assert len(agent.tools) == 2
 
 
 async def test_prefix_is_stable_across_two_turns() -> None:

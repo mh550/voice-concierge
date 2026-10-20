@@ -14,7 +14,7 @@ from typing import Literal
 from livekit.agents import llm
 from pydantic import BaseModel, ConfigDict
 
-from concierge.models import Channel
+from concierge.models import Channel, Note
 
 
 class Turn(BaseModel):
@@ -56,3 +56,12 @@ def turn_from_message(msg: llm.ChatMessage, channel: Channel = "voice") -> Turn 
             turn_id=msg.id, role="agent", text=text, channel="voice", interrupted=msg.interrupted, heard_text=heard
         )
     return None
+
+
+def journal_note(turn: Turn) -> Note:
+    """The journal row for a turn: an agent turn keeps only what was heard (spec §4.2)."""
+    if turn.role == "user":
+        payload = {"turn_id": turn.turn_id, "channel": turn.channel, "text": turn.text, "confidence": turn.confidence}
+        return Note(type="user_turn", payload=payload)
+    return Note(type="agent_turn", payload={"turn_id": turn.turn_id, "interrupted": turn.interrupted,
+                                            "text": visible_text(turn)})

@@ -37,6 +37,7 @@ class FakeResponse(BaseModel):
     prompt_cached_tokens: int = 0
     completion_tokens: int = 0
     chunk_size: int = Field(default=8, gt=0)  # characters per text chunk
+    delay_s: float = Field(default=0.0, ge=0)  # seconds before the first chunk (a slow provider)
 
     @model_validator(mode="after")
     def _one_kind(self) -> FakeResponse:
@@ -54,6 +55,14 @@ class FakeLLMCall:
     tools: list[llm.Tool]
     tool_choice: llm.ToolChoice | None
     parallel_tool_calls: bool | None = None
+
+
+def _snapshot(item: llm.ChatItem) -> llm.ChatItem:
+    """A deep copy, except an AgentConfigUpdate's in-memory `_tools` (bound FunctionTools, which hold the agent and
+    its tasks, can't be deep-copied): a shallow copy, sharing the tool list."""
+    if isinstance(item, llm.AgentConfigUpdate):
+        return item.model_copy()
+    return item.model_copy(deep=True)
 
 
 class FakeLLM(llm.LLM):
@@ -83,7 +92,7 @@ class FakeLLM(llm.LLM):
         index = len(self.calls)
         self.calls.append(
             FakeLLMCall(
-                chat_ctx=llm.ChatContext([item.model_copy(deep=True) for item in chat_ctx.items]),
+                chat_ctx=llm.ChatContext([_snapshot(item) for item in chat_ctx.items]),
                 tools=list(tools or []),
                 tool_choice=tool_choice if utils.is_given(tool_choice) else None,
                 parallel_tool_calls=parallel_tool_calls if utils.is_given(parallel_tool_calls) else None,
@@ -116,6 +125,8 @@ class FakeLLMStream(llm.LLMStream):
         if r is None:
             raise AssertionError(f"FakeLLM script exhausted: chat() call {self._index + 1} has no scripted response")
         request_id = f"fake-{self._index}"
+        if r.delay_s:
+            await asyncio.sleep(r.delay_s)
         if r.error is not None:
             raise APIStatusError(r.error, retryable=False)
         if r.tool_call is not None:

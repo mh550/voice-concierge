@@ -13,7 +13,6 @@ import logging
 import sqlite3
 import time
 import uuid
-from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -28,9 +27,11 @@ from concierge.config import Settings, build_llm, build_stt, build_tts
 from concierge.dispatch import DispatchInfo, parse_dispatch
 from concierge.greeting import greeting_instructions
 from concierge.knowledge import load_pack
+from concierge.memory_writer import MemoryWriter
 from concierge.models import JournalType
 from concierge.preload import Preloaded, preload
 from concierge.store import Store, StoreError, ThreadMissing
+from concierge.tasks import track
 from concierge.text_input import ChannelTags, make_text_input_cb
 
 logger = logging.getLogger("concierge.session")
@@ -38,6 +39,7 @@ logger = logging.getLogger("concierge.session")
 # D9: the preload runs while the room is already connected and RoomIO's lk.chat and pre-connect audio handlers
 # aren't registered yet (session.start registers them), so it gets a short deadline. A normal one takes < 1 ms.
 PRELOAD_TIMEOUT_S = 1.0
+EXTRACTION_DEBOUNCE_S = 2.0  # spec §4.4: a run starts 2 s after the first user turn it covers
 
 _STORE_ERRORS = (StoreError, sqlite3.Error, ValidationError)
 
@@ -51,6 +53,7 @@ class Started:
     session_id: str
     greeting: SpeechHandle
     tasks: set[asyncio.Task[Any]] = field(default_factory=set)
+    writer: MemoryWriter | None = None  # None: no memory this session (no store, or the preload failed)
 
 
 def recording_options(settings: Settings | None = None) -> RecordingOptions:
@@ -89,7 +92,7 @@ def build_session(ctx: JobContext, settings: Settings) -> AgentSession:
 async def _preload_or_none(task: asyncio.Task[Preloaded] | None) -> Preloaded | None:
     """The visitor's memory, or None (a session without memory). On the deadline the task is left running, not
     cancelled: its store thread can't be stopped, so on_shutdown waits for it before closing the store. Only the
-    error type is logged (by `_track`): a message can quote visitor data. Any error, not only the store's: a
+    error type is logged (by `track`): a message can quote visitor data. Any error, not only the store's: a
     session without memory beats no session."""
     if task is None:
         return None
@@ -103,14 +106,16 @@ async def _preload_or_none(task: asyncio.Task[Preloaded] | None) -> Preloaded | 
     return task.result()
 
 
-def _agent_or_memoryless(pack: str, preloaded: Preloaded | None) -> ConciergeAgent:
+def _agent_or_memoryless(
+    pack: str, preloaded: Preloaded | None, writer: MemoryWriter | None = None
+) -> ConciergeAgent:
     """The agent with the visitor's memory block, or without one if build_instructions rejects it (the renderer
     keeps it under the cap, so this is the backstop that keeps a session from failing over memory)."""
     try:
-        return ConciergeAgent(pack, preloaded.block if preloaded else None)
+        return ConciergeAgent(pack, preloaded.block if preloaded else None, memory=writer)
     except ValueError:
         logger.warning("no memory this session: the memory block was rejected")
-        return ConciergeAgent(pack)
+        return ConciergeAgent(pack, memory=writer)
 
 
 async def _journal(store: Store, thread_id: str, session_id: str, kind: JournalType, payload: dict[str, Any]) -> None:
@@ -123,30 +128,16 @@ async def _journal(store: Store, thread_id: str, session_id: str, kind: JournalT
         logger.warning("could not journal %s (%s)", kind, type(exc).__name__)
 
 
-def _done(tasks: set[asyncio.Task[Any]], task: asyncio.Task[Any]) -> None:
-    """Drop a finished task and log its error by type, so asyncio never logs the message (it can quote visitor
-    data) as "Task exception was never retrieved"."""
-    tasks.discard(task)
-    if not task.cancelled() and (exc := task.exception()) is not None:
-        logger.warning("a background store task failed (%s)", type(exc).__name__)
-
-
-def _track[T](tasks: set[asyncio.Task[Any]], coro: Coroutine[Any, Any, T]) -> asyncio.Task[T]:
-    """A background task kept in `tasks` until it is done (on_shutdown waits for what is left)."""
-    task = asyncio.create_task(coro)
-    tasks.add(task)
-    task.add_done_callback(functools.partial(_done, tasks))
-    return task
-
-
 async def start_session(ctx: JobContext, store: Store | None, settings: Settings) -> Started:
     """Preload (concurrent with ctx.connect()) → ConciergeAgent → session.start → the greeting, then
-    session_started in the background. The shutdown callback journals session_ended and closes the store."""
+    session_started in the background. With memory, a MemoryWriter sees every conversation item. The shutdown
+    callback runs the final extraction (unless erased), journals session_ended and closes the store."""
     info = parse_dispatch(ctx.job.metadata)  # the entrypoint validated it; pure and cheap
     session_id = uuid.uuid4().hex
     began = time.monotonic()
     tasks: set[asyncio.Task[Any]] = set()
     preloaded: Preloaded | None = None
+    writer: MemoryWriter | None = None
 
     async def on_shutdown(reason: str) -> None:  # a plain async def: add_shutdown_callback reads its __code__
         # One ordered callback: the job runs its shutdown callbacks concurrently, so a separate close could
@@ -154,27 +145,41 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
         if store is None:
             return
         try:
-            await asyncio.gather(*tasks, return_exceptions=True)  # errors are logged by _done
-            if preloaded is not None:
+            await asyncio.gather(*tasks, return_exceptions=True)  # errors are logged by track's callback
+            if writer is not None:
+                await writer.flush()  # the final extraction (C5's summary follows it); nothing when erased
+            if preloaded is not None and not (writer is not None and writer.erased):
                 ended = {"reason": reason, "duration_s": round(time.monotonic() - began, 1)}
                 await _journal(store, preloaded.thread_id, session_id, "session_ended", ended)
         finally:
+            if writer is not None:
+                try:
+                    await writer.aclose()  # waits for its store thread: before store.close
+                except Exception as exc:  # e.g. the extractor LLM's close: the store still closes
+                    logger.warning("closing the memory writer failed (%s)", type(exc).__name__)
             await asyncio.to_thread(store.close)
 
     ctx.add_shutdown_callback(on_shutdown)  # first, so a failed connect or session.start still closes the store
     # Spec §4.0: the store reads overlap the room connection (connect is idempotent; session.start's is a no-op).
     # The preload is a tracked task, so a failed connect or a missed deadline still leaves it for on_shutdown.
-    preloading = _track(tasks, preload(store, info.visitor_id, session_id)) if store is not None else None
+    preloading = track(tasks, preload(store, info.visitor_id, session_id), log=logger) if store is not None else None
     _, preloaded = await asyncio.gather(ctx.connect(), _preload_or_none(preloading))
 
     session = build_session(ctx, settings)
+    channels = ChannelTags()
+    if store is not None and preloaded is not None:  # no thread, no writer: nothing is ever scheduled
+        extractor = functools.partial(build_llm, "extractor", settings)
+        writer = MemoryWriter(
+            store, preloaded.thread_id, session_id, extractor, EXTRACTION_DEBOUNCE_S, channels=channels
+        )
+        session.on("conversation_item_added", writer.on_item_added)  # before start: the greeting is seen too
     await session.start(
-        agent=_agent_or_memoryless(load_pack(), preloaded),
-        **room_start_kwargs(ctx, info, settings, ChannelTags()),
+        agent=_agent_or_memoryless(load_pack(), preloaded, writer),
+        **room_start_kwargs(ctx, info, settings, channels),
     )
     greeting = session.generate_reply(instructions=greeting_instructions(preloaded))
 
     if store is not None and preloaded is not None:
         started = {"visits": preloaded.visits, "preload_ms": preloaded.ms, "returning": preloaded.block is not None}
-        _track(tasks, _journal(store, preloaded.thread_id, session_id, "session_started", started))
-    return Started(session, preloaded, session_id, greeting, tasks)
+        track(tasks, _journal(store, preloaded.thread_id, session_id, "session_started", started), log=logger)
+    return Started(session, preloaded, session_id, greeting, tasks, writer)

@@ -77,6 +77,7 @@ class _Decision:
     order: list[Turn]
     known: set[str]
     live: list[_Live]
+    source: Source | None = None  # every fact's source, when the caller fixes it (the remember tool)
     out: list[FactOp] = field(default_factory=list)
     rejected: list[Rejection] = field(default_factory=list)
     skipped: list[Skip] = field(default_factory=list)
@@ -116,7 +117,7 @@ class _Decision:
             raise _Rejected("slot_mismatch")
         if slot not in SLOTS:
             raise _Rejected("unknown_slot")
-        source: Source = "user_said" if slot == "name" or turn.channel == "voice" else "user_typed"  # B12
+        source: Source = self.source or ("user_said" if slot == "name" or turn.channel == "voice" else "user_typed")
         self._check(slot, op, turn, source)
         stt = 1.0 if turn.confidence is None else turn.confidence
         confidence = min(1.0 if op.confidence is None else op.confidence, stt)
@@ -202,19 +203,20 @@ def merge(
     *,
     turns: Sequence[Turn] = (),
     extraction: dict[str, Any] | None = None,
+    source: Source | None = None,
 ) -> MergeResult:
     """Decide and apply the extractor's ops in one fenced write. Blocking: call it off the event loop.
 
     `turn_ids_known` are the user turns the extractor was shown (the ones an op may cite); `turns` is the window in
     order, agent turns included, which the grounding, attribution and name rules read. `extraction`, when given,
-    becomes the batch's `extraction_ran` row (with the op counts), committed with the facts.
-    """
+    becomes the batch's `extraction_ran` row (with the op counts), committed with the facts. `source` fixes the
+    facts' source (B12's rule otherwise)."""
     by_id = {t.turn_id: t for t in turns}
     decisions: list[_Decision] = []
 
     def decide(valid: list[Fact]) -> list[FactOp]:
         live = [_Live(slot=f.slot, value=f.value, fact_id=f.id) for f in sorted(valid, key=lambda f: f.id)]
-        decision = _Decision(turns=by_id, order=list(turns), known=turn_ids_known, live=live)
+        decision = _Decision(turns=by_id, order=list(turns), known=turn_ids_known, live=live, source=source)
         decision.run(ops)
         decisions.append(decision)
         notes: list[FactOp] = [
@@ -228,10 +230,8 @@ def merge(
         return [*decision.out, *notes]
 
     if not ops and extraction is None:
-        return MergeResult(
-            version=store.version(thread_id), added=[], invalidated=[], rejected=[], skipped=[],
-            state=store.state(thread_id),
-        )
+        empty: dict[str, list[Any]] = {"added": [], "invalidated": [], "rejected": [], "skipped": []}
+        return MergeResult(version=store.version(thread_id), state=store.state(thread_id), **empty)
     applied = store.apply_fact_ops(thread_id, decide, session_id=session_id)
     final = decisions[-1]
     targets: list[int] = []

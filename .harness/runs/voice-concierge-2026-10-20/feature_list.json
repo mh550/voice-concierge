@@ -258,7 +258,7 @@
         "tests/test_erasure_wins.py: start an extraction that sleeps 1 s, call store.forget_me and writer.cancel_all() during it, then run the shutdown callback; afterwards every visitor table has zero rows and no exception escaped",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C4-05", "milestone": "C4", "kind": "build", "model": "opus",

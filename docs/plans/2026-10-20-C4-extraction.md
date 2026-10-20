@@ -807,3 +807,51 @@ scratch dir).
 | M3 | Minor | `extraction_window(first_new=-1)` returned only the last turn | Fixed RED→GREEN: `ValueError` (`test_window_rejects_a_negative_start`) |
 | M4 | Minor | The 24-turn cap can drop turns that were never extracted, after repeated failed runs | Left to C4-04: the writer should journal the cut count with `extraction_ran` |
 | M5 | Minor | `channel_of` matches the raw typed text, but `Turn.text` is stripped | Documented in `turn_from_message`: callers pass `channel_of(msg.text_content)` on the unstripped text |
+
+## C4-04 build notes
+
+- **`MemoryWriter`** (`concierge/memory_writer.py`) follows "The scheduler": a sync `on_item_added` → `note_item` →
+  `schedule()`; one debounce timer and one run at most; `_journaled`/`_extracted` cursors; store calls on its own
+  one-thread executor (`writer.call`, which the tools use too); `flush`, `cancel_all`, `aclose`, and
+  `forget_visitor(writer, visitor_id)` for C6. `extraction_ran` carries `ms`, `ops`, `applied`, `rejected`,
+  `skipped`, `prompt_tokens`, `dropped`, `tool_called`, `window_dropped` (C4-03 M4: the turns the 24-turn cap cut)
+  and `forgotten` (the ops the `forget` filter dropped).
+- **A run with only agent turns** (the greeting, at the shutdown flush) journals them and calls no LLM. So a session's
+  journal now ends `… agent_turn, session_ended`, and `test_shutdown_callback_journals_session_ended_and_closes_the_store`
+  expects the greeting's `agent_turn`.
+- **`forgotten` is checked in the writer**, not in `merge` (250 lines): an ADD or UPDATE whose `(slot, key(value))`
+  was forgotten this session is dropped before the merge. `merge` gained one keyword, `source=`, so `remember` goes
+  through the very same gate, grounding, B12 name rule and slot rules with `source="user_asked_to_remember"`.
+- **`remember`** cites the writer's `last_user_turn` (its channel and id) and is grounded against that turn. A
+  `"<slot>: <value>"` prefix picks the slot; anything else is an interest. Replies never echo the value.
+- **`forget`** deletes every row of the thread that matches (valid **or already invalidated**: "forget Acme" should
+  leave no Acme row), plus the rows they superseded, in one `apply_fact_ops` batch of `DeleteFact`s.
+- **Session wiring:** one `ChannelTags` shared by RoomIO and the writer; `session.on("conversation_item_added",
+  writer.on_item_added)` before `session.start`; `ConciergeAgent(..., memory=writer)`; `Started.writer`;
+  `EXTRACTION_DEBOUNCE_S = 2.0`. `on_shutdown`: tracked tasks → `writer.flush()` (a no-op when erased) →
+  `session_ended` (skipped when erased) → `writer.aclose()` → `store.close()`.
+- **Shared helper:** `session._track/_done` moved to `concierge/tasks.py` (`track(tasks, coro, log=...)`), used by the
+  session and the writer.
+- **Fakes:** `FakeResponse.delay_s` (a slow provider); `FakeLLM` snapshots an `AgentConfigUpdate` shallowly (its
+  `_tools` hold bound `FunctionTool`s, which can't be deep-copied now the agent has tools); `RecordingSession.on`;
+  the session fixtures (`fakes`, `db`, `extractor`) moved to `conftest.py` and `start`/`shutdown` to
+  `concierge/testing/sessions.py`. `fakes` also patches `build_llm`, so no session test builds a real extractor.
+- **Mutations** (`c4-04/mut.py` in the scratch dir), 15 of 16 caught after the review (the survivor, `continue` in the flush loop, is equivalent). Before the review, 9 of 10: no timer guard, run handle cleared late,
+  `source=None`, no forgotten filter, `erased` not set by `cancel_all`, no superseded chain, substring matching in
+  `forget`, `_journaled` not moved, the handler not registered. The survivor (shutdown flushing even when erased) is
+  equivalent: `flush` returns at once when erased, so the session's own guard was removed.
+- **Review (Opus, `review-C4-04.diff`):** 0 Critical, 4 Important, 8 Minor. All 4 Important are fixed RED→GREEN.
+
+| # | Sev. | Finding | Outcome |
+|---|---|---|---|
+| I1 | Important | `remember` grounded only on the latest turn, so "I work at Acme." … "Can you remember that?" was rejected | Fixed RED→GREEN: `source_turn` cites the newest user turn sharing a word with the value (a name still cites the latest, B12) (`test_remember_that_grounds_on_the_earlier_turn`) |
+| I2 | Important | `forget` before the first extraction found nothing, and the window then stored the value | Fixed RED→GREEN: `writer.note_forget(about)` records the request first; `forget_match.was_forgotten` drops ops from earlier turns it covers (`test_forget_before_extraction_blocks_the_window`, `test_a_later_turn_is_not_blocked_by_an_earlier_forget`) |
+| I3 | Important | Slot words matched anywhere: "forget my interest in Rust" deleted every interest, "my company's name" the name | Fixed RED→GREEN: new `concierge/forget_match.py`; values first, a slot only when `about` names nothing else (`test_forget_by_slot_only_when_nothing_else_is_named`) |
+| I4 | Important | The erasure test passed with a no-op `cancel_all`, and its op cited a fake turn | Fixed: `CitingLLM` cites the real turn; the test asserts the run is cancelled within 0.2 s; `test_the_fence_alone_keeps_an_erased_thread_empty` covers the fence alone. The no-op `cancel_all` mutation is now caught |
+| M5 | Minor | A cancelled run could start a timer after `aclose` | Fixed RED→GREEN: `_closed` flag, `aclose` loops until no task is left (`test_aclose_leaves_no_task_behind`) |
+| M6, M7 | Minor | A turn during the flush's run was lost; `cancel_all` couldn't reach that run | Fixed RED→GREEN: the flush loop runs tracked tasks until the cursors catch up or a run makes no progress (`test_a_turn_during_the_final_flush_is_journaled`, `test_cancel_all_reaches_the_final_flush_run`) |
+| M8 | Minor | `forgotten` was updated on the loop after the delete, so a merge could slip between | Fixed: updated in `_forget` on the store thread, and the request is noted before the delete |
+| M9 | Minor | A value with no word tokens ("C++") couldn't be forgotten | Fixed RED→GREEN: exact-key fallback (`test_forget_a_value_with_no_word_tokens`) |
+| M10 | Minor | `forget` leaves the turn text in the journal | D11 *default* (kept; question for Michael) |
+| M11 | Minor | A failing `writer.aclose()` skipped `store.close()` | Fixed RED→GREEN: logged by type (`test_store_closes_even_if_the_writer_fails_to_close`) |
+| M12 | Minor | The 50 ms timing ran with nothing extracting; the AST scan isn't transitive | Added `test_the_handler_stays_fast_during_an_inflight_run`. The `LoopGuardStore` test covers transitive store calls |

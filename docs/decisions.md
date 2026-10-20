@@ -149,3 +149,18 @@ this shows.
 
 **Question for Michael.** Keep the grounding rule (fewer false memories, some lost paraphrases), or drop it and rely on
 the extractor prompt?
+
+## D11 *default*: `forget` deletes facts, not the turn text in the journal (2026-10-20, C4-04)
+
+**Finding.** The journal keeps every turn's text (`user_turn`, `agent_turn`; spec §4.2, C5-03's "nothing lost"). When a
+visitor says "forget where I work", the `forget` tool really deletes the company facts and the rows they superseded
+(B5), but the journal row "I work at Acme." stays until the idle TTL (30 days) or "Forget me" erases the thread.
+
+**Choice.** Keep the turn text. `forget` deletes facts only, and the writer blocks the window from re-adding them this
+session. Reversible: a later feature can redact the matching `user_turn` payloads in the same `apply_fact_ops` batch.
+
+**Rejected.** Redacting now. It needs a new op in `fact_ops`/`store.py` (store.py is at 247 of 250 lines) and a rule
+for which turns "mention" a value, and it breaks C5's every-turn journal guarantee.
+
+**Question for Michael.** Should "forget X" also scrub X's turns from the journal (stronger privacy, a gap in the
+history), or is the TTL plus "Forget me" enough?

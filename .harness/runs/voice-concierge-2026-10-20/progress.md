@@ -13,6 +13,15 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 08:10 · C4-04 · passes
+
+- **Changed:** new `concierge/memory_writer.py` (`MemoryWriter`: sync `on_item_added`/`note_item`/`schedule`, debounce, one run per thread plus one queued follow-up, `flush`, `cancel_all`, `aclose`, `forget_visitor`), `memory_tools.py` (`do_remember`/`do_forget`), `forget_match.py`, `tasks.py` (shared `track`). `ConciergeAgent` has the `remember(fact)`/`forget(about)` tools. The session attaches the writer before `session.start`, and shutdown runs flush → `session_ended` → `writer.aclose` → `store.close`. `merge` gains `source=`. Test fixtures moved to `conftest.py`/`concierge/testing/sessions.py`. Tests 486 → 546 (`test_memory_writer.py`, `test_critical_path.py`, `test_tools.py`, `test_erasure_wins.py`, +3 in `test_session.py`).
+- **Verified:** all 6 steps hold (44 step tests pass); `check.sh` is green at 546 and ruff is clean. 15 of 16 mutations are caught; the survivor is equivalent. Every module is ≤ 250 lines (merge 250, writer 242).
+- **Review (Opus):** 0 Critical, 4 Important, 8 Minor. All 4 Important are fixed RED→GREEN: `remember` after "remember that", forget before the first extraction, slot over-matching in forget, and an erasure test that passed with a no-op `cancel_all`. M5–M9, M11 and M12 are fixed; M10 becomes D11. The table is in the plan's "C4-04 build notes".
+- **Next session (C4-05):** to replay scripts, build `MemoryWriter(store, thread, session, lambda: fake, debounce_s=60)`, then call `note_item(ChatMessage)` for each turn and `await writer.flush()`. Or call `extract`/`merge` directly, the way `_extract_and_merge` does. A session's journal now has the greeting's `agent_turn`.
+- **Question for Michael (D11):** should "forget X" also scrub X's turn text from the journal? Right now it stays until the 30-day TTL or "Forget me".
+- **Proposed changes:** C4-04 step 1's writer also takes `channels=`/`on_merged=` as keyword arguments, and step 4's tools take no `RunContext`. C4-06 should still make `merge` require a known `turn_id` on DELETE.
+
 ### 2026-10-20 06:40 · C4-03 · passes
 
 - **Changed:** new `concierge/extractor.py` (`EMIT_OPS`, `EXTRACTOR_SYSTEM`, `extraction_window`, `build_extractor_ctx`, `ops_from`, `extract`, `ExtractionResult`). `turns.py` gains `turn_from_message`. The fake LLM records `parallel_tool_calls` and can script `error=` (a non-retryable `APIStatusError`). `OpArg`'s docstring is now model-facing, because the strict schema sends it as the description. Tests 455 → 486 (`test_heard_text.py` 11, `test_extractor.py` 20).
