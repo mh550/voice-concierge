@@ -1,3 +1,4 @@
+import hashlib
 import json
 import multiprocessing
 import sqlite3
@@ -631,3 +632,25 @@ def test_recompute_state_sets_hold_each_value_once(store, visitor_id) -> None:
     for value in ["RAG", "evals", "rag", "  RAG ", "voice  agents", "Voice agents"]:
         store.add_fact(thread.id, add("interests", value))
     assert store.state(thread.id).interests == ["evals", "RAG", "Voice agents"]  # newest spelling, newest position
+
+
+# C2-04: the daily session count (B7)
+
+
+def test_count_session_increments_and_returns_the_count(store, visitor_id) -> None:
+    assert [store.count_session(visitor_id, "2025-10-09") for _ in range(3)] == [1, 2, 3]
+    assert store.count_session(visitor_id, "2025-10-10") == 1
+    assert store.count_session(str(uuid.uuid4()), "2025-10-09") == 1
+
+
+def test_count_session_key_is_sha256_of_visitor_and_day(store, visitor_id) -> None:
+    store.count_session(visitor_id, "2025-10-09")
+    with raw(store) as conn:
+        rows = conn.execute("SELECT key, day, count FROM daily_session_counts").fetchall()
+    assert rows == [(hashlib.sha256(f"{visitor_id}2025-10-09".encode()).hexdigest(), "2025-10-09", 1)]
+
+
+@pytest.mark.parametrize("day", ["2025-1-09", "20251009", "2025-13-01", "2025-10-09T00:00", ""])
+def test_count_session_rejects_a_day_that_is_not_yyyy_mm_dd(store, visitor_id, day) -> None:
+    with pytest.raises(ValueError):
+        store.count_session(visitor_id, day)

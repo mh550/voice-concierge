@@ -3,7 +3,8 @@
 Every write to a thread's rows is one `BEGIN IMMEDIATE` transaction that bumps `threads.version` once (`write`, the
 fence); fact ops go through `apply_fact_ops`, which reloads and reapplies on a conflict. Only
 `get_or_create_thread` ever inserts a thread, so a write to an erased thread raises `ThreadMissing` instead of
-re-creating it. The connection, its lock and the anonymous tables are in `concierge/store_base.py`.
+re-creating it. The connection, its lock and the anonymous tables are in `concierge/store_base.py`; `forget_me` and
+the TTL purge in `concierge/store_erasure.py`.
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ from concierge.store_base import (  # noqa: F401 (the errors and now_ms are re-e
     VersionConflict,
     now_ms,
 )
+from concierge.store_erasure import ErasureStore
 
 T = TypeVar("T")
 
@@ -58,7 +60,7 @@ def _thread(row: tuple[Any, ...]) -> Thread:
     )
 
 
-class Store(StoreBase):
+class Store(ErasureStore):
     # Threads
 
     def get_or_create_thread(self, visitor_id: str) -> Thread:

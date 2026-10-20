@@ -13,6 +13,23 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 06:10 · C2-04 · passes
+
+- **Changed:** new `concierge/store_erasure.py` (`forget_me`, `purge_idle`, `count_session`, `purge_daily_counts`;
+  `Store` now inherits from it), `store_base.py` (`open_readonly`, `_immediate`, an owed-checkpoint retry in
+  `_settle`), new `scripts/memory_history.py`, and new test files `tests/test_erasure.py`, `tests/test_ttl.py` and
+  `tests/test_scripts.py`, plus count tests in `test_store.py`. Tests 238 → 281.
+- **Verified:** `check.sh` green (281). Ran `memory_history.py` by hand: exits 0, 1 and 2 as specified. 11 mutants,
+  all 11 caught. The new test files passed 10 of 10 runs in a loop. Opus review: 0 Critical, 1 Important (a
+  checkpoint blocked by a reader left the erased value on disk until restart; it is now retried by the next write,
+  the daily purge and close), 5 Minor. All 6 fixed with tests written first (RED → GREEN). Details in the plan's
+  "C2-04 build notes".
+- **Next session must know:** C6 calls `purge_idle(now_ms())` and `purge_daily_counts(now_ms())` at worker start and
+  daily; both take ms, and passing seconds raises. If `forget_me` can't take the write lock, it raises and erases
+  nothing, so C8's RPC must answer not-ok then. `forget_me` can hold the store lock for up to 5 s while a reader
+  blocks its checkpoint.
+- **Questions / proposed changes:** none new. D8 is still open.
+
 ### 2026-10-20 04:05 · C2-03 · passes
 
 - **Changed:** `Store.apply_fact_ops` (fence + reload/reapply, 5 attempts, jittered backoff, list or callable ops),

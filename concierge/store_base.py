@@ -1,5 +1,5 @@
 """The store's plumbing (plan C2 "Connection and time"): the errors, the one connection, its lock and transactions,
-and the anonymous tables, which are not thread rows. `concierge/store.py` builds the thread API on top.
+and the anonymous metrics, which are not thread rows. `concierge/store.py` builds the thread API on top.
 
 One connection per store, guarded by a lock; methods are synchronous, so async callers use `asyncio.to_thread` and
 never call them on the turn path (§4.4).
@@ -52,17 +52,22 @@ class VersionConflict(StoreError):
 
 
 class StoreBase:
-    def __init__(self, path: str | Path, clock: Callable[[], int] = now_ms) -> None:
+    def __init__(self, path: str | Path, clock: Callable[[], int] = now_ms, *, readonly: bool = False) -> None:
         self.path = Path(path)
         self._clock = clock
         self._lock = threading.Lock()
         self._owner: int | None = None  # the thread holding _lock (see _locked)
+        self._checkpoint_owed = False  # an erasure's checkpoint was busy (see _settle)
         # isolation_level=None: no implicit BEGIN, the store issues BEGIN IMMEDIATE itself. timeout is SQLite's
         # busy timeout, how long a writer waits for another process's write lock.
+        target, uri = (f"{self.path.resolve().as_uri()}?mode=ro", True) if readonly else (str(self.path), False)
         self._conn = sqlite3.connect(
-            self.path, isolation_level=None, timeout=BUSY_TIMEOUT_S, check_same_thread=False
+            target, isolation_level=None, timeout=BUSY_TIMEOUT_S, check_same_thread=False, uri=uri
         )
         try:
+            if readonly:
+                self._check_version()
+                return
             for pragma in PRAGMAS:
                 self._pragma_with_retry(pragma)
             if self.pragma("journal_mode") != "wal":
@@ -87,6 +92,18 @@ class StoreBase:
                     raise
                 time.sleep(0.01)
 
+    @classmethod
+    def open_readonly(cls, path: str | Path) -> Self:
+        """Open an existing store read-only (`mode=ro`): no pragmas, no schema, so it never creates or changes a
+        database file (SQLite may still create the `-wal`/`-shm` side files a WAL reader needs). Any write raises
+        `sqlite3.OperationalError`. For operator scripts (`scripts/memory_history.py`)."""
+        return cls(path, readonly=True)
+
+    def _check_version(self) -> None:
+        found = self._conn.execute("PRAGMA user_version").fetchone()[0]
+        if found != SCHEMA_VERSION:  # __init__ closes the connection
+            raise StoreError(f"the file has schema version {found}; this code reads {SCHEMA_VERSION}")
+
     def _create_schema(self) -> None:
         # One script (the DDL's comments hold semicolons, so it can't be split on them). executescript would COMMIT
         # an open transaction first, so the BEGIN is part of the script and the transaction stays open after it.
@@ -100,6 +117,8 @@ class StoreBase:
 
     def close(self) -> None:
         with self._locked() as conn:
+            if self._checkpoint_owed:
+                self._settle(conn)
             conn.close()
 
     def __enter__(self) -> Self:
@@ -127,27 +146,26 @@ class StoreBase:
     def _transaction(self) -> Iterator[sqlite3.Connection]:
         """BEGIN IMMEDIATE (the write lock now, not at the first write) ... COMMIT, or ROLLBACK on any error."""
         with self._locked() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            try:
+            with _immediate(conn):
                 yield conn
-                conn.execute("COMMIT")
-            except BaseException:
-                if conn.in_transaction:  # SQLite may have rolled back on its own already
-                    conn.execute("ROLLBACK")
-                raise
+            if self._checkpoint_owed:
+                self._settle(conn, wait=False)
 
     def _checkpoint(self) -> None:
-        """Best effort: copy the WAL into the file and empty it, so deleted values (whose old pages sit in the
-        `-wal` until a checkpoint, even with secure_delete) leave the disk now. Busy (another process is reading)
-        is logged; the next checkpoint finishes the job (plan C2 "Erasure")."""
+        with self._locked() as conn:
+            self._settle(conn)
+
+    def _settle(self, conn: sqlite3.Connection, *, wait: bool = True) -> None:
+        """Checkpoint the WAL (the caller holds the lock). If a reader keeps it from finishing, the deleted values
+        are still on disk, so the checkpoint is owed: every later write retries it without waiting, and
+        `purge_idle` (daily) and `close` retry it waiting up to the busy timeout."""
+        if not wait:
+            conn.execute("PRAGMA busy_timeout = 0")
         try:
-            with self._locked() as conn:
-                busy = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
-        except sqlite3.OperationalError as exc:
-            log.warning("wal checkpoint failed: %s", exc)
-            return
-        if busy:
-            log.warning("wal checkpoint was busy; the next one finishes it")
+            self._checkpoint_owed = not _checkpoint(conn)
+        finally:
+            if not wait:
+                conn.execute(f"PRAGMA busy_timeout = {int(BUSY_TIMEOUT_S * 1000)}")
 
     def _read(self, sql: str, params: tuple[Any, ...] = ()) -> list[tuple[Any, ...]]:
         with self._locked() as conn:
@@ -173,3 +191,30 @@ class StoreBase:
             conn.execute(
                 f"INSERT INTO anonymous_turn_metrics ({columns}) VALUES ({marks})", (session_id, *values.values())
             )
+
+
+@contextmanager
+def _immediate(conn: sqlite3.Connection) -> Iterator[None]:
+    """BEGIN IMMEDIATE ... COMMIT on `conn` (the caller holds the store's lock), or ROLLBACK on any error."""
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        yield
+        conn.execute("COMMIT")
+    except BaseException:
+        if conn.in_transaction:  # SQLite may have rolled back on its own already
+            conn.execute("ROLLBACK")
+        raise
+
+
+def _checkpoint(conn: sqlite3.Connection) -> bool:
+    """Best effort: copy the WAL into the file and empty it, so deleted values (whose old pages sit in the `-wal`
+    until a checkpoint, even with secure_delete) leave the disk now. True when it finished; busy (another process
+    is reading) or an error is logged and returns False (plan C2 "Erasure")."""
+    try:
+        busy = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+    except sqlite3.Error as exc:
+        log.warning("wal checkpoint failed: %s", exc)
+        return False
+    if busy:
+        log.warning("wal checkpoint was busy; the next one finishes it")
+    return not busy

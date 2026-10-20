@@ -143,7 +143,7 @@
         "scripts/memory_history.py <db> <visitor_id> prints one line per fact ordered by valid_from: slot, value, valid_from, valid_to or 'current', superseded_by; tests/test_scripts.py runs it as a subprocess against a seeded temp db and asserts two lines including 'current'",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C2-05", "milestone": "C2", "kind": "review", "model": "opus",
