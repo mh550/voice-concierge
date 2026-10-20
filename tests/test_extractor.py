@@ -259,3 +259,9 @@ async def test_no_visitor_turn_means_no_call() -> None:
 def test_window_rejects_a_negative_start() -> None:
     with pytest.raises(ValueError):
         extraction_window([_user(1), _user(2)], first_new=-1)
+
+
+def test_system_prompt_states_the_confidence_range() -> None:
+    # Review C4-06 M6: an op with confidence 90 fails validation and is dropped whole.
+    rule = next(line for line in EXTRACTOR_SYSTEM.splitlines() if "confidence" in line)
+    assert "0 to 1" in rule
