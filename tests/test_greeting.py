@@ -4,14 +4,33 @@ one is greeted by name (or without one) and offered the last topic."""
 import json
 
 from concierge.greeting import INTRODUCTION, greeting_instructions
-from concierge.models import VisitorState
+from concierge.memory_block import render_memory_block
+from concierge.models import Fact, VisitorState
 from concierge.preload import Preloaded
+from concierge.prompt import MEMORY_HEADER
 
 ASKED = "the LiveKit project"
 SUMMARY = "Ada asked about the portfolio's voice agent."
 
 
-def preloaded(state: VisitorState, block: str | None = "block") -> Preloaded:
+def fact(id: int, slot: str, value: str) -> Fact:
+    return Fact(
+        id=id, thread_id="t", slot=slot, value=value, confidence=1.0, source="user_said", channel="voice",
+        turn_id=f"turn-{id}", created_at=0, valid_from=0,
+    )
+
+
+def block_of(state: VisitorState) -> str:
+    """A block with every line the state has (what the renderer writes when nothing is trimmed)."""
+    lines = [MEMORY_HEADER]
+    lines += [f'- {slot}: "{state.name}" (voice, 2026-10-19)' for slot in ("name",) if state.name]
+    lines += [f'- asked_about: "{v}" (voice, 2026-10-19)' for v in state.asked_about]
+    lines += [f'Last visit: "{state.last_visit_summary}"'] if state.last_visit_summary else []
+    return "\n".join(lines)
+
+
+def preloaded(state: VisitorState, block: str | None = "") -> Preloaded:
+    block = block_of(state) if block == "" else block
     return Preloaded(thread_id="t", version=3, visits=2, state=state, facts=[], block=block, ms=0.2)
 
 
@@ -60,3 +79,22 @@ def test_the_name_is_quoted_and_no_other_visitor_value_is_copied() -> None:
     assert json.dumps(name, ensure_ascii=False) in text
     for value in ("Quillworks", "voice agents", ASKED, SUMMARY):
         assert value not in text
+
+
+# --- review C3-04 #1: the topic points only at a line the rendered block has -----------------------------------
+
+NAME_LINE = '- name: "Ada" (voice, 2026-10-19)'
+
+
+def test_asked_about_trimmed_out_of_the_block_is_not_offered() -> None:
+    block = "\n".join([MEMORY_HEADER, NAME_LINE, f'Last visit: "{SUMMARY}"'])
+    text = greeting_instructions(preloaded(VisitorState(name="Ada", asked_about=[ASKED], last_visit_summary=SUMMARY), block))
+    assert "asked_about line" not in text and "the Last visit line in your notes" in text
+
+
+def test_a_summary_the_block_dropped_is_not_offered() -> None:
+    state, facts = VisitorState(name="Ada", last_visit_summary=" "), [fact(1, "name", "Ada")]
+    block = render_memory_block(state, facts)
+    assert block is not None and "Last visit:" not in block
+    text = greeting_instructions(preloaded(state, block))
+    assert "Last visit line" not in text and "offer to pick up the conversation." in text

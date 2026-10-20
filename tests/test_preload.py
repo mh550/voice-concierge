@@ -2,6 +2,7 @@
 the static blocks (spec §4.0 "Just-in-time vs preload", §5; plan C3 "The preload sequence")."""
 
 import asyncio
+import gc
 import json
 import os
 import re
@@ -180,7 +181,7 @@ async def test_entrypoint_connects_and_preloads_concurrently(
     assert session.started is not None
 
 
-@pytest.mark.parametrize("kind", ["store", "sqlite", "validation"])
+@pytest.mark.parametrize("kind", ["store", "sqlite", "validation", "other"])
 async def test_entrypoint_runs_without_memory_when_preload_fails(
     kind: str,
     recording_session: type[RecordingSession],
@@ -194,6 +195,8 @@ async def test_entrypoint_runs_without_memory_when_preload_fails(
             raise StoreError("boom Zephyrine")
         if kind == "sqlite":
             raise sqlite3.OperationalError("boom Zephyrine")
+        if kind == "other":  # e.g. a corrupt valid_from: datetime.fromtimestamp raises in the renderer (review C3-04 #3)
+            raise ValueError("boom Zephyrine")
         VisitorState.model_validate({"name": "Zephyrine" * 50})  # over the cap: ValidationError quoting the value
         raise AssertionError("unreachable")
 
@@ -201,7 +204,9 @@ async def test_entrypoint_runs_without_memory_when_preload_fails(
     _, session = await run_entrypoint()
     text = instructions_of(session)
     assert MEMORY_HEADER not in text and "Zephyrine" not in text
-    expected = {"store": "StoreError", "sqlite": "OperationalError", "validation": "ValidationError"}[kind]
+    expected = {
+        "store": "StoreError", "sqlite": "OperationalError", "validation": "ValidationError", "other": "ValueError"
+    }[kind]
     warnings = [r.getMessage() for r in caplog.records if r.name == "concierge.session" and r.levelname == "WARNING"]
     assert any(expected in m for m in warnings), warnings
     assert "Zephyrine" not in caplog.text and "boom" not in caplog.text  # the type only, never a message
@@ -327,3 +332,29 @@ async def test_a_preload_thread_that_outlives_the_deadline_finishes_before_the_s
     assert order == ["memory_preloaded", "close"]  # the late preload landed; no session rows for a memoryless one
     with Store(db_path()) as s:
         assert s.thread_for(VISITOR).visits == 2  # type: ignore[union-attr]
+
+
+async def test_a_late_preload_failure_is_logged_by_type_only(
+    recording_session: type[RecordingSession], monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Review C3-04 #2: a preload that misses the deadline and then raises must not reach asyncio's "Task exception
+    # was never retrieved" log, which prints the message (a ValidationError quotes the input value).
+    seed_db()
+
+    async def late_failure(store: Store, visitor_id: str, session_id: str = "") -> Preloaded:
+        await asyncio.sleep(0.15)
+        raise ValueError("boom Zephyrine")
+
+    monkeypatch.setattr(concierge_session, "preload", late_failure)
+    monkeypatch.setattr(concierge_session, "PRELOAD_TIMEOUT_S", 0.05)
+    with fake_job_context(job_metadata=METADATA) as ctx:
+        ctx.proc.userdata["vad"] = "vad"
+        await worker.entrypoint(ctx)
+        await asyncio.sleep(0.3)  # the late preload fails before shutdown
+        for callback in ctx._shutdown_callbacks:
+            await callback("test")
+    gc.collect()
+    await asyncio.sleep(0)
+    assert "Zephyrine" not in caplog.text and "never retrieved" not in caplog.text
+    warnings = [r.getMessage() for r in caplog.records if r.name == "concierge.session" and r.levelname == "WARNING"]
+    assert any("ValueError" in m for m in warnings), warnings
