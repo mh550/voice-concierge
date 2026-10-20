@@ -13,6 +13,46 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 · verify C1
+
+Re-ran `check.sh` (99 passed, ruff clean) and read each named test's assertions. Result: 33 steps, 33 hold, 0 fail. Notes: C1-01 step 6 says "reports 1 passed", which was true when the feature shipped; now the suite has 99 tests, so I ran `pytest tests/test_smoke.py` (1 passed) plus the full check (exit 0). C1-06 step 1: the diff is in the scratch dir, not `/tmp/voice-concierge/` (the plan's `## Review` says why: CLAUDE.md forbids writing elsewhere); counted as holding.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| C1-01 | 1 | read `docs/plans/2026-10-20-C1-skeleton.md` | module layout lists config/prompt/agent/worker/knowledge/testing/fake_llm; fake LLM section cites llm.py ChatChunk, ChoiceDelta, CompletionUsage, `_run`; turn-detection section present | yes |
+| C1-01 | 2 | `grep -A8 D7 docs/decisions.md` | "D7 *default*: turn detection is silero VAD only", finding, choice, alternative | yes |
+| C1-01 | 3 | read `pyproject.toml` | all five pins present (==1.8.8, pydantic>=2), dev extra with pytest/pytest-asyncio/ruff, setuptools backend, `live` marker, asyncio_mode auto, `[tool.ruff]` | yes |
+| C1-01 | 4 | read `.harness/init.sh`; init output | prints `livekit-agents 1.8.8` after venv/pip install of pyproject | yes |
+| C1-01 | 5 | `ls`; read `tests/test_smoke.py` | concierge/__init__.py, scripts/__init__.py exist; test asserts `livekit.agents.__version__ == "1.8.8"` | yes |
+| C1-01 | 6 | `.harness/check.sh`; `pytest tests/test_smoke.py` | check exit 0 (99 passed); smoke test 1 passed | yes |
+| C1-02 | 1 | `wc -w`; grep `^## ` and `Source:` in `knowledge/michael.md` | 1121 words; all 14 sections followed by Source: line, files in the allowed five | yes |
+| C1-02 | 2 | read `tests/test_knowledge.py`; read Experience/Education against `experience.ts` | NAMES derived from project headings and `at <Company>`; `test_every_name_appears_verbatim_in_the_sources` parametrized, passes; companies match experience.ts | yes |
+| C1-02 | 3 | read `concierge/knowledge.py` | `load_pack()`, `pack_word_count()`; path from `__file__`; `test_load_pack_does_not_depend_on_cwd` | yes |
+| C1-02 | 4 | read test file | word count, Source files exist, load_pack equals file, no URL absent from sources, all assert as written | yes |
+| C1-02 | 5 | `.harness/check.sh` | exit 0 | yes |
+| C1-03 | 1 | read `concierge/config.py`, `test_defaults` | all fields/defaults as listed, env prefix CONCIERGE_, speech Literal; `test_speech_ids_are_inference_literals` checks STT/TTS Literals | yes |
+| C1-03 | 2 | read factories; `test_import_without_keys_does_not_raise` (fresh interpreter, env cleaned) | factories call `with_openrouter`/inference lazily; import with no keys exits 0 | yes |
+| C1-03 | 3 | `test_env_overrides_model`, `test_speech_deepgram_selects_plugin_classes` | override asserted; deepgram classes asserted by module/name without construction | yes |
+| C1-03 | 4 | read `fake_llm.py` | FakeLLM(llm.LLM), FakeLLMStream(llm.LLMStream), `_run` pushes ChatChunk/ChoiceDelta/FunctionToolCall/CompletionUsage, `calls` records chat_ctx/tools/tool_choice | yes |
+| C1-03 | 5 | read `tests/test_fake_llm.py` | concat equals script; collect() text; tool call name/args; `metrics_collected` has prompt_tokens 1200 / cached 1024 | yes |
+| C1-03 | 6 | `.harness/check.sh` | exit 0 | yes |
+| C1-04 | 1 | read `concierge/prompt.py` | STATIC_INSTRUCTIONS has persona and all rules, estimate_tokens = ceil(len/3.5), MEMORY_HEADER exact, build_instructions order static, pack, memory | yes |
+| C1-04 | 2 | read `concierge/agent.py` | ConciergeAgent(pack, memory_block=None) passes build_instructions; no tools | yes |
+| C1-04 | 3 | read `tests/test_prompt.py` | order by index, token budget <=3000, 1500 accepted / 1501 ValueError, all assert | yes |
+| C1-04 | 4 | read `tests/test_agent.py` (`test_prefix_is_stable_across_two_turns`) | two `session.run` under `fake_job_context`; call 1 items are a prefix of call 2, same instructions item; instructions unchanged | yes |
+| C1-04 | 5 | `.harness/check.sh` | exit 0 | yes |
+| C1-05 | 1 | read `worker.py`; `env -u ... python -c 'import concierge.worker'` | `AgentServer(shutdown_process_timeout=30,...)`, `rtc_session(agent_name='concierge', on_request=on_request)`; import ok with no keys | yes |
+| C1-05 | 2 | read `dispatch.py`, `tests/test_dispatch.py` | DispatchInfo UUID4 str + channel_hint 'web'; valid, empty, non-uuid cases covered; entrypoint bad-metadata test logs and calls shutdown | yes |
+| C1-05 | 3 | read `recording_options()`, `tests/test_worker.py` | `{'audio': False,'redaction': True}` default, audio True under env=1; keys within RecordingOptions annotations | yes |
+| C1-05 | 4 | read `text_input.py`; `test_text_cb_tags_before_the_default_generates_a_reply` | order `on_text`, claim, interrupt, generate_reply; entrypoint passes RoomOptions(text_input=TextInputOptions(text_input_cb=...)) | yes |
+| C1-05 | 5 | read entrypoint; `grep with_openrouter` ; `test_no_provider_is_built_at_import` | awaits `session.start(agent=ConciergeAgent(...), room=ctx.room, room_options=..., record=...)`; with_openrouter only inside config function | yes |
+| C1-05 | 6 | `.harness/check.sh` | exit 0 | yes |
+| C1-06 | 1 | `ls` scratch; `git cat-file 447c2ad`; read `## Review` | diff exists in scratch dir (path deviation explained in plan); review table with severities, fixed/deferred | yes |
+| C1-06 | 2 | `git log 447c2ad..HEAD` | RED 0aaa6ee (test_non_uuid4_visitor_id_is_rejected trailing newline) precedes GREEN 1b8326a; only Important finding | yes |
+| C1-06 | 3 | `wc -l concierge/**`; `ruff check .` with ANN | max 138 lines; ruff passes with ANN selected for concierge/ | yes |
+| C1-06 | 4 | `grep README.md`; `git diff 447c2ad..HEAD --stat -- CLAUDE.md` | README names scripts/run-worker.sh and ~/.config/voice-concierge/env, no values; CLAUDE.md unchanged | yes |
+| C1-06 | 5 | `.harness/check.sh` | exit 0 | yes |
+
 ### 2026-10-20 01:20 · C1-06 · passes
 
 - **Changed:** `concierge/dispatch.py` (`UUID4_RE.fullmatch`), `concierge/text_input.py` (`on_dropped`,
