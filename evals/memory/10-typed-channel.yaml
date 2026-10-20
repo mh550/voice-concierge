@@ -1,0 +1,13 @@
+name: 10-typed-channel
+about: the visitor types instead of speaking; the fact is stored with the text channel
+visits:
+  - - {role: user, channel: text, text: "I work at Globex, on the platform team."}
+    - {role: agent, text: "Thanks. Want to hear about Michael's platform work?"}
+    - {role: user, channel: text, text: "Yes please."}
+expected:
+  - {slot: company, value: Globex}
+forbidden:
+  - {slot: company, value_contains: platform}
+recorded_ops:
+  - ops:
+      - {op: ADD, slot: company, value: Globex, turn_id: v1-t1, confidence: 0.9}

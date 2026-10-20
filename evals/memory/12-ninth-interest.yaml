@@ -1,0 +1,35 @@
+name: 12-ninth-interest
+about: nine distinct interests across three visits; the ninth evicts the oldest and the set keeps the eight newest
+visits:
+  - - {role: user, text: "I've been into Rust for years."}
+    - {role: agent, text: "Michael has a few Rust projects."}
+  - - {role: user, text: "Lately Python, Kotlin and Haskell."}
+    - {role: agent, text: "Nice mix."}
+    - {role: user, text: "Also Elixir, Zig, OCaml and Julia."}
+  - - {role: user, text: "And now Swift too."}
+    - {role: agent, text: "Still a polyglot, then."}
+expected:
+  - {slot: interests, value: Python}
+  - {slot: interests, value: Kotlin}
+  - {slot: interests, value: Haskell}
+  - {slot: interests, value: Elixir}
+  - {slot: interests, value: Zig}
+  - {slot: interests, value: OCaml}
+  - {slot: interests, value: Julia}
+  - {slot: interests, value: Swift}
+forbidden: []
+gone:
+  - {slot: interests, value: Rust}
+recorded_ops:
+  - ops:
+      - {op: ADD, slot: interests, value: Rust, turn_id: v1-t1, confidence: 0.9}
+  - ops:
+      - {op: ADD, slot: interests, value: Python, turn_id: v2-t1, confidence: 0.9}
+      - {op: ADD, slot: interests, value: Kotlin, turn_id: v2-t1, confidence: 0.9}
+      - {op: ADD, slot: interests, value: Haskell, turn_id: v2-t1, confidence: 0.9}
+      - {op: ADD, slot: interests, value: Elixir, turn_id: v2-t3, confidence: 0.9}
+      - {op: ADD, slot: interests, value: Zig, turn_id: v2-t3, confidence: 0.9}
+      - {op: ADD, slot: interests, value: OCaml, turn_id: v2-t3, confidence: 0.9}
+      - {op: ADD, slot: interests, value: Julia, turn_id: v2-t3, confidence: 0.9}
+  - ops:
+      - {op: ADD, slot: interests, value: Swift, turn_id: v3-t1, confidence: 0.9}

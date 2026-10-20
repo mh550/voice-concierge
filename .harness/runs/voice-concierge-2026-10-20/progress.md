@@ -13,6 +13,15 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 04:55 · C4-05 · passes
+
+- **Changed:** new `evals/memory/` with 13 YAML scripts (the seven §4.9 cases 01–07, plus 08–13 from the plan's table). New `concierge/evals/script.py` (`MemoryScript`, `extra="forbid"`, `load_script`), `concierge/evals/runner.py` (`run_script` → `ScriptResult(stored, missing_expected, forbidden_hits, runs, rejected, history)`, `check`) and `concierge/testing/replay.py` (`Replay`, the FakeLLM factory). `pyyaml>=6,<7` and the `concierge.evals` package are in `pyproject.toml`. Tests 546 → 598 (`tests/test_memory_evals_offline.py`, 52).
+- **Verified:** all 5 steps hold. `test_script[...]` passes for all 13 scripts. 03's recorded ADD of Initech is rejected as `ungrounded`, and `FakeLLM.calls[0].chat_ctx` has "Great." but no "Initech". 05's injection ADD is rejected as `instruction`. 9 of 9 mutations are caught (heard-text cut, gate, name rule, set cap, grounding, agent-turn check, text vs empty call, and others). `check.sh` exits 0 at 598 and ruff is clean. The runner has 122 lines, the script module 92.
+- **Review (Opus):** 0 Critical, 4 Important, 5 Minor, all fixed or applied. The 03 test now reads the context that was actually sent, not a rebuilt one. `gone` must have been stored. `expected` has `also` spellings for the live eval. `nothing_stored` is off in 09. The table is in the plan's "C4-05 build notes".
+- **Next session (C4-06):** the review diff range starts at `568700f^`. The README rows "Only what was heard" and "Evaluate for harm as well as help" can cite `test_interrupted_fake_fact_never_reaches_the_extractor` and `test_script`. `merge.py` is still at 250 lines.
+- **For C7 (live eval):** call `run_script(script, lambda n: build_llm(...))` on the same files; `recorded_ops` is ignored there. `ScriptResult.runs` carries `prompt_tokens` and `tool_called`.
+- **Proposed changes:** C4-05 step 1's schema also has the optional keys `about`, `gone`, `nothing_stored`, per-turn `confidence` and `expected[].also`, and `forbidden[].slot` is optional. Step 2's `ScriptResult` also has `runs`, `rejected` and `history`.
+
 ### 2026-10-20 08:10 · C4-04 · passes
 
 - **Changed:** new `concierge/memory_writer.py` (`MemoryWriter`: sync `on_item_added`/`note_item`/`schedule`, debounce, one run per thread plus one queued follow-up, `flush`, `cancel_all`, `aclose`, `forget_visitor`), `memory_tools.py` (`do_remember`/`do_forget`), `forget_match.py`, `tasks.py` (shared `track`). `ConciergeAgent` has the `remember(fact)`/`forget(about)` tools. The session attaches the writer before `session.start`, and shutdown runs flush → `session_ended` → `writer.aclose` → `store.close`. `merge` gains `source=`. Test fixtures moved to `conftest.py`/`concierge/testing/sessions.py`. Tests 486 → 546 (`test_memory_writer.py`, `test_critical_path.py`, `test_tools.py`, `test_erasure_wins.py`, +3 in `test_session.py`).

@@ -270,7 +270,7 @@
         "pyyaml is added to pyproject.toml dependencies; ruff and compileall still pass",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C4-06", "milestone": "C4", "kind": "review", "model": "opus",

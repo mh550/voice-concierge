@@ -1,0 +1,14 @@
+name: 11-nothing-to-store
+about: small talk with nothing about the visitor; the second visit's extractor replies with text only
+visits:
+  - - {role: user, text: "Hi there."}
+    - {role: agent, text: "Hi! I can tell you about Michael's work."}
+    - {role: user, text: "Just saying hello, thanks."}
+  - - {role: user, text: "Hello again."}
+    - {role: agent, text: "Welcome back."}
+expected: []
+forbidden: []
+nothing_stored: true
+recorded_ops:
+  - ops: []
+  - text: "Nothing about the visitor changed."

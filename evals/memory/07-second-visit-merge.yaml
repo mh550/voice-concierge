@@ -1,0 +1,15 @@
+name: 07-second-visit-merge
+about: both visits mention the same interest in a different case; it is stored once
+visits:
+  - - {role: user, text: "I'm interested in Voice Agents."}
+    - {role: agent, text: "Then you'll like Michael's concierge demo."}
+  - - {role: user, text: "Still mostly into voice agents these days."}
+    - {role: agent, text: "Good to have you back."}
+expected:
+  - {slot: interests, value: voice agents}
+forbidden: []
+recorded_ops:
+  - ops:
+      - {op: ADD, slot: interests, value: Voice Agents, turn_id: v1-t1, confidence: 0.9}
+  - ops:
+      - {op: ADD, slot: interests, value: voice agents, turn_id: v2-t1, confidence: 0.9}

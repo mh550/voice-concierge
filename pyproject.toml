@@ -17,6 +17,7 @@ dependencies = [
   "livekit-plugins-deepgram==1.8.8",
   "pydantic>=2,<3",
   "pydantic-settings>=2,<3",
+  "pyyaml>=6,<7",  # evals/memory/*.yaml (concierge/evals/script.py)
 ]
 
 [project.optional-dependencies]
@@ -27,7 +28,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["concierge", "concierge.testing"]
+packages = ["concierge", "concierge.evals", "concierge.testing"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

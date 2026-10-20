@@ -1,0 +1,18 @@
+name: 01-introduction
+about: a plain introduction; the name is stored only from the yes to "Did I get that right, Ada?"
+visits:
+  - - {role: user, text: "Hi, I'm Ada, a PM at Initech."}
+    - {role: agent, text: "Nice to meet you. Did I get that right, Ada?"}
+    - {role: user, text: "Yes."}
+    - {role: agent, text: "Great. What would you like to know about Michael's work?"}
+    - {role: user, text: "What has he built with voice agents?"}
+expected:
+  - {slot: name, value: Ada}
+  - {slot: role, value: PM, also: [product manager, a PM]}
+  - {slot: company, value: Initech}
+forbidden: []
+recorded_ops:
+  - ops:
+      - {op: ADD, slot: name, value: Ada, turn_id: v1-t3, confidence: 0.95}
+      - {op: ADD, slot: role, value: PM, turn_id: v1-t1, confidence: 0.9}
+      - {op: ADD, slot: company, value: Initech, turn_id: v1-t1, confidence: 0.9}

@@ -855,3 +855,37 @@ scratch dir).
 | M10 | Minor | `forget` leaves the turn text in the journal | D11 *default* (kept; question for Michael) |
 | M11 | Minor | A failing `writer.aclose()` skipped `store.close()` | Fixed RED→GREEN: logged by type (`test_store_closes_even_if_the_writer_fails_to_close`) |
 | M12 | Minor | The 50 ms timing ran with nothing extracting; the AST scan isn't transitive | Added `test_the_handler_stays_fast_during_an_inflight_run`. The `LoopGuardStore` test covers transitive store calls |
+
+## C4-05 build notes
+
+- **Layout:** `concierge/evals/script.py` (`MemoryScript`, `ScriptTurn`, `ExpectedFact`, `GoneFact`, `ForbiddenFact`,
+  `RecordedReply`, `load_script`), `concierge/evals/runner.py` (`run_script`, `ScriptResult`, `build_turns`, `check`),
+  and `concierge/testing/replay.py` (`Replay`, the offline `llm_factory`). `Replay` lives with the fakes, so
+  `concierge.evals` loads no test code for the live eval (C7).
+- **Turn building:** each turn is a 1.8 `ChatMessage` through `turn_from_message`. An interrupted agent turn is
+  recorded the way 1.8 records it (content = the heard text; a reply nobody heard is never added), then the `Turn` gets
+  the generated text back. That way only `visible_text` keeps the unheard part out of the extractor and the merge.
+- **`ScriptResult`** has `stored`, `missing_expected`, `forbidden_hits`, `runs` (the `extraction_ran` payloads),
+  `rejected` (the `gate_rejected` payloads) and `history`. The plan's `contexts` was dropped: it rebuilt the context
+  instead of reading what was sent (review I1). Tests read `Replay.llms[n].calls` instead.
+- **Schema additions:** `ExpectedFact.also` lists other spellings that count, for a live extractor's wording.
+  `gone` now means "in the history, not valid at the end", so a `gone` value that was never stored is a hit.
+- **12-ninth-interest** has three visits: Rust alone first, then seven, then the ninth. Which item gets evicted no
+  longer depends on op order within a batch (that order is arbitrary live).
+- **Mutations** (scratch `c4-05` runs): all 9 are caught after the review: `visible_text` showing the full text,
+  `extract` sending the full text, the gate off, the name rule always true, the set cap at 9, grounding off, the agent-turn
+  check off, a text reply replayed as an empty call, and 12's Rust rejected. Before the review, the name rule survived;
+  08 and 09 were changed so it can't.
+- **Review (Opus, `review-C4-05.diff`):** 0 Critical, 4 Important, 5 Minor. All of them are fixed RED→GREEN or applied.
+
+| # | Sev. | Finding | Outcome |
+|---|---|---|---|
+| I1 | Important | The 03 check read a rebuilt context, so `extract` could send the full text unnoticed | Fixed: `test_interrupted_fake_fact_never_reaches_the_extractor` reads `FakeLLM.calls[0].chat_ctx`; `contexts` removed |
+| I2 | Important | `gone` passed without the value ever being stored (12 passed with Rust rejected) | Fixed RED→GREEN (`test_runner_detects_a_gone_value_that_was_never_stored`; 12 asserts Rust's `superseded_by`) |
+| I3 | Important (C7) | Exact `expected` matching gives false misses live (`asked_about` is a paraphrase; "PM"/"product manager") | `also` added (`test_an_expected_fact_matches_an_alternative_spelling`); 01/03 use it; 04's turn now states an interest |
+| I4 | Important (C7) | 09's `nothing_stored` would count a real `asked_about` as harm | Removed; `forbidden name ada` carries the case |
+| M5 | Minor | 04's "agent_attributed both ways" was never asserted | `test_agent_guess_is_agent_attributed_both_ways` |
+| M6 | Minor | A text reply wasn't told apart from `{ops: []}` | `ScriptResult.runs`; 11 asserts `tool_called` `[True, False]`; `test_a_visit_without_a_visitor_turn_makes_no_call` |
+| M7 | Minor (C7) | 12 depended on op order within a batch | Three visits |
+| M8 | Minor | No `prompt_tokens` in the run's journal row; the evals package imported the fake LLM | Both fixed (`Replay` moved to `concierge/testing`) |
+| M9 | Minor | Redundant or off-topic `forbidden` entries; `read_text()` without an encoding | Trimmed; `encoding="utf-8"` |

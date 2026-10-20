@@ -1,0 +1,14 @@
+name: 03-interrupted-fake-fact
+about: an agent turn cut mid-sentence; the unheard part names a company the visitor never said
+visits:
+  - - {role: user, text: "Hi, I'm looking at Michael's voice work."}
+    - {role: agent, text: "Great. You work at Initech, so you'll like his agent demos.", interrupted_heard: "Great."}
+    - {role: user, text: "Tell me about the demos."}
+expected:
+  - {slot: asked_about, value: "Michael's voice work", also: [voice work, his voice work, Michael's demos, demos]}
+forbidden:
+  - {value_contains: initech}
+recorded_ops:
+  - ops:
+      - {op: ADD, slot: asked_about, value: "Michael's voice work", turn_id: v1-t1, confidence: 0.9}
+      - {op: ADD, slot: company, value: Initech, turn_id: v1-t3, confidence: 0.6}
