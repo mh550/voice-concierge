@@ -126,6 +126,11 @@ def test_maximal_memory_is_capped_and_keeps_the_newest_set_items() -> None:
     assert dropped and max(dropped) < min(kept)  # exactly the oldest went
     assert 24 in kept and 25 in kept  # the newest interest and the newest asked_about survive
     assert '- name: "Ada"' in block
+    newest_dropped = next(f for f in facts if f.id == max(dropped))  # and no more went than had to
+    assert (
+        len(block) + 1 + len(f"- {newest_dropped.slot}: {json.dumps(newest_dropped.value)} (voice, 2026-10-19)")
+        > MEMORY_BLOCK_MAX_CHARS
+    )
 
 
 def test_summary_is_shortened_only_after_every_set_item_is_dropped() -> None:
@@ -139,6 +144,10 @@ def test_summary_is_shortened_only_after_every_set_item_is_dropped() -> None:
     assert last.startswith('Last visit: "lorem ipsum') and last.endswith('…"')
     summary = json.loads(last.removeprefix("Last visit: "))
     assert long_summary.startswith(summary.removesuffix("…")) and not summary.removesuffix("…").endswith(" ")
+    kept_text = summary.removesuffix("…")  # and it is the longest cut that fits: one more word doesn't
+    next_word = long_summary[len(kept_text) :].split()[0]
+    longer = json.dumps(f"{kept_text} {next_word}…", ensure_ascii=False)
+    assert len(block) - len(json.dumps(summary, ensure_ascii=False)) + len(longer) > MEMORY_BLOCK_MAX_CHARS
 
     # With the summary short enough, set items come back before the summary is ever cut.
     short = VisitorState.model_construct(**{**state.model_dump(), "last_visit_summary": "ok"})
@@ -149,7 +158,7 @@ def test_summary_is_shortened_only_after_every_set_item_is_dropped() -> None:
 def test_worst_case_escaping_stays_within_the_cap() -> None:
     facts = [fact(i, s, ('"\\' * 60)[:120]) for i, s in enumerate(["name", "role", "company", "follow_up_wanted"], 1)]
     facts += [fact(10 + i, "interests", f'{i}"' + '"\\' * 29) for i in range(8)]
-    facts += [fact(20 + i, "asked_about", f'{i}\\' + '\\"' * 29) for i in range(8)]
+    facts += [fact(20 + i, "asked_about", f"{i}\\" + '\\"' * 29) for i in range(8)]
     block = render(facts, '"\\' * 250)
     assert block is not None and len(block) <= MEMORY_BLOCK_MAX_CHARS
     singles = ("- name", "- role", "- company", "- follow")

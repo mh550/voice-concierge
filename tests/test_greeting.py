@@ -15,8 +15,16 @@ SUMMARY = "Ada asked about the portfolio's voice agent."
 
 def fact(id: int, slot: str, value: str) -> Fact:
     return Fact(
-        id=id, thread_id="t", slot=slot, value=value, confidence=1.0, source="user_said", channel="voice",
-        turn_id=f"turn-{id}", created_at=0, valid_from=0,
+        id=id,
+        thread_id="t",
+        slot=slot,
+        value=value,
+        confidence=1.0,
+        source="user_said",
+        channel="voice",
+        turn_id=f"turn-{id}",
+        created_at=0,
+        valid_from=0,
     )
 
 
@@ -88,7 +96,9 @@ NAME_LINE = '- name: "Ada" (voice, 2026-10-19)'
 
 def test_asked_about_trimmed_out_of_the_block_is_not_offered() -> None:
     block = "\n".join([MEMORY_HEADER, NAME_LINE, f'Last visit: "{SUMMARY}"'])
-    text = greeting_instructions(preloaded(VisitorState(name="Ada", asked_about=[ASKED], last_visit_summary=SUMMARY), block))
+    text = greeting_instructions(
+        preloaded(VisitorState(name="Ada", asked_about=[ASKED], last_visit_summary=SUMMARY), block)
+    )
     assert "asked_about line" not in text and "the Last visit line in your notes" in text
 
 

@@ -8,6 +8,7 @@ Every store call runs in a thread (the store blocks up to 5 s), and none sits be
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import sqlite3
 import time
@@ -88,17 +89,18 @@ def build_session(ctx: JobContext, settings: Settings) -> AgentSession:
 async def _preload_or_none(task: asyncio.Task[Preloaded] | None) -> Preloaded | None:
     """The visitor's memory, or None (a session without memory). On the deadline the task is left running, not
     cancelled: its store thread can't be stopped, so on_shutdown waits for it before closing the store. Only the
-    error type is logged: a message can quote visitor data."""
+    error type is logged (by `_track`): a message can quote visitor data. Any error, not only the store's: a
+    session without memory beats no session."""
     if task is None:
         return None
     done, _ = await asyncio.wait({task}, timeout=PRELOAD_TIMEOUT_S)
-    try:
-        if not done:
-            raise TimeoutError
-        return task.result()
-    except (*_STORE_ERRORS, TimeoutError) as exc:
-        logger.warning("no memory this session: the preload failed (%s)", type(exc).__name__)
+    if not done:
+        logger.warning("no memory this session: the preload missed its deadline (TimeoutError)")
         return None
+    if task.exception() is not None:
+        logger.warning("no memory this session: the preload failed")
+        return None
+    return task.result()
 
 
 def _agent_or_memoryless(pack: str, preloaded: Preloaded | None) -> ConciergeAgent:
@@ -121,11 +123,19 @@ async def _journal(store: Store, thread_id: str, session_id: str, kind: JournalT
         logger.warning("could not journal %s (%s)", kind, type(exc).__name__)
 
 
+def _done(tasks: set[asyncio.Task[Any]], task: asyncio.Task[Any]) -> None:
+    """Drop a finished task and log its error by type, so asyncio never logs the message (it can quote visitor
+    data) as "Task exception was never retrieved"."""
+    tasks.discard(task)
+    if not task.cancelled() and (exc := task.exception()) is not None:
+        logger.warning("a background store task failed (%s)", type(exc).__name__)
+
+
 def _track[T](tasks: set[asyncio.Task[Any]], coro: Coroutine[Any, Any, T]) -> asyncio.Task[T]:
     """A background task kept in `tasks` until it is done (on_shutdown waits for what is left)."""
     task = asyncio.create_task(coro)
     tasks.add(task)
-    task.add_done_callback(tasks.discard)
+    task.add_done_callback(functools.partial(_done, tasks))
     return task
 
 
@@ -144,9 +154,7 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
         if store is None:
             return
         try:
-            for result in await asyncio.gather(*tasks, return_exceptions=True):
-                if isinstance(result, BaseException):  # a late preload's error, already logged on time otherwise
-                    logger.warning("a background store task failed (%s)", type(result).__name__)
+            await asyncio.gather(*tasks, return_exceptions=True)  # errors are logged by _done
             if preloaded is not None:
                 ended = {"reason": reason, "duration_s": round(time.monotonic() - began, 1)}
                 await _journal(store, preloaded.thread_id, session_id, "session_ended", ended)

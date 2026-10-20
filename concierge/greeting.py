@@ -18,10 +18,13 @@ INTRODUCTION = (
 _ENDING = "Keep it to two short sentences."
 
 
-def _topic(preloaded: Preloaded) -> str:
-    if preloaded.state.asked_about:
+def _topic(block: str) -> str:
+    """Points only at a line the block has: trimming can drop every asked_about item, and a blank summary renders
+    no Last visit line. Values are JSON strings, so no value starts a line of its own."""
+    lines = block.split("\n")
+    if any(line.startswith("- asked_about: ") for line in lines):
         return "the newest thing they asked about (the last asked_about line in your notes)"
-    if preloaded.state.last_visit_summary:
+    if any(line.startswith("Last visit: ") for line in lines):
         return "where you left off last visit (the Last visit line in your notes)"
     return "the conversation"
 
@@ -31,7 +34,7 @@ def greeting_instructions(preloaded: Preloaded | None) -> str:
     a greeting by name with an offer to pick up the last topic for a returning one."""
     if preloaded is None or preloaded.block is None:
         return INTRODUCTION
-    topic = _topic(preloaded)
+    topic = _topic(preloaded.block)
     if preloaded.state.name:
         name = json.dumps(preloaded.state.name, ensure_ascii=False)
         return f"Greet {name} by name and offer to pick up {topic}. {_ENDING}"

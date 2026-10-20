@@ -195,7 +195,7 @@ async def test_entrypoint_runs_without_memory_when_preload_fails(
             raise StoreError("boom Zephyrine")
         if kind == "sqlite":
             raise sqlite3.OperationalError("boom Zephyrine")
-        if kind == "other":  # e.g. a corrupt valid_from: datetime.fromtimestamp raises in the renderer (review C3-04 #3)
+        if kind == "other":  # a corrupt valid_from: datetime.fromtimestamp raises in the renderer (review C3-04 #3)
             raise ValueError("boom Zephyrine")
         VisitorState.model_validate({"name": "Zephyrine" * 50})  # over the cap: ValidationError quoting the value
         raise AssertionError("unreachable")
@@ -205,7 +205,10 @@ async def test_entrypoint_runs_without_memory_when_preload_fails(
     text = instructions_of(session)
     assert MEMORY_HEADER not in text and "Zephyrine" not in text
     expected = {
-        "store": "StoreError", "sqlite": "OperationalError", "validation": "ValidationError", "other": "ValueError"
+        "store": "StoreError",
+        "sqlite": "OperationalError",
+        "validation": "ValidationError",
+        "other": "ValueError",
     }[kind]
     warnings = [r.getMessage() for r in caplog.records if r.name == "concierge.session" and r.levelname == "WARNING"]
     assert any(expected in m for m in warnings), warnings
