@@ -138,6 +138,7 @@ class ApplyResult(BaseModel):
     version: int
     added: list[int]
     skipped: list[int]
+    deleted: list[int]  # really deleted rows: their values leave the disk at the WAL checkpoint after the commit
 
 
 class Thread(BaseModel):

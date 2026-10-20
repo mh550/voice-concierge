@@ -111,10 +111,12 @@ def _invalidate(
     return row[0] if row else None
 
 
-def apply(conn: sqlite3.Connection, thread_id: str, ops: Ops, now: int, session_id: str) -> tuple[list[int], list[int]]:
+def apply(
+    conn: sqlite3.Connection, thread_id: str, ops: Ops, now: int, session_id: str
+) -> tuple[list[int], list[int], list[int]]:
     """Reload the valid facts, resolve and re-validate the ops, apply them in order, journal each, store the state.
 
-    Returns (added fact ids, skipped target ids). A target that isn't a fact of this thread is skipped, as is an
+    Returns (added fact ids, skipped target ids, deleted fact ids). A target that isn't a fact of this thread is skipped, as is an
     invalidation of an already-invalid fact (its first valid_to stands).
     """
     resolved = ops(valid_facts(conn, thread_id)) if callable(ops) else ops
@@ -122,6 +124,7 @@ def apply(conn: sqlite3.Connection, thread_id: str, ops: Ops, now: int, session_
     checked = _OPS.validate_python([op.model_dump() if isinstance(op, BaseModel) else op for op in resolved])
     added: list[int] = []
     skipped: list[int] = []
+    deleted: list[int] = []
 
     def invalidate(fact_id: int, superseded_by: int | None) -> None:
         slot = _invalidate(conn, thread_id, fact_id, superseded_by, now)
@@ -153,6 +156,7 @@ def apply(conn: sqlite3.Connection, thread_id: str, ops: Ops, now: int, session_
                 if row is None:
                     skipped.append(op.fact_id)
                 else:
+                    deleted.append(op.fact_id)
                     _journal(conn, thread_id, session_id, now, "fact_deleted", {"fact_id": op.fact_id, "slot": row[0]})
     store_state(conn, thread_id, now)
-    return added, skipped
+    return added, skipped, deleted

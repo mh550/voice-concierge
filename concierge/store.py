@@ -165,7 +165,7 @@ class Store(ErasureStore):
         expected = based_on if based_on is not None else self.version(thread_id)
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
-                return self.write(thread_id, expected, partial(self._apply, thread_id, ops, session_id, expected))
+                result = self.write(thread_id, expected, partial(self._apply, thread_id, ops, session_id, expected))
             except VersionConflict as exc:
                 if exc.current < expected:
                     raise StoreError(f"based_on {expected} is ahead of the thread's version {exc.current}") from exc
@@ -173,11 +173,16 @@ class Store(ErasureStore):
                     raise
                 time.sleep(random.uniform(0.01, 0.03) * attempt)  # jittered: let the other writer finish
                 expected = self.version(thread_id)  # reloaded after the sleep
+                continue
+            if result.deleted:  # the deleted values' old pages are in the -wal until a checkpoint
+                with self._locked() as conn:
+                    self._settle(conn, wait=False)  # a reader makes it owed to the next write, not a 5 s wait
+            return result
         raise AssertionError("unreachable")
 
     def _apply(self, thread_id: str, ops: Ops, session_id: str, version: int, conn: sqlite3.Connection) -> ApplyResult:
-        added, skipped = fact_ops.apply(conn, thread_id, ops, self._clock(), session_id)
-        return ApplyResult(version=version + 1, added=added, skipped=skipped)
+        added, skipped, deleted = fact_ops.apply(conn, thread_id, ops, self._clock(), session_id)
+        return ApplyResult(version=version + 1, added=added, skipped=skipped, deleted=deleted)
 
     def add_fact(self, thread_id: str, op: AddFact, *, session_id: str = "") -> Fact:
         """Insert one fact (created_at = valid_from = now), journal it and recompute the state. A `supersedes`
@@ -200,13 +205,12 @@ class Store(ErasureStore):
             raise FactMissing(fact_id)
 
     def delete_fact(self, fact_id: int, *, thread_id: str | None = None, session_id: str = "") -> None:
-        """Really delete the row (the `forget` tool, B5), recompute the state and checkpoint the WAL, so the value
-        leaves the disk too. FactMissing if there is none. Tools pass `thread_id`, so a model-supplied id can't
+        """Really delete the row (the `forget` tool, B5), recompute the state; apply_fact_ops checkpoints the WAL,
+        so the value leaves the disk too. FactMissing if there is none. Tools pass `thread_id`, so a model-supplied id can't
         reach another visitor's fact."""
         tid = self._thread_of(fact_id) if thread_id is None else thread_id
         if fact_id in self.apply_fact_ops(tid, [DeleteFact(fact_id=fact_id)], session_id=session_id).skipped:
             raise FactMissing(fact_id)
-        self._checkpoint()  # the value's old pages are still in the -wal until then
 
     def _thread_of(self, fact_id: int) -> str:
         rows = self._read("SELECT thread_id FROM facts WHERE id = ?", (fact_id,))
