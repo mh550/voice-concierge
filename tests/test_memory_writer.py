@@ -67,7 +67,7 @@ async def make(store: Store, thread_id: str) -> AsyncIterator[Callable[..., Memo
         await writer.aclose()
 
 
-async def test_two_schedules_100ms_apart_start_one_extraction(make: Callable[..., MemoryWriter]) -> None:
+async def test_two_schedules_a_tenth_of_a_second_apart_start_one_extraction(make: Callable[..., MemoryWriter]) -> None:
     fake = FakeLLM([emit(delay_s=0.5), emit()])  # slow, so a second timer would overlap the first run
     writer = make(fake)  # the default 2 s debounce
     writer.note_item(user("I work at Acme.", "u1"))  # schedules

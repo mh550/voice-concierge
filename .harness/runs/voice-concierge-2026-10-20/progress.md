@@ -13,6 +13,32 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-20/INBOX.md` on 
 
 ---
 
+### 2026-10-20 13:40 · C7-03 · passes
+
+- **Changed:**
+  - `README.md` is rewritten for the LiveKit team. It has 8 sections in order. The mermaid diagram has 8 nodes, including Anthropic and an OpenRouter alternative.
+  - The 17 memory rows now each name their module.
+  - The mapping section is titled "How it maps onto Agents 2.0" and has rows for lease / fence vs lock and for across days.
+  - Every Results cell reads `to measure`.
+  - `tests/test_readme.py` is rewritten: section order, the diagram nodes, the 17 rows of spec §4.0, every cited test/module/path exists, the `ms` rule, the 2.0 and 1.8 rules (checked per block, so a line wrap can't hide a phrase), and `to measure`.
+  - R1: `test_two_schedules_100ms_apart_…` is renamed `…_a_tenth_of_a_second_apart_…`.
+  - Tests 864 → 896.
+- **Verified:**
+  - `grep -E '[0-9]+ ?ms' README.md` matches only line 84, the "about 0 ms, measured per turn as `memory_on_turn_path_ms`" claim.
+  - `grep -i 'agents 2.0'` matches only the pitch link (that line says 1.8) and the mapping heading.
+  - Mutation checks: a planted "50 ms", "Agents 2.0", a fake test name, a fake module, and a "LiveKit\nAgents" line wrap each fail the tests.
+  - An Opus claims review found 3 Important and 7 Minor issues. All are fixed except I3; see the next bullet. The fixes:
+    - the "no inbound ports" claim was false, because 1.8's health server listens on 8081;
+    - the turn-path sentence now says the `remember`/`forget` writes aren't in that number;
+    - the record dict is quoted as it really is;
+    - the greeting uses the name only once it is confirmed;
+    - the script commands now use `.venv/bin/python`.
+  - `lib/check.sh` is green in 87 s, 896 tests.
+- **I3, not taken:** the reviewer wanted the `phone:` sentence moved out of Failure cases. Step 1 asks for it there, so it stays, phrased as "2.0's model" in a block that says "1.8".
+- **Next session (C7-04) must know:** the README links to `MORNING.md`, which doesn't exist yet. `tests/test_readme.py` checks paths under concierge/, scripts/, deploy/, docs/, evals/ and knowledge/, but not MORNING.md.
+- **Question for Michael:** should the worker's health server bind `127.0.0.1`? Today it listens on all interfaces on port 8081 (`AgentServer(host="")` by default). C7-05 could pass `host="127.0.0.1"`. For now the README says to keep 8081 closed at the firewall.
+- **Proposed change:** in C7-03 step 1, "16 rows" should be 17. Spec §4.0 has 17 rows, and the README and test use 17.
+
 ### 2026-10-20 13:05 · C7-02 · passes
 
 - **Changed:**

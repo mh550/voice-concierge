@@ -431,7 +431,7 @@
         "Every module path cited in the README exists (the same test checks concierge/*.py and scripts/* paths)",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "C7-04", "milestone": "C7", "kind": "docs", "model": "sonnet",
