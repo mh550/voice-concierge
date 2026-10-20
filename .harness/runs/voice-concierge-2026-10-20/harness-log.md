@@ -58,3 +58,4 @@
 - 2026-10-20 12:28 · C7-04 · claude-sonnet-5-5 · passes=true · 2 min · 35/38 passing
 - 2026-10-20 12:49 · C7-05 · claude-opus-5-5 · passes=true · 20 min · 36/38 passing
 - 2026-10-20 12:49 · merged main into harness/voice-concierge-2026-10-20
+- 2026-10-20 12:52 · verify C7: C7-05 failed the re-check, back in the queue (one more attempt)
