@@ -137,12 +137,30 @@ async def test_off_list_hrefs_are_refused_journaled_as_a_path_and_not_published(
 ) -> None:
     assert await usher.show_page(href, "my name is Ada") == NOT_ON_LIST
     assert sent(room) == []
+    await asyncio.sleep(0)  # the row is written in the background
     assert journal.rows == [("navigate_refused", {"path": path})]  # the path only: no reason text, no host
+
+
+async def test_a_refusal_does_not_wait_for_its_journal_row(room: FakeRoom, clock: Clock) -> None:
+    # V6 review: the row queues behind the writer's store thread (up to SQLite's 5 s busy wait); the turn mustn't.
+    release = asyncio.Event()
+
+    async def slow(kind: str, payload: dict[str, Any]) -> None:
+        await release.wait()
+
+    tasks: set[asyncio.Task[Any]] = set()
+    usher = Usher(room, allowlist_from_pack(FIXTURE_PACK), publish, slow, clock, tasks=tasks)
+    assert await asyncio.wait_for(usher.show_page("/admin", "x"), 0.5) == NOT_ON_LIST
+    assert len(tasks) == 1  # the session's tasks: its shutdown waits for (or cancels) the row
+    release.set()
+    await asyncio.gather(*tasks)
+    assert not tasks
 
 
 async def test_a_refused_path_drops_the_query_and_is_capped(usher: Usher, journal: Journal) -> None:
     await usher.show_page("/projects/agent-harness?who=ada", "x")
     await usher.show_page("/" + "a" * 300, "x")
+    await asyncio.sleep(0)
     assert journal.rows == [("navigate_refused", {"path": "/projects/agent-harness"}),
                             ("navigate_refused", {"path": "/" + "a" * 119})]
 
@@ -152,6 +170,7 @@ async def test_the_same_refused_path_is_journaled_once_per_session(usher: Usher,
         await usher.show_page("/admin", "x")
     await usher.show_page("/admin?x=1", "x")
     await usher.show_page("/login", "x")
+    await asyncio.sleep(0)
     assert journal.rows == [("navigate_refused", {"path": "/admin"}), ("navigate_refused", {"path": "/login"})]
 
 
@@ -274,7 +293,12 @@ async def test_the_session_builds_an_usher_from_the_pack(db: Store, fakes: list[
         assert len(sent(room)) == 1
         thread = db.thread_for(VISITOR)
         assert thread is not None
-        rows = [r.payload for r in db.journal_rows(thread.id) if r.type == "navigate_refused"]
+        rows: list[dict[str, Any]] = []
+        for _ in range(200):  # the row is written in the background, on the writer's thread
+            rows = [r.payload for r in db.journal_rows(thread.id) if r.type == "navigate_refused"]
+            if rows:
+                break
+            await asyncio.sleep(0.01)
         assert rows == [{"path": "/admin"}]
         await shutdown(ctx, started)
 

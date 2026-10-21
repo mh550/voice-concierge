@@ -302,7 +302,7 @@ def test_every_cited_slug_is_a_projects_ts_slug() -> None:
 
 
 def test_each_projects_ts_section_carries_its_slug_and_voice_concierge_none() -> None:
-    projects = [t for t in PROJECT_HEADING.findall(PACK)]
+    projects = PROJECT_HEADING.findall(PACK)
     for title in projects:
         files = _source_lines(f"Project: {title}")
         has_slug = bool(CITED_SLUG.search(_section(f"Project: {title}")))

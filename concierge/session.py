@@ -198,7 +198,7 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
         add_erase_hook(writer, ring.clear)  # "Forget me" empties it with the rest of the pending work
     journal = functools.partial(journal_row, store, writer.thread_id, session_id, writer=writer) if writer else None
     pack = load_pack()
-    usher = Usher(ctx.room, allowlist_from_pack(pack), publish, journal, time.monotonic)  # V6: show_page
+    usher = Usher(ctx.room, allowlist_from_pack(pack), publish, journal, time.monotonic, tasks=tasks)  # V6
     agent = agent_or_memoryless(
         pack, preloaded.block if preloaded else None, writer, events=ring, on_changed=publisher.schedule,
         usher=usher,

@@ -18,10 +18,11 @@ from urllib.parse import urlsplit
 from livekit import rtc
 from pydantic import BaseModel
 
-from concierge.contract import MAX_DETAIL, NAVIGATE_MAX_BYTES, NAVIGATE_TOPIC, NavigatePayload, body_bytes, iso_utc
+from concierge.contract import MAX_DETAIL, NAVIGATE_TOPIC, NavigatePayload, iso_utc
 from concierge.gate import check_text
-from concierge.models import JournalType
+from concierge.models import Journal
 from concierge.store import now_ms
+from concierge.tasks import track
 
 logger = logging.getLogger("concierge.usher")
 
@@ -37,7 +38,6 @@ NOT_SENT = "That page didn't open; keep talking"
 _SLUG = re.compile(r"^Source: \S+ \(slug: ([a-z0-9][a-z0-9-]*)\)\s*$", re.MULTILINE)
 
 Publish = Callable[[rtc.Room, str, BaseModel], Awaitable[None]]
-Journal = Callable[[JournalType, dict[str, Any]], Awaitable[None]]
 
 
 def allowlist_from_pack(pack: str) -> frozenset[str]:
@@ -66,17 +66,19 @@ def _reason(reason: str) -> str:
 
 class Usher:
     """One session's navigations. `publish` is `publish.publish(room, topic, payload)`; `journal(kind, payload)` the
-    session's `journal_row`, or None without memory (nothing to journal into); `clock` is monotonic seconds."""
+    session's `journal_row`, or None without memory (nothing to journal into), run in the background on `tasks` (the
+    session's, so its shutdown waits for the row); `clock` is monotonic seconds."""
 
     def __init__(
         self, room: rtc.Room, allowlist: frozenset[str], publish: Publish, journal: Journal | None,
-        clock: Callable[[], float],
+        clock: Callable[[], float], *, tasks: set[asyncio.Task[Any]] | None = None,
     ) -> None:
         self._room = room
         self._allowlist = allowlist
         self._publish = publish
         self._journal = journal
         self._clock = clock
+        self._tasks: set[asyncio.Task[Any]] = set() if tasks is None else tasks
         self._last_sent: float | None = None
         self._refused: set[str] = set()  # paths journaled this session: a model looping on one writes one row
 
@@ -85,15 +87,13 @@ class Usher:
             path = _path(href)
             if self._journal is not None and path not in self._refused:
                 self._refused.add(path)
-                await self._journal("navigate_refused", {"path": path})
+                track(self._tasks, self._journal("navigate_refused", {"path": path}), log=logger)  # off the turn
             return NOT_ON_LIST
         now = self._clock()
         last = self._last_sent
         if last is not None and now - last < NAVIGATE_MIN_INTERVAL_S:
             return TOO_SOON
         payload = NavigatePayload(href=href, reason=_reason(reason), at=iso_utc(now_ms()))
-        if body_bytes(payload) > NAVIGATE_MAX_BYTES:  # can't happen with an allowlisted href; kept as the cap
-            return NOT_SENT
         self._last_sent = now  # taken before the await: a second call in the same turn sees it (no lock to hang on)
         try:
             await asyncio.wait_for(self._publish(self._room, NAVIGATE_TOPIC, payload), SEND_TIMEOUT_S)

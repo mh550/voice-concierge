@@ -350,7 +350,7 @@
         "V6-01",
         "V4"
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }
