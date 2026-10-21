@@ -25,8 +25,9 @@ live run is Michael's ([`MORNING.md`](MORNING.md)); until then no measured numbe
 - **Takes a message for Michael**, with an optional email or phone (the write gate's one exception), through the
   `leave_message_for_michael` tool (`concierge/message_tool.py`); `scripts/messages.py <db>` lists them, newest first.
 - **Shows its memory and its latency.** The agent publishes `concierge.memory` (each fact with where and when it was
-  learned) at session start and after every merge, and `concierge.metrics` (one row of timings and tokens per turn), as
-  text streams the page draws (`concierge/publish.py`, `concierge/metrics.py`).
+  learned) at session start, after every merge, after a compaction and once more before it leaves, and
+  `concierge.metrics` (one row of timings and tokens per turn), as text streams the page draws
+  (`concierge/publish.py`, `concierge/metrics.py`).
 
 The `concierge.memory` body is contract v2 (`"v": 2`): the v1 keys unchanged, plus three kinds of thing the page can
 show. `about_visitor` is what is remembered about the visitor: the valid facts as a profile, and the newest five visits
@@ -77,9 +78,11 @@ background, off the event loop's turn path (`concierge/memory_writer.py`, `conci
 `concierge/summary.py`). The only writes on the turn path are the ones the visitor asks for, by voice or text: the `remember`
 and `forget` tools (`concierge/memory_tools.py`) and `leave_message_for_michael` (`concierge/message_tool.py`).
 
-**The v2 keys of `concierge.memory`.** Every key is optional, so a v1 page reads a v2 body. One callable builds the
-body for the topic and for `concierge.get_memory` (`concierge/memory_view.py`); over the size cap the oldest facts go
-first, then the oldest events, then the oldest episodes, never a v1 key (`concierge/contract.py`).
+**The v2 keys of `concierge.memory`.** Every key is optional, so a v1 page reads a v2 body; a v2 key with nothing to
+report (`about_agent` after "Forget me") is left out, never sent as null. One callable builds the body for the topic
+and for `concierge.get_memory` (`concierge/memory_view.py`); over the size cap the oldest events go first, then the
+oldest episodes, then the `profile` copy of the facts, and the v1 `facts` last, so a v1 page gets the facts a v1 agent
+would send (`concierge/contract.py`). An event line never quotes a value that reads as a link or an order to the agent.
 
 | Key | What it holds | Source module |
 |---|---|---|

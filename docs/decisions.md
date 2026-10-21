@@ -290,7 +290,7 @@ episode row comes to exist, what a failed summary leaves, or how the 15 KiB cap 
 - (e) **Events come from the `MergeResult` and the tools, not by reading the journal back**: same rows, no store read
   on the event loop. `MergeResult.changes` carries slot and value in memory only; the journal still holds no values (D8).
 - (f) **The trimmer** drops the oldest facts from `facts` and `profile` together (they stay equal), then the oldest
-  events, then the oldest episodes; never a v1 key.
+  events, then the oldest episodes; never a v1 key. *Superseded by D19 (a) (V2 review).*
 - (g) **The empty body** (after "Forget me", or a session without memory) is v2: `v: 2`, `about_visitor` with three
   empty lists, `retention_days: 30`, `about_agent` null. A forget_me also clears the event ring.
 - (h) **`remember` and `forget` publish at once** (the tools call the publisher's `schedule` after noting their
@@ -298,7 +298,8 @@ episode row comes to exist, what a failed summary leaves, or how the 15 KiB cap 
 - (i) **A top-level v2 key may be null** (V2-02): `v`, `about_visitor`, `about_agent` and `retention_days` default to
   `None` on `MemoryPayload`, pydantic dumps that as `null`, and `memory.schema.json` accepts `null` for each, which a
   page reads like a missing key: "not reported". Our builders always fill `v`, `about_visitor` and `retention_days`;
-  only `about_agent` is null in practice (no agent view yet, or a body built outside a session).
+  only `about_agent` is null in practice (no agent view yet, or a body built outside a session). *Sending changed by D19
+  (b) (V2 review): a null top-level v2 key is left out of the JSON; the schema still accepts null.*
 - (j) **`forget` clears the episode summaries too** (V2-03 review): each ended episode keeps the rolling summary as it
   stood at that visit's end, so a forgotten value could sit in several rows. The `forget` tool nulls the `summary` of
   every episode that names a deleted value or the value the request names, in the same store-thread call that clears
@@ -308,7 +309,7 @@ episode row comes to exist, what a failed summary leaves, or how the 15 KiB cap 
   after the fact: a later session can't tell a dead session from another tab's live one without a lease.
 - (l) **A forgotten value leaves the event lines too** (V2-04): the ring shows values ("Remembered your company:
   Acme"), and each such line keeps its value; every body checks it against the thread's fact history on the writer's
-  thread (`events.shown`, `rpc.memory_with_events`), so a value deleted by `forget`, here or in another tab's session,
+  thread (`events.shown`, `memory_view.memory_with_events`), so a value deleted by `forget`, here or in another tab's session,
   goes out as the value-free form ("Remembered your company"), even in a send whose lines were read before the forget
   ran (review I1). The `forget` line names the slot the request names, never the visitor's words, which can hold a
   value ("forget where I work" → "Forgot at your request: company"; "forget I work in IT" would echo "IT"); a request
@@ -353,6 +354,39 @@ I1). Taking the first hex word anywhere in SOURCE.md (a word like "defaced" woul
 
 **Question for Michael.** Is "the last turn with LLM metrics" the share you want the page to show, or would you
 rather see the session's cumulative cached share?
+
+## D19 *default*: the V2 review's three fixes (2026-10-21, V2-06)
+
+**Finding.** The V2 review (Opus, `$HARNESS_SCRATCH/review-V2.diff`; notes under "## Review" in
+`docs/plans/2026-10-21-V2-contract-v2.md`) found three Important gaps against spec 2026-10-21 §2 and §4.
+
+**Decision.**
+- (a) **The trimmer keeps the v1 facts** (replaces D17 (f)). Over 15 KiB, `contract.trim_to_fit` drops the oldest
+  events, then the oldest episodes, then the oldest `profile` items, and the oldest v1 `facts` only after all of
+  those, one item at a time, re-measured. §4 says "keep the v1 keys populated as before" and "the events and episodes
+  are capped so a full body fits"; D17 (f) dropped v1 facts first, so the largest ASCII body lost facts a v1 agent
+  sent, and a 4-byte one sent `facts: []`. Now the largest bodies keep all 20 facts (ASCII: a few of the oldest
+  events go; 4-byte: every event and episode, then the oldest `profile` items). So `profile` can be shorter than
+  `facts`, and only in a body over the cap.
+- (b) **A top-level v2 key with nothing to report is left out, not sent as null** (changes how D17 (i) is sent).
+  `MemoryPayload` serializes without a `None` `v`, `about_visitor`, `about_agent` or `retention_days`; v1's
+  `summary: null` and every nested `|null` that §2 spells stay. §2 says "missing fields render as 'not reported'", and a v1
+  agent leaves them out, so a page must take a missing key; a page that takes `.optional()` but not null would
+  reject a null one. The schema still accepts null (tolerant reader).
+- (c) **An event line never quotes a value that reads as a link or an order**, which is stricter than the write gate.
+  `events.plain_enough`: no `.`, `:`, `/`, `\` or `@` between two non-spaces, no spaced `.tld` or "dot tld", no
+  scheme word, no "always/never/must/should/you will … say/speak/reply/…", and no word that mixes Latin, Cyrillic or
+  Greek letters (lookalikes); NFKC first. Otherwise the line falls back to its value-free form. "Node.js" or
+  "Ph.D." read "Remembered your interest" without the value; names in any one script show.
+
+**Rejected.** For (a), lower caps (5 episodes at 400 characters are what §2 and the summarizer allow) and trimming
+`facts` together with `profile` after the events and episodes (a 4-byte body would still lose v1 facts). For (b),
+a blanket `exclude_none` (it would drop v1's `summary: null`). For (c), tightening the write gate itself in V2: it
+also guards the memory block, and changing what is stored belongs in its own feature (proposed for V3).
+
+**Question for Michael.** (a): with more than 15 KiB, should a v2 page see a short `profile` (as now), or should
+both lists stay equal and the v1 facts pay for it? (c): should the write gate refuse these values too, so they are
+never stored, and not only never shown?
 
 ## Health port: loopback only (Michael, 2026-10-20)
 

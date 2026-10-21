@@ -12,6 +12,32 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+### 2026-10-21 09:40 · V2-06 · passes
+
+- **V2 milestone, done.** Contract v2 (§2) is built and reviewed. Tests went 972 → 1089 across V2 (V2-06: 1057 → 1089).
+  The Opus review read `$HARNESS_SCRATCH/review-V2.diff` (77e143d..HEAD). Its notes and the §2 key table (key, field,
+  test) are under "## Review" in `docs/plans/2026-10-21-V2-contract-v2.md`.
+- **Fixed test-first** (three Important, no Critical; D19 *default*):
+  - (a) `trim_to_fit` now drops events, then episodes, then `profile`, and v1 `facts` last, so a v1 page keeps every fact.
+  - (b) A null top-level v2 key is left out of the JSON (`MemoryPayload` serializer).
+  - (c) `events.plain_enough`: no event line quotes a value that reads as a link, an order or a lookalike (19 adversarial values).
+  - New `test_a_sent_v2_body_has_exactly_the_keys_of_spec_section_2` parses §2's text. Adding a field fails it.
+- **Simplified.** One-item trim loop, one `MAX_DETAIL`, `empty_memory_payload(about_agent=)`, and `session.py`
+  249 → 245 (`session_started` moved to `summary_step.py`, one `started()` helper). Every concierge/*.py is ≤ 250 lines.
+- **V3 must know.**
+  - `about_agent.knowledge` is `pack_stats()`, cached per process: `words`, `est_tokens` (of `michael.md`), `sections`
+    (its `## ` titles) and `sources_commit`. The last is read from SOURCE.md's "commit `<hex>`" form, so keep that form
+    when re-vendoring, else it reports "unknown".
+  - `instructions_est_tokens` follows `STATIC_INSTRUCTIONS`.
+  - The gate itself still stores `evil.ru`-like values (only the event lines hide them).
+- **Questions for Michael (D19).**
+  - Is a short `profile` OK in a body over 15 KiB?
+  - Is a missing `about_agent` OK, rather than null? The portfolio page must accept a missing key.
+  - Should the write gate refuse link-like or lookalike values too?
+- **Proposed changes.**
+  - A V3 (or later) feature that tightens `gate.check_text` with `events.plain_enough`'s link and lookalike rules.
+  - Tell the portfolio run: the v1 schema's top-level `additionalProperties: false` must not be enforced on a v2 body.
+
 ### 2026-10-21 08:45 · V2-05 · passes
 
 - **Changed.** `knowledge.pack_stats()` / `sources_commit()`; `TurnMetricsCollector.last_cached_share`;

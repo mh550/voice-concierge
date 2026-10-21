@@ -29,6 +29,7 @@ from concierge.contract import (
     MetricsPayload,
     VisitorView,
     Working,
+    body_bytes,
     build_memory_payload,
     empty_memory_payload,
 )
@@ -206,7 +207,8 @@ def test_contract_names_match_spec_section_6() -> None:
 def test_build_memory_payload_drops_the_oldest_facts_to_fit(
     store: Store, clock: FakeClock, visitor_id: str, memory_validator: Draft202012Validator, ch: str
 ) -> None:
-    """Multi-byte values over the 15 KiB cap: the body fits in bytes, the newest facts stay, the oldest go."""
+    """Multi-byte values over the 15 KiB cap: the body fits in bytes, the newest facts stay, the oldest go. `profile`
+    goes before any v1 fact (V2 review I1, D19)."""
     tid = store.get_or_create_thread(visitor_id).id
     for n in range(80):  # more than the merge would keep; the store takes them, so the cap is the backstop
         store.add_fact(tid, _add("asked_about", f"{n:02d}" + ch * 58, n))
@@ -219,13 +221,9 @@ def test_build_memory_payload_drops_the_oldest_facts_to_fit(
     assert kept == list(range(80 - len(kept), 80)) and 0 < len(kept) < 80
     uncapped = build_memory_payload(store, tid, max_bytes=None)
     assert len(uncapped.facts) == 80
-    assert payload.about_visitor is not None and payload.about_visitor.profile == payload.facts  # dropped from both
-    assert payload.about_visitor.profile is not payload.facts  # two lists: trimming one in place leaves the other
-    more = [uncapped.facts[-len(kept) - 1], *payload.facts]
-    one_more = payload.model_copy(
-        update={"facts": more, "about_visitor": payload.about_visitor.model_copy(update={"profile": more})}
-    )
-    assert len(one_more.model_dump_json().encode()) > MAX_BODY_BYTES  # it dropped only what it had to
+    assert payload.about_visitor is not None and payload.about_visitor.profile == []  # the v2 copy went first
+    one_more = payload.model_copy(update={"facts": [uncapped.facts[-len(kept) - 1], *payload.facts]})
+    assert body_bytes(one_more) > MAX_BODY_BYTES  # it dropped only what it had to
 
 
 # --- contract v2 (spec 2026-10-21 §2; plan V2 "Tests by feature", V2-02) ------------------------------------------
@@ -394,12 +392,21 @@ def test_profile_equals_facts(store: Store, clock: FakeClock, visitor_id: str) -
     assert payload.about_visitor.profile == payload.facts and len(payload.facts) == 4
 
 
-def test_about_agent_is_null_when_none_is_given(
+def test_about_agent_is_left_out_when_none_is_given(
     store: Store, clock: FakeClock, visitor_id: str, memory_validator: Draft202012Validator
 ) -> None:
+    """V2 review I3 (D19): a v2 key nobody reported is missing, as a v1 agent sends it, never null."""
     sent = body(build_memory_payload(store, seeded(store, clock, visitor_id)))
     memory_validator.validate(sent)
-    assert sent["about_agent"] is None and sent["about_visitor"]["events"] == []
+    assert "about_agent" not in sent and sent["about_visitor"]["events"] == []
+    assert sent["summary"] == "Ada from Acme asked about voice agents." and "summary" in body(empty_memory_payload())
+
+
+def test_a_body_with_no_v2_keys_is_sent_as_v1_and_null_v1_keys_stay() -> None:
+    v1 = empty_memory_payload().model_copy(update={"v": None, "about_visitor": None, "retention_days": None})
+    sent = json.loads(v1.model_dump_json())
+    assert list(sent) == V1_KEYS and sent["summary"] is None and sent["visitor"]["name"] is None
+    assert MemoryPayload.model_validate_json(v1.model_dump_json()) == v1  # a missing key parses back as None
 
 
 def test_build_memory_payload_keeps_the_newest_12_events(store: Store, clock: FakeClock, visitor_id: str) -> None:
@@ -420,5 +427,35 @@ def test_retention_days_matches_the_idle_ttl() -> None:
 def test_the_empty_payload_is_v2_with_an_empty_about_visitor(memory_validator: Draft202012Validator) -> None:
     sent = body(empty_memory_payload())
     memory_validator.validate(sent)
-    assert sent["v"] == 2 and sent["retention_days"] == 30 and sent["about_agent"] is None
+    assert sent["v"] == 2 and sent["retention_days"] == 30 and "about_agent" not in sent
     assert sent["about_visitor"] == {"profile": [], "episodes": [], "events": []}
+
+
+SPEC_V2 = Path(__file__).parents[2] / "docs" / "specs" / "2026-10-21-integrated-concierge.md"
+
+
+def _keys_in_order(node: typing.Any, opaque: tuple[str, ...] = ()) -> list[str]:
+    """Every object key of a sent body, depth first in the order sent (a list contributes its first item's keys);
+    an `opaque` key's own keys are left out."""
+    if isinstance(node, list):
+        return _keys_in_order(node[0], opaque) if node else []
+    if not isinstance(node, dict):
+        return []
+    return [k for key, value in node.items()
+            for k in [key, *([] if key in opaque else _keys_in_order(value, opaque))]]
+
+
+def test_a_sent_v2_body_has_exactly_the_keys_of_spec_section_2(store: Store, clock: FakeClock, visitor_id: str) -> None:
+    """V2 review: every key §2 spells is sent, in its order, and no other (review table in the V2 plan)."""
+    section = SPEC_V2.read_text().split("## 2.", 1)[1].split("\n## 3.", 1)[0]
+    lines = {k: next(line for line in section.splitlines() if f'`"{k}"' in line)
+             for k in ("v", "about_visitor", "about_agent", "retention_days")}
+    spelled = [key for line in lines.values() for key in re.findall(r'"(\w+)"`?:', line)]
+    sent = body(build_memory_payload(store, seeded_v2(store, clock, visitor_id), about_agent=an_about_agent(),
+                                     events=four_events()))
+    v2_sent = {k: v for k, v in sent.items() if k not in V1_KEYS}
+    assert list(sent)[:4] == V1_KEYS
+    assert _keys_in_order(v2_sent, opaque=("profile",)) == spelled  # §2: profile is "[fact…]"
+    assert spelled[:3] == ["v", "about_visitor", "profile"] and spelled[-1] == "retention_days"
+    profile_keys = _keys_in_order(sent["about_visitor"]["profile"])
+    assert profile_keys == _keys_in_order(sent["facts"]) == list(contract.FactView.model_fields)  # v1's fact shape

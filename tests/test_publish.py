@@ -27,6 +27,7 @@ from concierge.contract import (
     body_bytes,
     build_memory_payload,
     empty_memory_payload,
+    trim_to_fit,
 )
 from concierge.models import SET_ITEM_CAP, SET_MAX_ITEMS, SINGLE_CAP, SLOTS, AddFact
 from concierge.prompt import MEMORY_BLOCK_MAX_CHARS
@@ -279,7 +280,9 @@ SINGLE_SLOTS = [slot for slot, spec in SLOTS.items() if spec.kind == "single"]
 SET_SLOTS = [slot for slot, spec in SLOTS.items() if spec.kind == "set"]
 
 
-def maximal_store(store: Store, clock: Any, ch: str = "a", summary_ch: str = "s") -> str:  # noqa: ANN401 (FakeClock)
+def maximal_store(  # noqa: ANN401 (FakeClock)
+    store: Store, clock: Any, ch: str = "a", summary_ch: str = "s", episode_ch: str | None = None  # noqa: ANN401
+) -> str:
     """Every single slot at its 120-character cap, every set slot 8 items at the 60-character cap (the maximal valid
     fact list: 20 facts), a 400-character last-visit summary and 5 completed visits with 400-character summaries."""
     tid = store.get_or_create_thread(VISITOR).id
@@ -294,7 +297,7 @@ def maximal_store(store: Store, clock: Any, ch: str = "a", summary_ch: str = "s"
     store.set_summary(tid, None, summary_ch * SUMMARY_MAX_CHARS)
     for visit in range(1, 6):
         store.begin_visit(tid, visit, clock())
-        store.end_visit(tid, visit, clock() + 1, f"{visit}" + ch * (SUMMARY_MAX_CHARS - 1))
+        store.end_visit(tid, visit, clock() + 1, f"{visit}" + (episode_ch or ch) * (SUMMARY_MAX_CHARS - 1))
     return tid
 
 
@@ -313,7 +316,14 @@ def maximal_about_agent(ch: str = "x") -> AboutAgent:
     )
 
 
+def v1_facts(payload: MemoryPayload) -> list[Any]:
+    """The facts a v1 agent would send for the same store: the body without its v2 keys, trimmed to the cap."""
+    v1 = payload.model_copy(update={"v": None, "about_visitor": None, "about_agent": None, "retention_days": None})
+    return trim_to_fit(v1, MAX_BODY_BYTES).facts
+
+
 def test_the_largest_allowed_body_fits(store: Store, clock: Any, memory_validator: Draft202012Validator) -> None:  # noqa: ANN401
+    """V2 review I1: the oldest events go first, and a v1 page still gets every fact."""
     tid = maximal_store(store, clock)
     events, agent = maximal_events(), maximal_about_agent()
     uncapped = build_memory_payload(store, tid, max_bytes=None, about_agent=agent, events=events)
@@ -322,40 +332,43 @@ def test_the_largest_allowed_body_fits(store: Store, clock: Any, memory_validato
     assert body_bytes(payload) <= 15 * 1024
     memory_validator.validate(json.loads(payload.model_dump_json()))
     assert payload.about_visitor is not None and uncapped.about_visitor is not None
-    kept = len(payload.facts)
-    assert 0 < kept < 20 and payload.facts == uncapped.facts[-kept:]  # the oldest facts went first
-    assert payload.about_visitor.profile == payload.facts
-    assert payload.about_visitor.events == events and len(payload.about_visitor.episodes) == 5  # nothing else went
+    assert payload.facts == uncapped.facts == v1_facts(uncapped) and len(payload.facts) == 20
+    assert payload.about_visitor.profile == payload.facts and len(payload.about_visitor.episodes) == 5
+    kept = payload.about_visitor.events
+    assert 0 < len(kept) < 12 and kept == events[: len(kept)]  # the oldest events went, only those it had to
     for key in ("visitor", "summary", "v", "about_agent", "retention_days"):
         assert getattr(payload, key) == getattr(uncapped, key), key
 
 
 @pytest.mark.parametrize("ch", ["🙂", "𝄞"])
-def test_a_multibyte_body_trims_events_then_episodes(store: Store, clock: Any, ch: str) -> None:  # noqa: ANN401
-    """4-byte characters: every fact goes, then the oldest events, then the oldest episodes."""
+def test_a_multibyte_body_trims_events_then_episodes_then_profile(store: Store, clock: Any, ch: str) -> None:  # noqa: ANN401
+    """4-byte characters: every event goes, then the episodes, oldest first, then the oldest of profile; the v1 facts
+    stay as a v1 agent would send them (V2 review I1, D19)."""
     tid = maximal_store(store, clock, ch)
-    events, agent = maximal_events(ch), maximal_about_agent(ch)
+    events, agent = maximal_events(ch), maximal_about_agent()  # the section titles are the pack's own
     uncapped = build_memory_payload(store, tid, max_bytes=None, about_agent=agent, events=events)
     payload = build_memory_payload(store, tid, about_agent=agent, events=events)
     assert body_bytes(payload) <= MAX_BODY_BYTES
     about, full = payload.about_visitor, uncapped.about_visitor
     assert about is not None and full is not None
-    assert payload.facts == about.profile == []
-    assert about.events == [] and len(full.events) == 12  # every event went before any episode
-    assert 0 < len(about.episodes) < 5 and about.episodes == full.episodes[: len(about.episodes)]  # newest kept
-    assert [e.visit for e in about.episodes] == list(range(5, 5 - len(about.episodes), -1))
+    assert payload.facts == uncapped.facts == v1_facts(uncapped) and len(payload.facts) == 20
+    assert about.events == [] and about.episodes == []
+    assert 0 < len(about.profile) < 20 and about.profile == full.profile[-len(about.profile):]  # the newest kept
     probe = payload.model_copy(update={"about_visitor": about.model_copy(
-        update={"episodes": full.episodes[: len(about.episodes) + 1]})})
+        update={"profile": full.profile[-len(about.profile) - 1:]})})
     assert body_bytes(probe) > MAX_BODY_BYTES  # it dropped only what it had to
 
 
-def test_a_multibyte_body_drops_only_the_oldest_events_it_must(store: Store, clock: Any) -> None:  # noqa: ANN401
-    tid = maximal_store(store, clock, "🙂")
-    events = maximal_events("🙂")
-    payload = build_memory_payload(store, tid, about_agent=maximal_about_agent(), events=events)
-    assert payload.about_visitor is not None and payload.facts == []
-    kept = payload.about_visitor.events
-    assert 0 < len(kept) < 12 and kept == events[: len(kept)] and len(payload.about_visitor.episodes) == 5
+def test_a_multibyte_body_drops_only_the_oldest_episodes_it_must(store: Store, clock: Any) -> None:  # noqa: ANN401
+    tid = maximal_store(store, clock, episode_ch="🙂")
+    events, agent = maximal_events("🙂"), maximal_about_agent()
+    full = build_memory_payload(store, tid, max_bytes=None, about_agent=agent, events=events).about_visitor
+    payload = build_memory_payload(store, tid, about_agent=agent, events=events)
+    assert payload.about_visitor is not None and full is not None and len(payload.facts) == 20
+    kept = payload.about_visitor.episodes
+    assert payload.about_visitor.events == [] and payload.about_visitor.profile == payload.facts
+    assert 0 < len(kept) < 5 and kept == full.episodes[: len(kept)]  # newest first: the oldest went
+    assert [e.visit for e in kept] == list(range(5, 5 - len(kept), -1))
 
 
 def test_the_trimmer_never_drops_a_v1_key(store: Store, clock: Any) -> None:  # noqa: ANN401

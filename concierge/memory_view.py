@@ -71,12 +71,12 @@ def _about(view: AgentView) -> AboutAgent | None:
         return None
 
 
-def _memory_for_visitor(store: Store, visitor_id: str, about_agent: AboutAgent | None = None) -> MemoryPayload:
+def _memory_for_visitor(store: Store, visitor_id: str, about: AboutAgent | None = None) -> MemoryPayload:
     """Read-only: no thread is created for a visitor who has none."""
     thread = store.thread_for(visitor_id)
     if thread is None:
-        return empty_memory_payload().model_copy(update={"about_agent": about_agent})
-    return build_memory_payload(store, thread.id, about_agent=about_agent)
+        return empty_memory_payload(about)
+    return build_memory_payload(store, thread.id, about_agent=about)
 
 
 def memory_with_events(
@@ -102,4 +102,4 @@ async def current_memory(
         return await writer.call(memory_with_events, writer.store, writer.thread_id, lines, about)
     if store is not None:
         return await asyncio.to_thread(_memory_for_visitor, store, visitor_id, about)
-    return empty_memory_payload().model_copy(update={"about_agent": about})
+    return empty_memory_payload(about)

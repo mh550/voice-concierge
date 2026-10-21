@@ -265,7 +265,7 @@ async def test_get_memory_after_forget_me_without_memory_equals_the_last_send(fa
         last = json.loads(room.local_participant.sent_on(MEMORY_TOPIC)[-1])
         body = json.loads(await room.local_participant.rpc_handlers[GET_MEMORY_METHOD](invocation(GET_MEMORY_METHOD)))
         await shutdown(ctx, started)
-    assert last["about_agent"] is None and {**body, "updated_at": None} == {**last, "updated_at": None}
+    assert "about_agent" not in last and {**body, "updated_at": None} == {**last, "updated_at": None}
 
 
 async def test_start_session_registers_both_rpcs(fakes: list[FakeLLM], db: Store) -> None:

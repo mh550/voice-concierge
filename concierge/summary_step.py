@@ -116,6 +116,13 @@ async def begin_visit(writer: MemoryWriter, visit: int, started_at: int) -> None
         logger.warning("could not open the visit (%s)", type(exc).__name__)
 
 
+async def session_started(writer: MemoryWriter, visit: int, started_at: int, payload: dict[str, Any]) -> None:
+    """The background task after the greeting: the visit's open episode, then the `session_started` row, both on the
+    writer's thread in that order (moved from `concierge/session.py` by V2-06)."""
+    await begin_visit(writer, visit, started_at)
+    await journal_row(writer.store, writer.thread_id, writer.session_id, "session_started", payload, writer)
+
+
 async def end_visit(writer: MemoryWriter, visit: int, ended_at: int, summary: str | None) -> None:
     """Close the visit's episode with what `write_summary` returned (None: failed or skipped, D17 (c))."""
     try:

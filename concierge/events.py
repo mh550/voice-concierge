@@ -10,18 +10,18 @@ whose lines were read before the forget ran. In memory only; `clear` on "Forget 
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from concierge.contract import MAX_EVENTS, EventType, MemoryEvent, iso_utc
+from concierge.contract import MAX_DETAIL, MAX_EVENTS, EventType, MemoryEvent, iso_utc
 from concierge.fact_ops import value_key
 from concierge.gate import check_text
 from concierge.merge_result import MergeResult
 from concierge.models import SlotName
 from concierge.store import now_ms
-
-MAX_DETAIL = 120  # MemoryEvent.detail's max_length
 
 # The value-free form of each type: the fallback when a line would carry text the page mustn't show.
 PLAIN: dict[EventType, str] = {
@@ -54,8 +54,33 @@ _LOOKED_LIKE: dict[str, str] = {
 }
 
 
+# Stricter than the write gate, for text the page shows (V2 review I2): any dot, colon, slash, backslash or @ between
+# two non-spaces, a spaced ".tld" or "dot tld", a scheme word, or an order to the agent; and below, mixed scripts.
+_LINK_OR_ORDER = re.compile(
+    r"\S[.:/\\@]\S|\s\.[a-z]{2,}\b|\bdot\s+(?:com|net|org|io|dev|ai|app|co|me|ru|de|uk|gg|ly|us|cn|xyz|info)\b"
+    r"|\b(?:hxxps?|https?|ftp|javascript|data|file)\b"
+    r"|\b(?:always|never|must|should|you\s+(?:will|need\s+to|have\s+to))\b.{0,40}"
+    r"\b(?:say|speak|tell|call|respond|reply|answer|write|use|talk|mention|ignore|obey|follow)\b",
+    re.IGNORECASE,
+)
+_LOOKALIKE_SCRIPTS = {"LATIN", "CYRILLIC", "GREEK"}
+
+
+def _mixed_scripts(text: str) -> bool:
+    """A word with Latin, Cyrillic or Greek letters mixed: how a lookalike ("exаmple", Cyrillic а) passes a pattern."""
+    return any(len({unicodedata.name(c, "").split(" ", 1)[0] for c in word if c.isalpha()} & _LOOKALIKE_SCRIPTS) > 1
+               for word in text.split())
+
+
+def plain_enough(line: str) -> bool:
+    """A line the page may show: within the cap, passes `check_text`, reads as no link and no order."""
+    norm = unicodedata.normalize("NFKC", line)
+    return (len(line) <= MAX_DETAIL and check_text(line).ok and not _LINK_OR_ORDER.search(norm)
+            and not _mixed_scripts(norm))
+
+
 def _safe(line: str, plain: str) -> str:
-    return line if len(line) <= MAX_DETAIL and check_text(line).ok else plain
+    return line if plain_enough(line) else plain
 
 
 def fact_added(slot: SlotName, value: str) -> str:

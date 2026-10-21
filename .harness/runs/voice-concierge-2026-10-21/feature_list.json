@@ -140,7 +140,7 @@
         "README.md § What it does and § Architecture, docs/decisions.md and the plan agree with the code; progress.md has a V2 entry with the test counts and what a V3 session must know (the about_agent.knowledge fields V3 changes)",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V3-01",

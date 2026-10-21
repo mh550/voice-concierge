@@ -15,9 +15,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from itertools import islice
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
 
 from concierge.models import Channel, Fact, SlotName, Source, TurnMetrics, VisitEpisode
 from concierge.store import Store, ThreadMissing, now_ms
@@ -30,6 +30,7 @@ MAX_BODY_BYTES = 15 * 1024  # §6 "at most 15 KiB", counted in UTF-8 bytes (Live
 RETENTION_DAYS = 30  # §2 "retention_days": 30, the B6 idle TTL (Settings.idle_ttl_days; a test keeps them equal)
 MAX_EPISODES = 5  # §2: newest first, at most 5
 MAX_EVENTS = 12  # §2: this session only, newest first, at most 12
+MAX_DETAIL = 120  # an event's detail: one short plain sentence (D17 (a))
 
 EventType = Literal[
     "fact_added", "fact_invalidated", "fact_deleted", "gate_rejected", "extraction_ran", "remember", "forget"
@@ -75,7 +76,7 @@ class MemoryEvent(BaseModel):
 
     ts: str
     type: EventType
-    detail: str = Field(max_length=120)
+    detail: str = Field(max_length=MAX_DETAIL)
 
 
 class AboutVisitor(BaseModel):
@@ -134,6 +135,15 @@ class MemoryPayload(BaseModel):
     about_agent: AboutAgent | None = None
     retention_days: int | None = Field(default=None, ge=1)
 
+    @model_serializer(mode="wrap")
+    def _leave_out_unreported(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """A v2 key nobody reported is left out, as a v1 agent sends it, never null (§2 "missing fields render as
+        'not reported'"; V2 review I3, D19). The v1 keys keep their nulls."""
+        return {k: v for k, v in handler(self).items() if v is not None or k not in V2_KEYS}
+
+
+V2_KEYS = ("v", "about_visitor", "about_agent", "retention_days")
+
 
 def iso_utc(ms: int) -> str:
     """Epoch milliseconds as `2026-10-20T09:15:02.123Z`."""
@@ -154,11 +164,12 @@ def _episode(row: VisitEpisode) -> Episode:
     )
 
 
-def empty_memory_payload() -> MemoryPayload:
+def empty_memory_payload(about_agent: AboutAgent | None = None) -> MemoryPayload:
     """Nobody: after "Forget me", and for a session without memory. A v2 body with nothing in it (D17 (g))."""
     return MemoryPayload(
         visitor=VisitorView(name=None, visits=0), facts=[], summary=None, updated_at=iso_utc(now_ms()), v=2,
-        about_visitor=AboutVisitor(profile=[], episodes=[], events=[]), retention_days=RETENTION_DAYS,
+        about_visitor=AboutVisitor(profile=[], episodes=[], events=[]), about_agent=about_agent,
+        retention_days=RETENTION_DAYS,
     )
 
 
@@ -178,7 +189,7 @@ def build_memory_payload(
     oldest first by (created_at, id), repeated as `about_visitor.profile`; the newest 5 visits as `episodes` (V2-03,
     read right after the view on the same thread: an erase in between leaves none); `events` (newest first, the ring)
     keeps its newest 12; `about_agent` stays null when none is given. Over `max_bytes`, `trim_to_fit` drops the oldest
-    facts, then events, then episodes. An erased thread gives `empty_memory_payload()`.
+    events, then episodes, then `profile` items, then facts. An erased thread gives `empty_memory_payload()`.
     Blocks on the store: call it on the writer's thread or in a thread."""
     try:
         thread, snapshot, now = store.memory_view(thread_id)
@@ -202,26 +213,24 @@ def build_memory_payload(
     return trim_to_fit(payload, max_bytes)
 
 
-def _cost(item: BaseModel) -> int:
-    return len(item.model_dump_json().encode()) + 1  # its JSON and a comma
-
-
 def trim_to_fit(payload: MemoryPayload, max_bytes: int) -> MemoryPayload:
-    """The size rule (plan V2 "The size rule"): drop the oldest facts first, each from `facts` and `profile` together,
-    then the oldest events, then the oldest episodes (both lists are newest first), until the JSON body fits. Never a
-    v1 key, `v`, `about_agent` or `retention_days`: a body that still doesn't fit is returned as it is, and its send
-    fails as too large. One pass per round; a round that overshot by a comma runs once more."""
-    about = payload.about_visitor or AboutVisitor(profile=list(payload.facts), episodes=[], events=[])
-    facts, events, episodes = list(payload.facts), list(about.events), list(about.episodes)
-    excess = body_bytes(payload) - max_bytes
-    while excess > 0 and facts:
-        excess -= 2 * _cost(facts.pop(0))
-    while excess > 0 and events:
-        excess -= _cost(events.pop())
-    while excess > 0 and episodes:
-        excess -= _cost(episodes.pop())
-    kept = AboutVisitor(profile=list(facts), episodes=episodes, events=events)
-    trimmed = payload.model_copy(update={"facts": facts, "about_visitor": kept if payload.about_visitor else None})
-    if body_bytes(trimmed) <= max_bytes or not (facts or events or episodes):
-        return trimmed
-    return trim_to_fit(trimmed, max_bytes)
+    """The size rule (D19, V2 review I1): drop the oldest events, then the oldest episodes (both lists are newest
+    first), then the oldest of `profile`, and only then the oldest v1 `facts`, until the JSON body fits; so a v1 page
+    gets the facts a v1 agent would send. Never a v1 key, `v`, `about_agent` or `retention_days`: a body that still
+    doesn't fit is returned as it is, and its send fails as too large. One item at a time, re-measured: the lists are
+    short (12, 5, 20, 20)."""
+    about = payload.about_visitor or AboutVisitor(profile=[], episodes=[], events=[])
+    events, episodes, profile = list(about.events), list(about.episodes), list(about.profile)
+    facts = list(payload.facts)
+
+    def built() -> MemoryPayload:
+        kept = (AboutVisitor(profile=list(profile), episodes=list(episodes), events=list(events))
+                if payload.about_visitor is not None else None)
+        return payload.model_copy(update={"facts": list(facts), "about_visitor": kept})
+
+    trimmed = payload
+    for items, oldest in ((events, -1), (episodes, -1), (profile, 0), (facts, 0)):
+        while items and body_bytes(trimmed) > max_bytes:
+            items.pop(oldest)
+            trimmed = built()
+    return trimmed

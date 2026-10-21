@@ -52,7 +52,7 @@ from concierge.publish import MemoryPublisher, publish
 from concierge.rpc import serve_rpcs
 from concierge.session_end import Closing, begin_end, end_session, shut_down
 from concierge.store import Store, now_ms
-from concierge.summary_step import begin_visit, journal_row
+from concierge.summary_step import journal_row, session_started
 from concierge.tasks import track
 from concierge.text_input import ChannelTags, make_text_input_cb
 
@@ -107,13 +107,6 @@ def build_session(ctx: JobContext, settings: Settings) -> AgentSession:
         # D7. Interruptions by VAD too: with no mode, dev/console mode builds the hosted adaptive detector.
         turn_handling={"turn_detection": "vad", "interruption": {"mode": "vad"}},
     )
-
-
-async def session_started(writer: MemoryWriter, visit: int, started_ms: int, payload: dict[str, Any]) -> None:
-    """The background task after the greeting: the visit's open episode (V2-03), then the `session_started` row, both
-    on the writer's thread in that order."""
-    await begin_visit(writer, visit, started_ms)
-    await journal_row(writer.store, writer.thread_id, writer.session_id, "session_started", payload, writer)
 
 
 async def start_session(ctx: JobContext, store: Store | None, settings: Settings) -> Started:
@@ -226,6 +219,12 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
         session.llm.on("metrics_collected", collector.on_llm_metrics)
     view = AgentView(agent, compactor, collector)
     rpcs(writer=writer)
+
+    def started(loaded: Preloaded | None = None, greeting: SpeechHandle | None = None) -> Started:
+        """Without a greeting (the cap, or an end during the start) the preload isn't reported either."""
+        return Started(session, loaded, session_id, greeting, tasks, writer, compactor, publisher, collector,
+                       closing.timer, closing, ring)
+
     await session.start(agent=agent, **room_start_kwargs(ctx, info, settings, channels))
     # An end that began during the start ("Forget me" says goodbye and ends, review A-M1; the visitor gone, V1-03) or
     # during the late count runs alone: no cap line, no greeting, no timer, no session_started after session_ended.
@@ -234,16 +233,13 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
             preloading.cancel()  # a count that timed out may still come back under the cap: no preload then
         if not closing.stopped:
             track(tasks, say_and_end(session, DAILY_CAP_LINE, end, "daily cap"), log=logger)
-        return Started(session, None, session_id, None, tasks, writer, compactor, publisher, collector, closing=closing,
-                       events=ring)
+        return started()
     if closing.stopped:
-        return Started(session, None, session_id, None, tasks, writer, compactor, publisher, collector, closing=closing,
-                       events=ring)
+        return started()
     greeting = session.generate_reply(instructions=greeting_instructions(preloaded))
     if writer is not None and preloaded is not None:  # created first: its begin_visit is queued ahead of the start read
-        started = {"visits": preloaded.visits, "preload_ms": preloaded.ms, "returning": preloaded.block is not None}
-        track(tasks, session_started(writer, preloaded.visits, started_ms, started), log=logger)
+        row = {"visits": preloaded.visits, "preload_ms": preloaded.ms, "returning": preloaded.block is not None}
+        track(tasks, session_started(writer, preloaded.visits, started_ms, row), log=logger)
     publisher.schedule()  # after the greeting is queued: the read waits behind the writer's thread, not the reply
-    timer = closing.timer = start_session_timer(session, settings.session_max_s, end)  # B7: 10 minutes, one line
-    return Started(session, preloaded, session_id, greeting, tasks, writer, compactor, publisher, collector, timer,
-                   closing, ring)
+    closing.timer = start_session_timer(session, settings.session_max_s, end)  # B7: 10 minutes, one line
+    return started(preloaded, greeting)
