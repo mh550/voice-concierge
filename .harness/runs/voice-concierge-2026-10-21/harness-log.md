@@ -2,3 +2,4 @@
 - 2026-10-21 02:35 · V1-01 · claude-opus-5-5 · passes=true · 10 min · 1/22 passing
 - 2026-10-21 02:53 · V1-02 · claude-opus-5-5 · passes=true · 17 min · 2/22 passing
 - 2026-10-21 03:16 · V1-03 · claude-opus-5-5 · passes=true · 22 min · 3/22 passing
+- 2026-10-21 03:19 · V1 verified and tagged run/voice-concierge-2026-10-21/V1
