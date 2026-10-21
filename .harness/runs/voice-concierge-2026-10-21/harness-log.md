@@ -30,3 +30,4 @@
 - 2026-10-21 07:26 · V4-03 · claude-sonnet-5-5 · passes=true · 19 min · 17/22 passing
 - 2026-10-21 07:38 · V4-04 · claude-opus-5-5 · passes=true · 11 min · 18/22 passing
 - 2026-10-21 07:38 · merged main into harness/voice-concierge-2026-10-21
+- 2026-10-21 07:40 · V4 verified and tagged run/voice-concierge-2026-10-21/V4
