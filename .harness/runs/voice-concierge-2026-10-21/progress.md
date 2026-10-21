@@ -13,6 +13,30 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 18:00 · verify V4
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| V4-01 | 1 | read the plan; compared its quotes to `.venv/.../voice/agent_session.py:855-874`, `run_result.py:185-190` | file:line quotes match the installed 1.8.8 source; yaml format, result model, 11-script table and V4-02 test names are listed | yes |
+| V4-01 | 2 | read `concierge/evals/conversation.py` | TurnCheck/ConversationScript/TurnResult/ConversationResult extra=forbid; exactly-one-fake validator; stem check; FORBIDDEN_EVERYWHERE = ('pack','knowledge pack','source:') | yes |
+| V4-01 | 3 | read `run_conversation` | AgentSession(llm=factory()), `agent_or_memoryless(pack, memory_block)`, start with no room, `session.run(user_input=)`, events read, checks applied, aclose in finally; no Store (pack read per run, greeting first: a later review change) | yes |
+| V4-01 | 4 | `pytest tests/test_conversation_runner.py` (in a 205-test run) | all pass; tests for pass, 'knowledge pack' fail, 4 sentences, remember tool call, missing call, passed False, STATIC_INSTRUCTIONS/pack | yes |
+| V4-01 | 5 | `.harness/check.sh` | green, 1203 tests, ruff clean | yes |
+| V4-02 | 1 | `ls evals/conversation`; read 03, 08, 09, 10, 11 | exactly the 11 required stems; every turn has fake_reply or fake_tool_call; 03 has PostgreSQL and about says what it doesn't know; 08/09/10/11 as specified | yes |
+| V4-02 | 2 | `scripts/eval_conversation.py --offline`, `--case 09-remember-request`, run without key | offline: markdown table, 11/11 passed, exit 0; --case works; no key: "ANTHROPIC_API_KEY not set", exit 2; tests/test_scripts.py passes | yes |
+| V4-02 | 3 | `pytest tests/test_conversation_evals_offline.py` | parametrized per file, pass; fixtures for 'knowledge pack' and 4 sentences fail; remember detected | yes |
+| V4-02 | 4 | read `tests/llm/test_conversation.py`, `pyproject.toml`, `check.sh`, `tests/test_live_layout.py`; `--collect-only` | llm + skipif marks; marker registered; check.sh uses `-m "not live and not llm"`; "5 deselected" asserted and observed (1203/1208) | yes |
+| V4-02 | 5 | `.harness/check.sh` | green | yes |
+| V4-03 | 1 | read MORNING.md §9, tests/test_morning.py | step 9 after memory eval, exact command, Check, Undo; 14 steps and COMMANDS test pass | yes |
+| V4-03 | 2 | read README "How it's verified" and `tests/test_readme.py` | offline/llm/live table before "Failure cases and limits"; SECTIONS updated; named scripts/markers exist | yes |
+| V4-03 | 3 | grep for phrase; read `test_the_harness_phrase_is_absent` | phrase absent from README, MORNING, docstrings; test holds constant and passes | yes |
+| V4-03 | 4 | `.harness/check.sh` | green | yes |
+| V4-04 | 1 | `wc -l` of `$HARNESS_SCRATCH/review-V4.diff`; read plan `## Review` | diff 1558 lines exists; five checks, 11-script assertion table and findings present | yes |
+| V4-04 | 2 | read Review findings and `_read`/`reply_failures`; ran tests | I1/I2 fixed with named tests passing; five checks evidenced; llm test deselected with keys set (test passes) | yes |
+| V4-04 | 3 | read simplification notes; `wc -l concierge/*.py concierge/evals/*.py` | `_what` shared and eval_memory sharing declined with reason; no file over 250 | yes |
+| V4-04 | 4 | read progress.md V4-04 entry | test counts 1181 -> 1203 and exact staged llm commands present | yes |
+| V4-04 | 5 | `.harness/check.sh` | green | yes |
+
 ### 2026-10-21 16:45 · V4-04 · passes
 
 - **Changed:** The review is under `## Review` in `docs/plans/2026-10-21-V4-conversation-evals.md`: the five named checks, the table of the 11 §6 scripts and their assertions, and the findings. Opus found 0 Critical, 2 Important and 7 Minor. Fixed RED→GREEN: **I1**, an errored tool call (`FunctionCallOutputEvent.is_error`) now fails with `tool error: '<name>'`, so `tool_called` can't pass on a broken call. **I2**, `_contains` now matches `sorted(` and `.sort(` inside code; 07's code check could never fire before. **M1**, "B.S." and the other degrees no longer end a sentence. **M2**, the runner sends the production greeting before turn 1, and `offline_llm` replays `FAKE_GREETING`. **M3/M4**, the weak any-of words are gone from 01, 04 and 06, and 03 rejects made-up MySQL, Oracle, MongoDB or SQL Server claims. **M7**, the pack is read per run. New autouse `_no_network` in `tests/conftest.py`: any non-loopback connect raises in an offline test. Tests 1181 → 1203.
