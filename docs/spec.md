@@ -1,7 +1,7 @@
 # Voice Concierge: a portfolio voice agent that remembers returning visitors
 
 Status: design, 2026-10-19; revised 10-20 00:30 (providers, explicit memory design §4.0, in-call compaction §4.8,
-memory evals §4.9). Owner: Michael Herron. Builder: the agent-harness, overnight 10-19 → 10-20.
+memory evals §4.9). See `docs/specs/2026-10-21-integrated-concierge.md` for V1–V6. Owner: Michael Herron. Builder: the agent-harness, overnight 10-19 → 10-20.
 Companion spec for the web page: `portfolio_site/docs/specs/2026-10-19-voice-concierge-page.md` (same contract, §6).
 
 ## 1. Why this exists

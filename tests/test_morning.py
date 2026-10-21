@@ -65,3 +65,19 @@ def test_env_example_names() -> None:
     for switch in ("CONCIERGE_LLM_PROVIDER", "CONCIERGE_SPEECH", "CONCIERGE_RECORD_AUDIO", "CONCIERGE_ENABLED"):
         assert any(ln.startswith(f"# {switch}=") for ln in lines), switch
     assert all(ln.split("=", 1)[1] == "" for ln in lines if re.match(r"^[A-Z_]+=", ln))
+
+
+def _step(n: int) -> str:
+    return re.split(rf"^## {n}\. ", MORNING, flags=re.M)[1].split("\n## ", 1)[0]
+
+
+def test_drift_and_conversation_steps_have_check_and_undo() -> None:
+    for n, command in ((9, "eval_conversation.py"), (13, "check_sources.py")):
+        body = _step(n)
+        assert command in body and "Check" in body and "Undo" in body, n
+
+
+def test_voice_step_covers_the_link_click_round_trip() -> None:
+    body = " ".join(_step(4).split())
+    assert "without pressing Leave" in body and "Closing your earlier conversation…" in body
+    assert "memory panel fills again" in body

@@ -59,7 +59,11 @@ Until the V2 worker has started once, the scripts in §12 refuse the old file ("
 Open the portfolio page and press talk. Say your name and a project, answer the name confirmation, hang up, and come
 back.
 
-Check: the memory panel lists the facts with channel and time, and the second visit greets you by name. Undo: step 6.
+Then, in a new call, click another link on the site without pressing Leave, and come back to the page.
+
+Check: the memory panel lists the facts with channel and time, and the second visit greets you by name. After the
+link-click round trip the page shows "Closing your earlier conversation…" at most briefly, and the memory panel fills
+again. Undo: step 6.
 
 ## 5. Text
 

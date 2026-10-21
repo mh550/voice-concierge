@@ -13,6 +13,9 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 · V5-01 · passes
+README § What it does gains the departure (20 s grace, ~30 s), self-description and three-tiers bullets, and the Forget me button is now described as appearing during a call; MORNING step 4 adds the link-click-without-Leave round trip. docs/spec.md status line points to the integrated spec. Harness-phrase test now also covers docs/plans/2026-10-21-*.md (V3 plan reworded to stop quoting the phrase). Tests 1203 → 1207 (readme +2, morning +2); check.sh green. Mermaid edge and steps 9/13 Check/Undo already met the steps. No questions or proposed changes.
+
 ### 2026-10-21 18:00 · verify V4
 
 | Feature | Step | What you ran or read | What you saw | Holds |
