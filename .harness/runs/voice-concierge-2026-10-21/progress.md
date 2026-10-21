@@ -13,6 +13,35 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 13:30 · verify V3
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| V3-01 | 1 | read plan §Re-vendoring, `### resume-v4.md`, `### concierge.md` | clone command into $S, header-line loop, SOURCE.md rules, `81bb0fc` fallback, 30 days/10 minutes/5 sessions/1,500/1,200, resume-wins rule all present | yes |
+| V3-01 | 2 | read plan §'The pack's new outline' and cut list | 15 sections in the step's order with word budgets, total 1,038 body words (about 1,146 counted) ≤1,200; cut order given for the 3,000-token overrun | yes |
+| V3-01 | 3 | read plan §The instructions, §policy check, §drift check, §Tests by feature | prompt.py wording word for word, D21 policy URLs and unfetched-page rule, CLI `[--fetched DIR] [--sources DIR]` with exit 0/1/2, test names for V3-02..04 incl. two fixture trees | yes |
+| V3-01 | 4 | ran `/home/mh550/projects/agent-harness/lib/check.sh` | green, 1114 tests | yes |
+| V3-02 | 1 | `head -1` of the five sources, read SOURCE.md, concierge.md line 1, resume-v4.md; `git grep -E '[0-9]{7,}' knowledge/sources` | all five headers `vendored from mh550/portfolio_site@b7c974f <path>` (// or <!-- -->); SOURCE.md names b7c974f, 2026-10-21, 'resume v4 of 2026-10-20, from the spec', resume wins; concierge.md names README.md and spec §4.0; no 7-digit run. (Clone itself not re-run: build-only/offline; headers consistent) | yes |
+| V3-02 | 2 | read knowledge/michael.md headings, Positioning, Skills, Voice Concierge, Experience | positioning line and 'Agentic Systems Engineer' present with Source: resume-v4.md; 4 skill groups; Voice Concierge section has home box, LiveKit Cloud, one thread, background notes, Forget me, 30 days etc.; Agent Harness refreshed; Tahoma/coaching present | yes |
+| V3-02 | 3 | `pytest tests/test_knowledge.py tests/test_prompt.py -k ...` (65 passed); read the tests | test_the_pack_has_the_self_description_section, test_sources_commit_matches_the_headers, test_the_pack_carries_the_new_positioning, budget test pass; pack 1,181 words (`wc -w`), static+pack 2,866 | yes |
+| V3-02 | 4 | python regex over michael.md; read test_the_pack_has_no_phone_number_or_retired_words | no 7+ digit run; 'knowledge pack' and 'specs in, verified milestones out' absent outside Source: lines; test passes | yes |
+| V3-02 | 5 | check.sh | green, 1114 | yes |
+| V3-03 | 1 | read concierge/prompt.py; grep | old 'Never mention the pack' sentence gone (0 hits); forbid rule with the three words, 'my notes', self-description rule, heading 'What you know about Michael (the only source of facts about him):' | yes |
+| V3-03 | 2 | read test_static_instructions_forbid_the_pack_words, ran it | removes the rule line, asserts none of pack/knowledge pack/source lines, 'Voice Concierge (this agent)', 'how you were built'; passes; budget test passes at 3,000 | yes |
+| V3-03 | 3 | read docs/decisions.md D21 | entry with 4 URLs, date 2026-10-21, clauses quoted, self-hosts-own-prompt note, all pages fetched. Titled D21 'the feature's "D18"' because V2 already used D18; content matches the step, number differs by unavoidable collision | yes |
+| V3-03 | 4 | read README.md §Privacy lines 203-205 | one sentence: describes its own memory design and build on request, checked against LiveKit and Anthropic terms, points to decisions.md D21 (the D18 of the step) | yes |
+| V3-03 | 5 | check.sh | green, 1114 | yes |
+| V3-04 | 1 | read scripts/check_sources.py; ran it with --fetched on clean, drifted and missing-file trees in scratch | exit 0 'clean: 5 files match main'; exit 1 'drifted: projects.ts'; exit 2 'missing: skills.ts'; urlopen timeout 10 s, stdlib only | yes |
+| V3-04 | 2 | read tests/test_scripts.py test_check_sources_*; ran them | clean/drift/never_fetches tests exist and pass; never_fetches monkeypatches socket connect and urlopen; exit codes 0/1 and drifted name asserted | yes |
+| V3-04 | 3 | read MORNING.md §12, tests/test_morning.py | '12. Source drift check' with `.venv/bin/python scripts/check_sources.py`, Check, Undo none; COMMANDS includes it, step count range(1, 14); tests pass | yes |
+| V3-04 | 4 | read docs/decisions.md D22 | 'D22 *default*' (the step's 'D19 *default*', renumbered since V2 used D19): drift check not automatic rebuild, with the LLM-prose/key/review reason | yes |
+| V3-04 | 5 | check.sh; `ruff check .` | green, all checks passed | yes |
+| V3-05 | 1 | `wc -l` review-V3.diff in scratch; read plan ## Review and claims tables | review-V3.diff 1,661 lines exists; claims tables for 22 Voice Concierge sentences with README/spec lines and 16 numbers with source lines | yes |
+| V3-05 | 2 | read ## Review findings; test_concierge_limits_match_the_code and `git grep` for digit runs | I1 fixed with a test; no phone number in sources; resume-wins in SOURCE.md; pack word absent from prompt outside the rule; margin 134 tokens stated | yes |
+| V3-05 | 3 | `wc -l concierge/*.py`; read the simplification paragraph | max 250 (memory_writer.py); `_untraced()` simplification named | yes |
+| V3-05 | 4 | read progress.md V3-05 entry | 1,181 words, 2,866 tokens, commit b7c974f, and the section names V4 can rely on all present | yes |
+| V3-05 | 5 | check.sh | green, 1114 | yes |
+
 ### 2026-10-21 12:45 · V3-05 · passes
 
 - **Changed:** I wrote the V3 diff (`69a43ee..HEAD`, 1,661 lines) to scratch `review-V3.diff`, and an Opus reviewer read it: 0 Critical, 1 Important, 5 Minor. `## Review` in `docs/plans/2026-10-21-V3-knowledge-v2.md` holds the findings and both claims tables. One table covers the 22 sentences of the Voice Concierge section, each with its README or spec line. The other covers the 16 numbers in Experience and Agent Harness, each with its source line. **I1, fixed RED→GREEN:** the number tests used a plain substring match, so "20 minutes" passed. New `test_concierge_limits_match_the_code` builds the phrases from `Settings`, `MEMORY_BLOCK_MAX_CHARS` and the word cap. **M4:** new `test_the_pack_prose_is_in_spoken_form`; the pack's prose now says "about 80 percent", "twice the sprint throughput", "about 3 dollars", and no `~ × ↔ ≈ $ %` symbols remain. **M2:** SOURCE.md's "resume wins" list now includes contact links. Simplification: `_untraced()` in `tests/test_knowledge.py`. Tests 1112 → 1114.
