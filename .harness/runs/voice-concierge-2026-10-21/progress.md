@@ -12,6 +12,30 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+### 2026-10-21 04:20 · verify V1
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| V1-01 | 1 | Read docs/plans/2026-10-21-V1-departure.md; opened .venv livekit at each quoted line (room.py:55-57, 768-775; participant.py:164; job_proc_lazy_main.py:477,479,497; job.py:871) | All quotes match the source at those lines. Plan names end_session in concierge/session_end.py, runs while connected, then ctx.shutdown, and lists the V1-02 test names | yes |
+| V1-01 | 2 | Read docs/decisions.md:227 'D16 *default*' | 20 s DEPARTURE_GRACE_S, why (reload/remount reconnects with the same identity), rejected: ending at once and waiting for the cap, and a question for Michael | yes |
+| V1-01 | 3 | Read concierge/departure.py | DEPARTURE_GRACE_S=20.0; DepartureWatcher(room, visitor_identity, on_left, grace_s, join_grace_s) (one extra optional arg from V1-03), start() registers both events via room.on, idempotent cancel(), pending property; handlers are plain defs | yes |
+| V1-01 | 4 | Read tests/test_departure.py and ran it (157 pass across the V1 files) | test_the_visitor_leaving_calls_on_left_once_after_the_grace, ..returning_inside_the_grace_cancels_it (pending false), test_another_participant_leaving_starts_nothing, test_cancel_during_the_grace_stops_on_left, test_two_disconnects_in_a_row_start_one_grace: asserts match the step | yes |
+| V1-01 | 5 | grep models.py, tests/test_store.py | JournalType includes 'visitor_left' (models.py:21); test_journal_takes_a_visitor_left_row asserts the row is journaled | yes |
+| V1-01 | 6 | `.harness/check.sh` | exit 0; 972 passed, 4 deselected | yes |
+| V1-02 | 1 | Read concierge/session_end.py; tests test_end_session_runs_its_work_once, test_two_ends_starting_in_the_same_tick_run_the_work_once | Closing.ending makes the work run once; cancels timer and watcher, compactor.aclose, writer.flush, write_summary (not erased/no user turn), session_ended, final memory via publisher.schedule+idle (a deliberate change: not publisher.final, review I1), then end(reason); shut_down calls end_session(leave=False) and closes the store last. Test asserts one summary, one session_ended, one shutdown | yes |
+| V1-02 | 2 | Read concierge/session.py:130-155; test_the_time_limit_ends_through_end_session, test_the_daily_cap_ends_through_end_session | DepartureWatcher started after ctx.connect for every session; on_left -> end_session('visitor left', left_grace_s) which journals visitor_left; caps use begin_end, final memory sent before shutdown (ending.memory_sent); forget_me ends via begin_end (changed in V1-03, still erased with no summary) | yes |
+| V1-02 | 3 | Read the four tests in tests/test_session.py:501-575 and ran them | Leaving: shutdown once with 'visitor left', rows [visitor_left, session_ended]; returning: no shutdown or visitor_left after 3x grace; other participant: nothing; final memory sent before shutdown, schema-validated, carries Acme and summary | yes |
+| V1-02 | 4 | `git diff 21905a7..HEAD -- tests/test_critical_path.py`; `wc -l concierge/session.py` | Empty diff (unchanged), test_critical_path passes; session.py is 219 lines | yes |
+| V1-02 | 5 | Read README.md:155-162; grep README.md and MORNING.md | No-lease bullet says 20 s wait for a reconnect, then saves notes and leaves, address freed in about 30 s. README line 'sooner when the visitor leaves'. No remaining 'runs on to the cap' text in either file | yes |
+| V1-02 | 6 | `.harness/check.sh` | exit 0; 972 passed | yes |
+| V1-03 | 1 | `git diff 21905a7..HEAD --stat`; ls scratch; read plan '## Review' | 21905a7 is the parent of V1-01; scratch review-V1.diff exists; Review notes with Critical/Important/Minor and file:line/test refs are in the plan | yes |
+| V1-03 | 2 | Read the Review RED lists; ran test_departure/test_session/test_critical_path/test_limits | Each Important lists a RED test and reason; covers cap/departure/forget_me race, departure during start/preload (join grace, closing.stopped), no handler awaiting store (test_critical_path green); 157 pass | yes |
+| V1-03 | 3 | Read Simplification pass; `wc -l concierge/*.py` | enforce_daily_cap, end=None paths, dead _EVENTS removed; max 250 (session_end.py, memory_writer.py) | yes |
+| V1-03 | 4 | Read progress.md V1-03 entry; git log | States tests 940 -> 972 (commit messages 940->952->963->972 agree) and the final memory is sent before ctx.shutdown | yes |
+| V1-03 | 5 | `.harness/check.sh` | exit 0; 972 passed in 105 s | yes |
+
+17 steps, 17 hold, 0 fail. No feature flipped.
+
 ### 2026-10-21 03:45 · V1-03 · passes
 
 - **V1 as a whole.** Tests 940 before V1 → 972 after (V1-01 +12, V1-02 +11, V1-03 +9). Design fact: every end runs
