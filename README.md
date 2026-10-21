@@ -28,6 +28,15 @@ live run is Michael's ([`MORNING.md`](MORNING.md)); until then no measured numbe
   learned) at session start and after every merge, and `concierge.metrics` (one row of timings and tokens per turn), as
   text streams the page draws (`concierge/publish.py`, `concierge/metrics.py`).
 
+The `concierge.memory` body is contract v2 (`"v": 2`): the v1 keys unchanged, plus three kinds of thing the page can
+show. `about_visitor` is what is remembered about the visitor: the valid facts as a profile, and the newest five visits
+with their summaries. Its `events` are this session's memory events, newest first: a fact added, updated or forgotten,
+something the write gate refused to store (named by kind, never quoted), a background extraction, a `remember` or
+`forget` the visitor asked for. `about_agent` is what the agent carries about itself: the knowledge pack's size,
+sources commit and sections, the instructions' and the memory block's size, the working context and its compactions,
+and the share of prompt tokens served from the provider's cache. The body goes out at session start, after every
+merge, after a compaction and once more before the agent leaves; `concierge.get_memory` answers with the same body.
+
 > GIF placeholder: a first visit, then a return greeted by name (to record).
 
 ## Architecture
@@ -67,6 +76,17 @@ that proposes delta ops), the deterministic merge, in-call compaction and, at th
 background, off the event loop's turn path (`concierge/memory_writer.py`, `concierge/compactor.py`,
 `concierge/summary.py`). The only writes on the turn path are the ones the visitor asks for, by voice or text: the `remember`
 and `forget` tools (`concierge/memory_tools.py`) and `leave_message_for_michael` (`concierge/message_tool.py`).
+
+**The v2 keys of `concierge.memory`.** Every key is optional, so a v1 page reads a v2 body. One callable builds the
+body for the topic and for `concierge.get_memory` (`concierge/memory_view.py`); over the size cap the oldest facts go
+first, then the oldest events, then the oldest episodes, never a v1 key (`concierge/contract.py`).
+
+| Key | What it holds | Source module |
+|---|---|---|
+| `v` | the contract version, 2 | `concierge/contract.py` |
+| `about_visitor` | `profile` (the valid facts), `episodes` (newest 5 visits), `events` (this session, newest 12) | `concierge/store.py`, `concierge/summary_step.py`, `concierge/events.py` |
+| `about_agent` | `knowledge`, `instructions_est_tokens`, `memory_block_chars`, `working`, `cache` | `concierge/memory_view.py`, `concierge/knowledge.py`, `concierge/compactor.py`, `concierge/metrics.py` |
+| `retention_days` | 30, the idle TTL after which a visitor's memory is purged | `concierge/contract.py`, `concierge/config.py` |
 
 ## Memory design, practice by practice
 

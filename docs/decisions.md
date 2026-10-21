@@ -332,6 +332,28 @@ background" show on every run (including no change), and should an episode carry
 summarizer write a per-visit one as well? (k): should an episode a crash left open be shown as "ended: unknown" by
 the page, or should the worker close stale open rows (older than the 10-minute cap plus the grace) at the next start?
 
+## D18 *default*: what `about_agent` reports where §2 is silent (2026-10-21, V2-05)
+
+**Decision.** (a) `cache.cached_share` is the last closed turn **that had LLM metrics**: a turn with no LLM call
+(none in 1.8 today, but a tool-only turn could be) keeps the share before it; a turn whose `prompt_tokens` were 0 sets
+it to null; it is capped at 1. (b) `knowledge.sources_commit` is the first 7-40 character lower-case hex word in
+`knowledge/sources/SOURCE.md`, or `"unknown"` when there is none (a missing commit must not cost every memory send).
+(c) `working` is read when the body is built: the start body is built before the greeting lands, so it counts the
+instructions and the config update only. `working.items` is every item in the agent's context (the instructions
+item and config updates too, as the plan's `len(agent.chat_ctx.items)` has it), while `working.est_tokens` is
+`estimate_ctx_tokens`, the conversation part only (the instructions are `instructions_est_tokens` plus the pack's
+`est_tokens`; review M4). (d) A session over the daily cap, and one without memory, still report
+`about_agent` (the agent exists; only the visitor's memory is missing); the empty body after "Forget me" does not, and
+`concierge.get_memory` answers with that empty body once it was sent (review M2). (e) `memory_block_chars` is null for a blank block too, as `build_instructions` drops it.
+
+**Rejected.** Null after any turn without LLM metrics (the page would flicker between a share and "not reported").
+Failing the build on a SOURCE.md without a commit. Leaving `about_agent` out of a memoryless session's body. Failing the whole body when
+`about_agent` can't be read (it is optional in the contract: it goes out null and the read is logged by type, review
+I1). Taking the first hex word anywhere in SOURCE.md (a word like "defaced" would pass for a commit, review M3).
+
+**Question for Michael.** Is "the last turn with LLM metrics" the share you want the page to show, or would you
+rather see the session's cumulative cached share?
+
 ## Health port: loopback only (Michael, 2026-10-20)
 
 **Decision.** The worker's health endpoint (8081 under `start`) binds 127.0.0.1: `AgentServer(host="127.0.0.1")` in

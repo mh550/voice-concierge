@@ -68,6 +68,9 @@ class TurnMetricsCollector:
         self._fields: dict[str, float | None] = {}
         self._tokens: tuple[int, int] | None = None  # (prompt, cached), summed since the last turn closed
         self._extraction_ms: float | None = None
+        # about_agent.cache.cached_share: cached / prompt tokens of the last closed turn that had LLM metrics
+        # (None before one, or when its prompt_tokens were 0)
+        self.last_cached_share: float | None = None
         self._writes: set[asyncio.Task[Any]] = set()
         self._publishes: set[asyncio.Task[Any]] = set()
 
@@ -133,6 +136,8 @@ class TurnMetricsCollector:
     def _close(self) -> None:
         compactions = self._compactions()
         prompt, cached = self._tokens if self._tokens is not None else (None, None)
+        if prompt is not None and cached is not None:
+            self.last_cached_share = min(cached / prompt, 1.0) if prompt > 0 else None
         payload = MetricsPayload(
             turn=self._turn,
             **self._fields,

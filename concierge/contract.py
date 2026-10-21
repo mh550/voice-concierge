@@ -177,8 +177,8 @@ def build_memory_payload(
     """The thread's memory as the page shows it: the valid facts only (superseded and invalidated ones are history),
     oldest first by (created_at, id), repeated as `about_visitor.profile`; the newest 5 visits as `episodes` (V2-03,
     read right after the view on the same thread: an erase in between leaves none); `events` (newest first, the ring)
-    keeps its newest 12; `about_agent` stays null when none is given. Over `max_bytes` the oldest facts are dropped,
-    from `facts` and `profile` together, until the JSON body fits. An erased thread gives `empty_memory_payload()`.
+    keeps its newest 12; `about_agent` stays null when none is given. Over `max_bytes`, `trim_to_fit` drops the oldest
+    facts, then events, then episodes. An erased thread gives `empty_memory_payload()`.
     Blocks on the store: call it on the writer's thread or in a thread."""
     try:
         thread, snapshot, now = store.memory_view(thread_id)
@@ -199,11 +199,29 @@ def build_memory_payload(
     )
     if max_bytes is None or body_bytes(payload) <= max_bytes:
         return payload
-    # One pass instead of a re-dump per dropped fact: each fact costs its JSON plus a comma, twice (facts, profile).
+    return trim_to_fit(payload, max_bytes)
+
+
+def _cost(item: BaseModel) -> int:
+    return len(item.model_dump_json().encode()) + 1  # its JSON and a comma
+
+
+def trim_to_fit(payload: MemoryPayload, max_bytes: int) -> MemoryPayload:
+    """The size rule (plan V2 "The size rule"): drop the oldest facts first, each from `facts` and `profile` together,
+    then the oldest events, then the oldest episodes (both lists are newest first), until the JSON body fits. Never a
+    v1 key, `v`, `about_agent` or `retention_days`: a body that still doesn't fit is returned as it is, and its send
+    fails as too large. One pass per round; a round that overshot by a comma runs once more."""
+    about = payload.about_visitor or AboutVisitor(profile=list(payload.facts), episodes=[], events=[])
+    facts, events, episodes = list(payload.facts), list(about.events), list(about.episodes)
     excess = body_bytes(payload) - max_bytes
-    drop = 0
-    while excess > 0 and drop < len(facts):
-        excess -= 2 * (len(facts[drop].model_dump_json().encode()) + 1)
-        drop += 1
-    kept = facts[drop:]
-    return payload.model_copy(update={"facts": kept, "about_visitor": about.model_copy(update={"profile": list(kept)})})
+    while excess > 0 and facts:
+        excess -= 2 * _cost(facts.pop(0))
+    while excess > 0 and events:
+        excess -= _cost(events.pop())
+    while excess > 0 and episodes:
+        excess -= _cost(episodes.pop())
+    kept = AboutVisitor(profile=list(facts), episodes=episodes, events=events)
+    trimmed = payload.model_copy(update={"facts": facts, "about_visitor": kept if payload.about_visitor else None})
+    if body_bytes(trimmed) <= max_bytes or not (facts or events or episodes):
+        return trimmed
+    return trim_to_fit(trimmed, max_bytes)

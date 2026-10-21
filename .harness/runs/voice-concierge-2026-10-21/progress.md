@@ -12,6 +12,26 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+### 2026-10-21 08:45 · V2-05 · passes
+
+- **Changed.** `knowledge.pack_stats()` / `sources_commit()`; `TurnMetricsCollector.last_cached_share`;
+  `ConciergeAgent.memory_block`; new `concierge/memory_view.py` (`AgentView.about_agent()`, and `current_memory` /
+  `memory_with_events` moved from `rpc.py`). The session's one `memory()` callable feeds `MemoryPublisher` and
+  `serve_rpcs(memory=)`. `Compactor(on_compacted=publisher.schedule)`. `contract.trim_to_fit` drops facts, then events,
+  then episodes. README gets the v2 paragraph and field table. D18 *default*, and a MORNING question. Tests 1032 → 1057.
+- **Verified.** `check.sh` green, 1057 tests. The largest body fits in 15 KiB after trimming facts only. With 4-byte
+  characters, every fact and every event goes, then the oldest episodes. Dropping `memory=memory` from the session
+  fails `test_get_memory_equals_the_last_published_body`; dropping `on_compacted` fails
+  `test_an_applied_compaction_publishes_the_memory`. An `about_agent()` call put in `Compactor.on_item_added` fails
+  the critical-path test.
+- **Opus review** (diff in scratch, trimmer fuzzed against brute force): no Critical findings. 1 Important, fixed
+  test-first: a raising `about_agent()` (no SOURCE.md) lost every body. 3 Minor fixed (`get_memory` after Forget me
+  without a writer, the commit regex, the log check), and 1 recorded in D18 (c). Notes are in the plan's "Agent view (V2-05)".
+- **Next session must know.** `session.py` is at 249 lines and `memory_writer.py` at 250: V2-06's simplification
+  pass has to move wiring out before anything is added. `build_handlers` takes `memory=` now (no `events=`).
+- **Question for Michael.** D18: the cache share shown is the last turn that had LLM metrics. Or should it be the
+  session's cumulative share?
+
 ### 2026-10-21 07:40 · V2-04 · passes
 
 - **Changed.** New `concierge/events.py` (`EventRing`, `Line`, `shown`, the D17 (a) line builders, `PLAIN`

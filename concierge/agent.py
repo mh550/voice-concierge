@@ -33,6 +33,8 @@ class ConciergeAgent(Agent):
         self._events = events
         self._on_changed = on_changed
         super().__init__(instructions=build_instructions(pack, memory_block))
+        # The block the instructions carry, for about_agent.memory_block_chars (V2-05); None: a new visitor.
+        self.memory_block = memory_block if memory_block and memory_block.strip() else None
 
     @llm.function_tool
     async def remember(self, fact: str) -> str:

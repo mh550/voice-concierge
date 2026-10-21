@@ -562,3 +562,35 @@ async def test_session_publishes_concierge_metrics_per_turn_with_the_llm_tokens(
         assert s.thread_for(VISITOR) is not None
     written = rows(db)
     assert [(r["turn"], r["prompt_tokens"], r["cached_tokens"]) for r in written] == [(1, 900, 0), (2, 1234, 1000)]
+
+
+# --- the cached share (V2-05: about_agent.cache.cached_share) -----------------------------------------------------
+
+
+async def test_cached_share_is_none_before_the_first_llm_metrics(collector: TurnMetricsCollector) -> None:
+    assert collector.last_cached_share is None
+    turn(collector, VOICE_USER, ASSISTANT)  # a turn closed without an LLM metrics event
+    await collector.idle()
+    assert collector.last_cached_share is None
+
+
+async def test_cached_share_is_the_last_turns(collector: TurnMetricsCollector) -> None:
+    collector.on_item_added(message("user", "I work at Acme.", VOICE_USER))
+    collector.on_llm_metrics(llm_metrics(1000, 250))
+    assert collector.last_cached_share is None  # the turn is still open
+    collector.on_item_added(message("assistant", "Saved.", ASSISTANT))
+    collector.on_state_changed(listening())
+    assert collector.last_cached_share == 0.25
+    collector.on_item_added(message("user", "And Rust?", VOICE_USER))
+    collector.on_llm_metrics(llm_metrics(400, 300))
+    collector.on_item_added(message("assistant", "Yes.", ASSISTANT))
+    collector.on_state_changed(listening())
+    assert collector.last_cached_share == 0.75
+    turn(collector, VOICE_USER, ASSISTANT)  # no LLM call in it: the last share that was reported stays
+    assert collector.last_cached_share == 0.75
+    collector.on_item_added(message("user", "Hm.", VOICE_USER))
+    collector.on_llm_metrics(llm_metrics(0, 0))
+    collector.on_item_added(message("assistant", "Yes.", ASSISTANT))
+    collector.on_state_changed(listening())
+    assert collector.last_cached_share is None  # 0 prompt tokens: no share
+    await collector.idle()

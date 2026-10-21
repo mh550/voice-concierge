@@ -163,3 +163,5 @@ Each is a default the build took (details in `docs/decisions.md`); say if you wa
   And (D17 (l)): the forget line names the slot ("Forgot at your request: company"), or reads "Forgot something at
   your request" for "forget Acme", and earlier lines lose a forgotten value, rather than §2's literal
   "Forgot at your request: <the visitor's words>". OK?
+- **D18:** the memory panel's cache share is the last turn that had LLM metrics (it keeps its value through a turn
+  with none). OK, or should it be the session's cumulative share?

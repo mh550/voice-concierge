@@ -5,7 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from concierge.knowledge import PACK_PATH, load_pack, pack_word_count
+from concierge import knowledge
+from concierge.knowledge import PACK_PATH, load_pack, pack_stats, pack_word_count, sources_commit
+from concierge.prompt import estimate_tokens
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCES_DIR = ROOT / "knowledge" / "sources"
@@ -88,3 +90,43 @@ def test_every_number_and_date_in_the_pack_is_in_the_sources() -> None:
         {t for t in (m.strip(".,;:()*`'\"") for m in DIGIT_TOKEN.findall(PACK)) if t and t not in SOURCES_FLAT}
     )
     assert not missing, f"not in knowledge/sources/: {missing}"
+
+
+# --- pack_stats (V2-05: about_agent.knowledge, plan V2 "Where each value comes from") ------------------------------
+
+SOURCE_MD = (SOURCES_DIR / "SOURCE.md").read_text(encoding="utf-8")
+
+
+def test_pack_stats_words_match_the_word_count() -> None:
+    assert pack_stats().words == pack_word_count() == len(PACK.split())
+
+
+def test_pack_stats_tokens_match_the_estimate() -> None:
+    assert pack_stats().est_tokens == estimate_tokens(PACK) > 0
+
+
+def test_pack_stats_commit_is_the_one_in_source_md() -> None:
+    (cited,) = set(re.findall(r"commit `([0-9a-f]{7,40})`", SOURCE_MD))
+    assert pack_stats().sources_commit == cited
+
+
+def test_pack_stats_sections_are_the_h2_titles_in_order() -> None:
+    titles = [line[3:].strip() for line in PACK.splitlines() if line.startswith("## ")]
+    assert pack_stats().sections == titles and len(titles) >= 5
+    assert pack_stats().sections[0] == "Positioning and contact"
+
+
+def test_a_source_md_without_a_commit_reports_unknown() -> None:
+    assert sources_commit("Copied from the site, no commit recorded.") == "unknown"
+    assert sources_commit("from `abc` then at commit `0123abcd` and `fedcba9`") == "0123abcd"
+    assert sources_commit("A defaced page, ID 12345678, copied at commit `81bb0fc`.") == "81bb0fc"  # review M3
+
+
+def test_a_missing_source_md_reports_unknown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review I1: a deployed tree without SOURCE.md still reports the pack (D18 (b))."""
+    monkeypatch.setattr(knowledge, "SOURCE_MD_PATH", tmp_path / "missing.md")
+    pack_stats.cache_clear()
+    try:
+        assert pack_stats().sources_commit == "unknown" and pack_stats().words == pack_word_count()
+    finally:
+        pack_stats.cache_clear()

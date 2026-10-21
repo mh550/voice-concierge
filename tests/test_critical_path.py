@@ -248,3 +248,31 @@ def test_no_item_handler_calls_ring_note() -> None:
     assert noting == ["on_merged"]
     tools = _functions(ROOT / "concierge" / "memory_tools.py")
     assert {"note"} <= _called_names(tools["do_remember"]) and {"note"} <= _called_names(tools["do_forget"])
+
+
+AGENT_VIEW_READS = {"about_agent", "_about", "current_memory", "memory", "pack_stats", "estimate_ctx_tokens"}
+
+
+def test_the_agent_view_is_not_read_in_an_item_handler() -> None:
+    """V2-05: the about_agent reads run on the publisher's build path (a task) and in the RPC, never in a handler."""
+    paths = [(ROOT / "concierge" / "memory_writer.py", HANDLER_PATH),
+             (ROOT / "concierge" / "compactor.py", COMPACTOR_HANDLER_PATH),
+             (ROOT / "concierge" / "metrics.py", COLLECTOR_HANDLER_PATH)]
+    for path, names in paths:
+        functions = _functions(path)
+        for name in names:
+            assert not _called_names(functions[name]) & AGENT_VIEW_READS, f"{path.name}:{name} reads the view"
+    readers = sorted(
+        (path.name, name) for path in (ROOT / "concierge").glob("*.py") for name, fn in _functions(path).items()
+        if "about_agent" in _own_called_names(fn)
+    )
+    assert readers == [("memory_view.py", "_about")]  # through current_memory only
+    view = _functions(ROOT / "concierge" / "memory_view.py")
+    assert sorted(n for n, fn in view.items() if "_about" in _own_called_names(fn)) == ["current_memory"]
+    session = _functions(ROOT / "concierge" / "session.py")
+    builders = sorted(n for n, fn in session.items() if "current_memory" in _own_called_names(fn))
+    assert builders == ["memory"]  # the one callable the publisher and serve_rpcs share
+    tree = ast.parse((ROOT / "concierge" / "session.py").read_text())
+    registered = {ast.unparse(c.args[1]) for c in ast.walk(tree) if isinstance(c, ast.Call)
+                  and isinstance(c.func, ast.Attribute) and c.func.attr == "on" and len(c.args) == 2}
+    assert registered and not registered & {"memory", "publisher.schedule"}, registered

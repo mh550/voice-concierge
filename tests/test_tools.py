@@ -20,11 +20,11 @@ from concierge.memory_tools import (
     STORE_FAILED,
     do_forget,
 )
+from concierge.memory_view import current_memory, memory_with_events
 from concierge.memory_writer import MemoryWriter
 from concierge.merge_result import FactChange, MergeResult
 from concierge.models import AddFact, DeleteFact, VisitorState
 from concierge.prompt import STATIC_AND_PACK_MAX_TOKENS, STATIC_INSTRUCTIONS, estimate_tokens
-from concierge.rpc import current_memory, memory_with_events
 from concierge.store import Store
 from concierge.testing.fake_llm import FakeLLM, FakeResponse, FakeToolCall
 from concierge.text_input import ChannelTags

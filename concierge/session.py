@@ -28,7 +28,7 @@ from livekit.agents.voice.room_io import RoomOptions, TextInputOptions
 from concierge.agent import ConciergeAgent, agent_or_memoryless
 from concierge.compactor import Compactor
 from concierge.config import Settings, build_llm, build_stt, build_tts, recording_options
-from concierge.contract import METRICS_TOPIC
+from concierge.contract import METRICS_TOPIC, MemoryPayload, empty_memory_payload
 from concierge.departure import DEPARTURE_GRACE_S, JOIN_GRACE_S, DepartureWatcher
 from concierge.dispatch import DispatchInfo, parse_dispatch
 from concierge.erasure_hooks import add_erase_hook
@@ -43,12 +43,13 @@ from concierge.limits import (
     start_session_timer,
     was_capped,
 )
+from concierge.memory_view import AgentView, current_memory
 from concierge.memory_writer import MemoryWriter
 from concierge.merge import MergeResult
 from concierge.metrics import TurnMetricsCollector
 from concierge.preload import Preloaded, preload, preload_or_none
 from concierge.publish import MemoryPublisher, publish
-from concierge.rpc import current_memory, serve_rpcs
+from concierge.rpc import serve_rpcs
 from concierge.session_end import Closing, begin_end, end_session, shut_down
 from concierge.store import Store, now_ms
 from concierge.summary_step import begin_visit, journal_row
@@ -132,6 +133,7 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     compactor: Compactor | None = None
     collector: TurnMetricsCollector | None = None
     ring: EventRing | None = None  # with the writer: this session's memory events (V2-04)
+    view: AgentView | None = None  # once the agent exists: what the body says about it (V2-05)
 
     async def on_shutdown(reason: str) -> None:  # a plain async def: add_shutdown_callback reads its __code__
         await shut_down(closing, reason)
@@ -163,17 +165,21 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     end = functools.partial(begin_end, closing)  # every end but a departure: the closing work, then ctx.shutdown
     session = closing.session = build_session(ctx, settings)
     channels = ChannelTags()
-    # What concierge.memory and get_memory carry now: on the writer's thread, in order with its writes.
-    publisher = closing.publisher = MemoryPublisher(
-        ctx.room, lambda: current_memory(store, writer, info.visitor_id, events=ring)
-    )
+    async def memory() -> MemoryPayload:  # concierge.memory and get_memory: one build path (V2-05)
+        if publisher.closed:  # "Forget me" sent the empty body last (or the room is gone): get_memory says the same
+            return empty_memory_payload()
+        return await current_memory(store, writer, info.visitor_id, events=ring, agent=view)
+
+    publisher = closing.publisher = MemoryPublisher(ctx.room, memory)
     rpcs = functools.partial(  # after connect: local_participant exists
         serve_rpcs, ctx.room, visitor_id=info.visitor_id, store=store, publisher=publisher, session=session,
         end=end, tasks=tasks, preloading=preloading, stop_timer=closing.stop,  # "Forget me": no cap line, one end
+        memory=memory,
     )
     if capped:  # memoryless, no greeting; the RPCs still answer (a capped visitor can still press "Forget me")
         rpcs(writer=None)
-        await session.start(agent=ConciergeAgent(load_pack()), **room_start_kwargs(ctx, info, settings, channels))
+        view = AgentView(ConciergeAgent(load_pack()))
+        await session.start(agent=view.agent, **room_start_kwargs(ctx, info, settings, channels))
         track(tasks, say_and_end(session, DAILY_CAP_LINE, end, "daily cap"), log=logger)
         return Started(session, None, session_id, None, tasks, publisher=publisher, closing=closing)
 
@@ -203,7 +209,7 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     compactor = closing.compactor = Compactor(
         agent, session, functools.partial(build_llm, "summarizer", settings),
         journal=functools.partial(journal_row, store, writer.thread_id, session_id, writer=writer) if writer else None,
-        erased=(lambda: writer.erased) if writer else (lambda: False),
+        erased=(lambda: writer.erased) if writer else (lambda: False), on_compacted=publisher.schedule,
     )
     if writer is not None:
         add_erase_hook(writer, compactor.cancel)  # "Forget me" cancels the compaction too (spec §4.2)
@@ -218,7 +224,8 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     session.on("agent_state_changed", collector.on_state_changed)
     if isinstance(session.llm, llm.LLM):
         session.llm.on("metrics_collected", collector.on_llm_metrics)
-    rpcs(writer=writer, events=ring)
+    view = AgentView(agent, compactor, collector)
+    rpcs(writer=writer)
     await session.start(agent=agent, **room_start_kwargs(ctx, info, settings, channels))
     # An end that began during the start ("Forget me" says goodbye and ends, review A-M1; the visitor gone, V1-03) or
     # during the late count runs alone: no cap line, no greeting, no timer, no session_started after session_ended.
