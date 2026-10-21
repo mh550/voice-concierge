@@ -177,6 +177,15 @@ class ThreadSnapshot(BaseModel):
     facts: list[Fact]
 
 
+class VisitEpisode(BaseModel):
+    """A `visit_summaries` row (V2-03): one visit, open until its session's summary step ends it."""
+
+    visit: int
+    started_at: int
+    ended_at: int | None
+    summary: str | None
+
+
 class JournalRow(BaseModel):
     id: int
     thread_id: str

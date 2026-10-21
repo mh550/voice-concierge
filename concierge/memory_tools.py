@@ -90,8 +90,9 @@ async def do_remember(writer: MemoryWriter | None, fact: str) -> str:
 
 def _forget(writer: MemoryWriter, about: str, asked_at: int) -> tuple[list[Fact], bool]:
     """On the store thread: the matching facts (valid or not) and every row they superseded, deleted in one batch;
-    then the stored visit summary is cleared if it names a deleted value or the value `about` names, at once rather
-    than at the shutdown, which may never finish (C5 review A-I1). Returns the deleted facts and whether it was."""
+    then the stored visit summary and every episode summary (V2-03) are cleared if they name a deleted value or the
+    value `about` names, at once rather than at the shutdown, which may never finish (C5 review A-I1). Returns the
+    deleted facts and whether any summary was cleared."""
     store, thread_id = writer.store, writer.thread_id
     history = store.fact_history(thread_id)
     doomed = select(history, about)
@@ -106,9 +107,15 @@ def _forget(writer: MemoryWriter, about: str, asked_at: int) -> tuple[list[Fact]
         deleted = set(store.apply_fact_ops(thread_id, deletes, session_id=writer.session_id).deleted)
         gone = [f for f in history if f.id in deleted]
         writer.forgotten.extend((f.slot, value_key(f.value), asked_at) for f in gone)  # here, before any later merge
+    named = [value_key(f.value) for f in gone] + value_requests([about])
+    # Every past visit's episode too (V2-03): each holds the rolling summary as it stood at that visit's end.
+    episodes = [e.visit for e in store.visit_episodes(thread_id, limit=None)
+                if e.summary is not None and names_any(e.summary, named)]
+    if episodes:
+        store.clear_visit_summaries(thread_id, episodes)
     summary = store.state(thread_id).last_visit_summary
-    if summary is None or not names_any(summary, [value_key(f.value) for f in gone] + value_requests([about])):
-        return gone, False
+    if summary is None or not names_any(summary, named):
+        return gone, bool(episodes)
     store.set_summary(thread_id, None, None)
     return gone, True
 

@@ -6,10 +6,20 @@ AUTOINCREMENT, so nothing is reused after an erasure.
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+# V2-03: one row per visit, the episodes of concierge.memory v2 (plan 2026-10-21-V2 "The visit_summaries migration")
+_VISIT_SUMMARIES = """CREATE TABLE IF NOT EXISTS visit_summaries (
+  thread_id  TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+  visit      INTEGER NOT NULL,                     -- threads.attributes.visits when the session started
+  started_at INTEGER NOT NULL,                     -- ms
+  ended_at   INTEGER,                              -- ms; NULL until the session's summary step
+  summary    TEXT,                                 -- NULL until then, and when the summary failed or was skipped
+  UNIQUE (thread_id, visit)
+);"""
 # What brings a file at version n - 1 up to n (the DDL below is already the newest, for a new file).
 MIGRATIONS: dict[int, str] = {
     2: "ALTER TABLE anonymous_turn_metrics ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0",  # C6-03
+    3: _VISIT_SUMMARIES,  # V2-03; the UNIQUE constraint is its index
 }
 
 TABLES: tuple[str, ...] = (
@@ -20,6 +30,7 @@ TABLES: tuple[str, ...] = (
     "anonymous_turn_metrics",
     "daily_session_counts",
     "messages_for_michael",
+    "visit_summaries",
 )
 
 # Per connection. journal_mode=WAL persists in the file; secure_delete zeroes freed content (erasure needs it);
@@ -106,4 +117,5 @@ CREATE TABLE IF NOT EXISTS messages_for_michael (  -- §4.6, written in C8; crea
   contact    TEXT,
   created_at INTEGER NOT NULL
 );
-"""
+
+""" + _VISIT_SUMMARIES + "\n"

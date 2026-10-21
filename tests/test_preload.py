@@ -162,6 +162,12 @@ async def test_entrypoint_connects_and_preloads_concurrently(
             calls.append(kind)
             return 1
 
+        def begin_visit(self, thread_id: str, visit: int, started_at: int) -> None:  # V2-03: the visit's episode
+            calls.append("begin_visit")
+
+        def end_visit(self, thread_id: str, visit: int, ended_at: int, summary: str | None) -> None:
+            calls.append("end_visit")
+
         def close(self) -> None:
             calls.append("close")
 
@@ -179,7 +185,9 @@ async def test_entrypoint_connects_and_preloads_concurrently(
         for callback in ctx._shutdown_callbacks:
             await callback("test")
 
-    assert sorted(calls) == ["close", "connect", "count_session", "preload", "session_ended", "session_started"]
+    assert sorted(calls) == [
+        "begin_visit", "close", "connect", "count_session", "end_visit", "preload", "session_ended", "session_started"
+    ]
     assert calls.index("count_session") < calls.index("preload")
     assert 0.2 <= elapsed < 0.35, elapsed
     (session,) = recording_session.instances

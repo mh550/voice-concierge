@@ -20,7 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 HANDLER_PATH = ("on_item_added", "note_item", "schedule")  # what a conversation_item_added event runs, in order
 MEMORY_WORK = {"extract", "merge", "apply_fact_ops", "add_fact", "journal", "delete_fact", "invalidate_fact",
                "valid_facts", "fact_history", "forget_me", "write", "flush", "do_remember", "do_forget",
-               "do_leave_message", "add_message"}
+               "do_leave_message", "add_message", "begin_visit", "end_visit", "visit_episodes",
+               "clear_visit_summaries"}
 
 
 # What the Compactor's conversation_item_added and agent_state_changed handlers run (plan C5 "The Compactor").
@@ -146,7 +147,7 @@ def _guarded(real: Any) -> Any:  # noqa: ANN401
 
 
 for _name in ("apply_fact_ops", "valid_facts", "fact_history", "journal", "journal_rows", "state", "version",
-              "write"):
+              "write", "visit_episodes"):
     setattr(LoopGuardStore, _name, _guarded(getattr(Store, _name)))
 
 

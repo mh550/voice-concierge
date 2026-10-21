@@ -1,7 +1,7 @@
 """Erasure, the TTL purge and the daily session count (spec §4.2, B6, B7, B9; plan C2 "Erasure", "TTL purge").
 
-Both delete every visitor-linked row of a thread (facts, state, journal, messages_for_michael, then the thread)
-in one `BEGIN IMMEDIATE`, then VACUUM and checkpoint the WAL so the values leave the disk too. The anonymous
+Both delete every visitor-linked row of a thread (facts, state, journal, messages_for_michael, visit_summaries, then
+the thread) in one `BEGIN IMMEDIATE`, then VACUUM and checkpoint the WAL so the values leave the disk too. The anonymous
 tables (`anonymous_turn_metrics`, `daily_session_counts`) are never touched by an erasure. Nothing but
 `get_or_create_thread` inserts a thread, so once the row is gone every later write raises `ThreadMissing`: erasure
 wins.
@@ -23,7 +23,7 @@ DAY_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 DAILY_COUNT_KEEP_DAYS = 2  # B7: today's row is the cap; older rows go after 2 days
 
 # Children first; the ON DELETE CASCADE foreign keys are a second net.
-_CHILD_TABLES = ("facts", "state", "journal", "messages_for_michael")
+_CHILD_TABLES = ("facts", "state", "journal", "messages_for_michael", "visit_summaries")
 
 
 def _erase_thread(conn: sqlite3.Connection, thread_id: str) -> None:

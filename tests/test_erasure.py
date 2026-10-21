@@ -9,7 +9,7 @@ import pytest
 from concierge.models import AddFact, TurnMetrics
 from concierge.store import Store, ThreadMissing
 
-VISITOR_TABLES = ("threads", "state", "facts", "journal", "messages_for_michael")
+VISITOR_TABLES = ("threads", "state", "facts", "journal", "messages_for_michael", "visit_summaries")
 SESSION = uuid.uuid4().hex
 
 
@@ -32,6 +32,8 @@ def seed_visitor(store: Store, visitor_id: str, marker: str = "Ann") -> str:
     store.add_fact(thread.id, add("interests", f"{marker} RAG"))
     store.journal(thread.id, SESSION, "user_turn", {"text": f"I'm {marker}"})
     leave_message(store, thread.id, f"{marker} says hello")
+    store.begin_visit(thread.id, 1, 1_760_000_000_000)
+    store.end_visit(thread.id, 1, 1_760_000_060_000, f"{marker} asked about RAG.")  # V2-03: one episode
     return thread.id
 
 
@@ -131,6 +133,19 @@ def test_forget_me_only_touches_that_visitor(store, visitor_id) -> None:
     assert store.thread_for(other) is not None
     for table in VISITOR_TABLES:
         assert count(store, table) > 0
+
+
+def test_forget_me_deletes_the_visit_summaries_and_keeps_another_visitors(store, visitor_id) -> None:
+    mine = seed_visitor(store, visitor_id, "Ann")
+    theirs = seed_visitor(store, str(uuid.uuid4()), "Bob")
+    store.begin_visit(mine, 2, 1_760_000_120_000)  # the current visit, not ended
+
+    assert store.forget_me(visitor_id) is True
+
+    assert store.visit_episodes(mine) == []
+    assert [(e.visit, e.summary) for e in store.visit_episodes(theirs)] == [(1, "Bob asked about RAG.")]
+    with sqlite3.connect(store.path) as conn:
+        assert conn.execute("SELECT DISTINCT thread_id FROM visit_summaries").fetchall() == [(theirs,)]
 
 
 def test_forget_me_deletes_the_visitors_messages(store, visitor_id) -> None:

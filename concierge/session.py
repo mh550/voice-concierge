@@ -48,8 +48,9 @@ from concierge.metrics import TurnMetricsCollector
 from concierge.preload import Preloaded, preload, preload_or_none
 from concierge.publish import MemoryPublisher, publish
 from concierge.rpc import current_memory, serve_rpcs
-from concierge.session_end import Closing, begin_end, end_session, journal_row, shut_down
-from concierge.store import Store
+from concierge.session_end import Closing, begin_end, end_session, shut_down
+from concierge.store import Store, now_ms
+from concierge.summary_step import begin_visit, journal_row
 from concierge.tasks import track
 from concierge.text_input import ChannelTags, make_text_input_cb
 
@@ -105,6 +106,13 @@ def build_session(ctx: JobContext, settings: Settings) -> AgentSession:
     )
 
 
+async def session_started(writer: MemoryWriter, visit: int, started_ms: int, payload: dict[str, Any]) -> None:
+    """The background task after the greeting: the visit's open episode (V2-03), then the `session_started` row, both
+    on the writer's thread in that order."""
+    await begin_visit(writer, visit, started_ms)
+    await journal_row(writer.store, writer.thread_id, writer.session_id, "session_started", payload, writer)
+
+
 async def start_session(ctx: JobContext, store: Store | None, settings: Settings) -> Started:
     """Preload (concurrent with ctx.connect()) → ConciergeAgent → session.start → the greeting, then
     session_started in the background. With memory, a MemoryWriter sees every conversation item; a Compactor keeps
@@ -112,6 +120,7 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     `end_session` (the closing work, then ctx.shutdown); the shutdown callback runs it if no end did, then closes
     everything, the store last."""
     info = parse_dispatch(ctx.job.metadata)  # the entrypoint validated it; pure and cheap
+    started_ms = now_ms()  # the visit's episode starts here
     closing = Closing(
         end=lambda reason: ctx.shutdown(reason), store=store, session_id=uuid.uuid4().hex, visitor_id=info.visitor_id,
         began=time.monotonic(), tasks=set(), make_summarizer=lambda: build_llm("summarizer", settings),
@@ -208,12 +217,10 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     if closing.stopped:
         return Started(session, None, session_id, None, tasks, writer, compactor, publisher, collector, closing=closing)
     greeting = session.generate_reply(instructions=greeting_instructions(preloaded))
+    if writer is not None and preloaded is not None:  # created first: its begin_visit is queued ahead of the start read
+        started = {"visits": preloaded.visits, "preload_ms": preloaded.ms, "returning": preloaded.block is not None}
+        track(tasks, session_started(writer, preloaded.visits, started_ms, started), log=logger)
     publisher.schedule()  # after the greeting is queued: the read waits behind the writer's thread, not the reply
     timer = closing.timer = start_session_timer(session, settings.session_max_s, end)  # B7: 10 minutes, one line
-
-    if store is not None and preloaded is not None:
-        started = {"visits": preloaded.visits, "preload_ms": preloaded.ms, "returning": preloaded.block is not None}
-        track(tasks, journal_row(store, preloaded.thread_id, session_id, "session_started", started, writer),
-              log=logger)
     return Started(session, preloaded, session_id, greeting, tasks, writer, compactor, publisher, collector, timer,
                    closing)

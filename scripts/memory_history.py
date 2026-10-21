@@ -3,9 +3,10 @@
     python scripts/memory_history.py <db> <visitor_id>
 
 One tab-separated line per fact, ordered by valid_from then id: slot, value, valid_from, valid_to or `current`,
-superseded_by or `-` (times in ISO 8601 UTC). Deleted facts don't appear: a `forget` really deletes (B5). The db is
-opened read-only, so this never creates or changes a database (SQLite may add the `-wal`/`-shm` side files a reader
-needs). Exit 1: no thread for that visitor; exit 2: usage, no such file, or not a memory store. It prints visitor
+superseded_by or `-` (times in ISO 8601 UTC). Then one line per visit, oldest first (V2-03): `visit <n>`, started_at,
+ended_at or `-`, the summary stored at its end or `-`. Deleted facts don't appear: a `forget` really deletes (B5).
+The db is opened read-only, so this never creates or changes a database (SQLite may add the `-wal`/`-shm` side files a
+reader needs). Exit 1: no thread for that visitor; exit 2: usage, no such file, or not a memory store. It prints visitor
 data: run it on the box that holds the db, to a terminal only.
 """
 
@@ -42,6 +43,7 @@ def main(argv: list[str]) -> int:
         try:
             thread = store.thread_for(visitor_id)
             history = [] if thread is None else store.fact_history(thread.id)
+            visits = [] if thread is None else store.visit_episodes(thread.id, limit=None)
         except (sqlite3.DatabaseError, ValidationError) as exc:  # the type only: its text can quote a value
             print(f"not a memory store: {db} ({type(exc).__name__})", file=sys.stderr)
             return 2
@@ -52,6 +54,9 @@ def main(argv: list[str]) -> int:
             valid_to = "current" if fact.valid_to is None else iso(fact.valid_to)
             superseded_by = "-" if fact.superseded_by is None else str(fact.superseded_by)
             print("\t".join((fact.slot, fact.value, iso(fact.valid_from), valid_to, superseded_by)))
+        for episode in reversed(visits):
+            ended_at = "-" if episode.ended_at is None else iso(episode.ended_at)
+            print("\t".join((f"visit {episode.visit}", iso(episode.started_at), ended_at, episode.summary or "-")))
     return 0
 
 

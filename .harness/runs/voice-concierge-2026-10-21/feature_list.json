@@ -94,7 +94,7 @@
         "scripts/memory_history.py prints the visit episodes (visit, started_at, ended_at, summary) after the facts, and tests/test_scripts.py checks one line per visit",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V2-04",

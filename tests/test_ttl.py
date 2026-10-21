@@ -23,7 +23,10 @@ def seed(store: Store, visitor_id: str) -> str:
             "INSERT INTO messages_for_michael (thread_id, text, created_at) VALUES (?, 'hi', 0)", (thread.id,)
         ),
     )
+    store.begin_visit(thread.id, 1, store._clock())
+    store.end_visit(thread.id, 1, store._clock(), "Ann asked about RAG.")
     return thread.id
+
 
 
 def rows(store: Store, table: str) -> int:
@@ -58,11 +61,25 @@ def test_purge_idle_removes_every_row_of_a_purged_thread(store, clock, visitor_i
 
     with sqlite3.connect(store.path) as conn:
         assert conn.execute("SELECT id FROM threads").fetchall() == [(kept,)]
-        for table in ("state", "facts", "journal", "messages_for_michael"):
+        for table in ("state", "facts", "journal", "messages_for_michael", "visit_summaries"):
             threads = conn.execute(f"SELECT DISTINCT thread_id FROM {table}").fetchall()
             assert threads == [(kept,)], table
     conn.close()
     assert store.thread_for(visitor_id) is None
+
+
+def test_purge_idle_removes_the_visit_summaries(store, clock, visitor_id) -> None:
+    purged = seed(store, visitor_id)
+    store.begin_visit(purged, 2, clock())  # a visit whose session never ended
+    clock.advance(20 * DAY_MS)
+    kept = seed(store, str(uuid.uuid4()))
+    store._conn.execute("PRAGMA foreign_keys = OFF")  # the explicit delete, not the cascade
+
+    assert store.purge_idle(clock() + 11 * DAY_MS) == 1
+
+    assert store.visit_episodes(purged) == []
+    assert [e.visit for e in store.visit_episodes(kept)] == [1]
+    assert rows(store, "visit_summaries") == 1
 
 
 def test_purge_idle_counts_from_the_last_visit(store, clock, visitor_id) -> None:

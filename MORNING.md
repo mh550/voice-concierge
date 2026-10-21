@@ -47,6 +47,13 @@ Optionally `loginctl enable-linger "$USER"`, so the unit survives logout.
 Check: the log shows the worker registered, no traceback. Undo: Ctrl-C (it waits for live sessions; a second Ctrl-C
 forces), or `systemctl --user disable --now voice-concierge`.
 
+The first start of V2 code moves the memory db to schema version 3 (it adds the `visit_summaries` table, one row per
+visit; nothing existing changes). Older code then refuses that file ("schema version 3; this code knows 2"), so rolling
+back to V1 code means keeping a copy of the db from before: `cp ~/.local/share/voice-concierge/concierge.db
+~/.local/share/voice-concierge/concierge.db.v2` with the worker stopped, before the first V2 start. That copy holds
+visitor data "Forget me" and the 30-day purge can't reach: `rm` it once V2 runs fine, and within 30 days in any case.
+Until the V2 worker has started once, the scripts in §11 refuse the old file ("schema version 2; this code reads 3").
+
 ## 4. Voice
 
 Open the portfolio page and press talk. Say your name and a project, answer the name confirmation, hang up, and come
@@ -118,8 +125,8 @@ The visitor id is in the page's local storage (browser dev tools). Run it to a t
 `.venv/bin/python scripts/messages.py ~/.local/share/voice-concierge/concierge.db` lists the messages left for you.
 Read them within 30 days: the idle purge deletes them with the visitor's thread (D15).
 
-Check: one line per fact, corrected ones with a `valid_to`; one line per message, newest first. Undo: none, both are
-read-only.
+Check: one line per fact, corrected ones with a `valid_to`, then one `visit <n>` line per visit (started, ended or `-`,
+the summary stored at its end or `-`); one line per message, newest first. Undo: none, both are read-only.
 
 ## 12. Stop
 

@@ -19,7 +19,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from concierge.models import Channel, Fact, SlotName, Source, TurnMetrics
+from concierge.models import Channel, Fact, SlotName, Source, TurnMetrics, VisitEpisode
 from concierge.store import Store, ThreadMissing, now_ms
 
 MEMORY_TOPIC = "concierge.memory"
@@ -147,6 +147,13 @@ def _fact_view(fact: Fact) -> FactView:
     )
 
 
+def _episode(row: VisitEpisode) -> Episode:
+    return Episode(
+        visit=row.visit, started_at=iso_utc(row.started_at),
+        ended_at=None if row.ended_at is None else iso_utc(row.ended_at), summary=row.summary,
+    )
+
+
 def empty_memory_payload() -> MemoryPayload:
     """Nobody: after "Forget me", and for a session without memory. A v2 body with nothing in it (D17 (g))."""
     return MemoryPayload(
@@ -168,7 +175,8 @@ def build_memory_payload(
     events: Iterable[MemoryEvent] = (),
 ) -> MemoryPayload:
     """The thread's memory as the page shows it: the valid facts only (superseded and invalidated ones are history),
-    oldest first by (created_at, id), repeated as `about_visitor.profile`; `events` (newest first, the session's ring)
+    oldest first by (created_at, id), repeated as `about_visitor.profile`; the newest 5 visits as `episodes` (V2-03,
+    read right after the view on the same thread: an erase in between leaves none); `events` (newest first, the ring)
     keeps its newest 12; `about_agent` stays null when none is given. Over `max_bytes` the oldest facts are dropped,
     from `facts` and `profile` together, until the JSON body fits. An erased thread gives `empty_memory_payload()`.
     Blocks on the store: call it on the writer's thread or in a thread."""
@@ -177,7 +185,8 @@ def build_memory_payload(
     except ThreadMissing:
         return empty_memory_payload()
     facts = [_fact_view(f) for f in sorted(snapshot.facts, key=lambda f: (f.created_at, f.id))]
-    about = AboutVisitor(profile=facts, episodes=[], events=list(islice(events, MAX_EVENTS)))
+    episodes = [_episode(row) for row in store.visit_episodes(thread_id, limit=MAX_EPISODES)]
+    about = AboutVisitor(profile=facts, episodes=episodes, events=list(islice(events, MAX_EVENTS)))
     payload = MemoryPayload(
         visitor=VisitorView(name=snapshot.state.name, visits=thread.visits),
         facts=facts,

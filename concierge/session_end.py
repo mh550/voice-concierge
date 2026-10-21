@@ -1,8 +1,9 @@
-"""The ends of a session (plan C5 "The shutdown sequence"; plan 2026-10-21-V1 "one end_session"): one journal row off
-the loop, the visit summary after the final extraction, and the one closing run every end goes through.
+"""The ends of a session (plan C5 "The shutdown sequence"; plan 2026-10-21-V1 "one end_session"): the one closing run
+every end goes through. The visit summary and the visit's episode row are in `concierge/summary_step.py`.
 
 Every end (the visitor left, the 10-minute cap, the daily cap, a server-side close) runs the same closing work once:
-the final extraction, the visit summary, `session_ended`, then the last `concierge.memory`. A departure or a cap runs it
+the final extraction, the visit summary, the visit's episode closed (`end_visit`), `session_ended`, then the last
+`concierge.memory`. A departure or a cap runs it
 while the room is still connected and then calls `ctx.shutdown(reason)`: the job disconnects the room before it runs
 the shutdown callbacks (agents/ipc/job_proc_lazy_main.py:477-497), so a send from `on_shutdown` never reaches the page.
 """
@@ -11,20 +12,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sqlite3
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from livekit.agents import llm
-from pydantic import ValidationError
 
-from concierge.forget_match import value_requests
 from concierge.memory_writer import MemoryWriter
 from concierge.models import JournalType
-from concierge.store import StaleSummary, Store, StoreError, ThreadMissing
-from concierge.summary import failed, summarize
+from concierge.store import Store, now_ms
+from concierge.summary_step import end_visit, journal_row, write_summary
 
 if TYPE_CHECKING:
     from livekit.agents import AgentSession
@@ -37,86 +35,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("concierge.session")
 
-_STORE_ERRORS = (StoreError, sqlite3.Error, ValidationError)
-SUMMARY_ATTEMPTS = 2  # one more when another session stored a summary during the call
 # The closing work's own deadline (plan C5 "Timing"): the flush (15 s), the summary (5 s) and a busy wait (5 s) fit, and
 # it leaves the worker's shutdown_process_timeout=30 room for the session close before the callbacks. A second
 # summary attempt (another session stored one during the first) only runs in what is left of it.
 SHUTDOWN_WORK_S = 25.0
-
-
-async def journal_row(
-    store: Store, thread_id: str, session_id: str, kind: JournalType, payload: dict[str, Any],
-    writer: MemoryWriter | None = None,
-) -> None:
-    """One journal row, off the loop (on the writer's store thread when given, in order with its writes). A failure
-    is logged by type and never raised: the session goes on."""
-    try:
-        if writer is not None:
-            await writer.call(store.journal, thread_id, session_id, kind, payload)
-        else:
-            await asyncio.to_thread(store.journal, thread_id, session_id, kind, payload)
-    except ThreadMissing:
-        logger.info("not journaling %s: the visitor's memory was erased", kind)
-    except _STORE_ERRORS as exc:
-        logger.warning("could not journal %s (%s)", kind, type(exc).__name__)
-
-
-def forgotten_values(writer: MemoryWriter) -> list[str]:
-    """The value_keys the visit summary may not name: what the forget tool deleted, what a forget request kept the
-    extraction from storing, and the values the requests name themselves (C5 review A-I2)."""
-    return ([key for _, key, _ in writer.forgotten] + writer.withheld
-            + value_requests(about for about, _ in writer.forget_requests))
-
-
-async def write_summary(writer: MemoryWriter, summarizer: Callable[[], llm.LLM]) -> None:
-    """The visit summary after the final extraction. It starts from the summary stored now, not the preloaded one
-    (another session for this visitor may have stored one since), and is swapped in compare-and-set: if another
-    session stores one during the call, it summarizes once more from that one, then gives up (`error` StaleSummary;
-    review A-I3). A failure (building the LLM included) journals `error` and keeps the previous summary, or clears
-    it when it names a forgotten value; a new one is journaled as counts, never text. All on the writer's thread."""
-    store, thread_id, session_id = writer.store, writer.thread_id, writer.session_id
-    about, values = [about for about, _ in writer.forget_requests], forgotten_values(writer)
-    llm_: llm.LLM | None = None
-    try:
-        llm_ = summarizer()
-    except Exception as exc:  # e.g. the provider can't be built: no key
-        build_error = type(exc).__name__
-    for _ in range(SUMMARY_ATTEMPTS):
-        try:
-            previous = (await writer.call(store.state, thread_id)).last_visit_summary
-        except ThreadMissing:
-            return
-        except _STORE_ERRORS as exc:
-            logger.warning("could not read the visit summary (%s)", type(exc).__name__)
-            return
-        if llm_ is None:
-            outcome = failed(previous, values, build_error)
-        else:
-            outcome = await summarize(llm_, previous, writer.history, forgotten_about=about, forgotten_values=values)
-        if writer.erased:  # forget_me landed during the call
-            return
-        if outcome.error is not None:
-            logger.warning("the visit summary failed (%s)", outcome.error)
-            await journal_row(store, thread_id, session_id, "error", {"stage": "summary", "type": outcome.error},
-                              writer)
-        if not outcome.changed:
-            return
-        try:
-            await writer.call(store.swap_summary, thread_id, previous, outcome.text)
-        except StaleSummary:
-            continue
-        except ThreadMissing:
-            logger.info("not storing the visit summary: the visitor's memory was erased")
-            return
-        except _STORE_ERRORS as exc:
-            logger.warning("could not store the visit summary (%s)", type(exc).__name__)
-            return
-        written = {"chars": len(outcome.text or ""), "sentences": outcome.sentences, "ms": outcome.ms}
-        await journal_row(store, thread_id, session_id, "summary_written", written, writer)
-        return
-    logger.warning("the visit summary was not stored: another session kept storing its own")
-    await journal_row(store, thread_id, session_id, "error", {"stage": "summary", "type": "StaleSummary"}, writer)
 
 
 @dataclass
@@ -204,9 +126,13 @@ async def _work(closing: Closing, reason: str) -> None:
         await closing.compactor.aclose()
     if writer is not None:
         await writer.flush()  # the final extraction; nothing when erased
-        # Checked after the flush too: forget_me can land during it. No visitor turn: nothing new.
-        if not writer.erased and preloaded is not None and any(t.role == "user" for t in writer.history):
-            await write_summary(writer, closing.build_summarizer)
+        # Checked after the flush too: forget_me can land during it. No visitor turn: nothing new, a null summary.
+        if not writer.erased and preloaded is not None:
+            summary = None
+            if any(t.role == "user" for t in writer.history):
+                summary = await write_summary(writer, closing.build_summarizer)
+            if not writer.erased:  # the visit's episode, closed before the final concierge.memory reads it
+                await end_visit(writer, preloaded.visits, now_ms(), summary)
     if not (writer is not None and writer.erased):
         ended = {"reason": reason, "duration_s": round(time.monotonic() - closing.began, 1)}
         await _journal(closing, "session_ended", ended)

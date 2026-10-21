@@ -299,6 +299,13 @@ episode row comes to exist, what a failed summary leaves, or how the 15 KiB cap 
   `None` on `MemoryPayload`, pydantic dumps that as `null`, and `memory.schema.json` accepts `null` for each, which a
   page reads like a missing key: "not reported". Our builders always fill `v`, `about_visitor` and `retention_days`;
   only `about_agent` is null in practice (no agent view yet, or a body built outside a session).
+- (j) **`forget` clears the episode summaries too** (V2-03 review): each ended episode keeps the rolling summary as it
+  stood at that visit's end, so a forgotten value could sit in several rows. The `forget` tool nulls the `summary` of
+  every episode that names a deleted value or the value the request names, in the same store-thread call that clears
+  `last_visit_summary` (one fenced write, then the checkpoint), and the reply counts it as forgotten.
+- (k) **An episode left open stays open** (V2-03): a worker killed before `end_visit` (crash, SIGKILL, the 25 s closing
+  deadline) leaves that visit's `ended_at` null, so a later body can show two visits with no end. Nothing closes it
+  after the fact: a later session can't tell a dead session from another tab's live one without a lease.
 
 **Rejected.** Noting every extraction run (a 10-minute call has ~30 runs, mostly with no change: they would push the
 real lines out of the 12-line ring). Creating the episode row in the summary step only (the start body could not show
@@ -310,7 +317,8 @@ from a parsed v1 one would fail it).
 
 **Question for Michael.** Are these lines how you want the page to read? In particular: should "Took notes in the
 background" show on every run (including no change), and should an episode carry the rolling summary or should the
-summarizer write a per-visit one as well?
+summarizer write a per-visit one as well? (k): should an episode a crash left open be shown as "ended: unknown" by
+the page, or should the worker close stale open rows (older than the 10-minute cap plus the grace) at the next start?
 
 ## Health port: loopback only (Michael, 2026-10-20)
 

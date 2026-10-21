@@ -255,9 +255,13 @@ def an_about_agent() -> AboutAgent:
 
 
 def seeded_v2(store: Store, clock: FakeClock, visitor_id: str) -> str:
-    """Two visits; three valid facts (name, company, one interest), a summary."""
+    """Two completed visits (their visit_summaries rows); three valid facts (name, company, one interest), a summary."""
     store.get_or_create_thread(visitor_id)
     tid = store.get_or_create_thread(visitor_id).id
+    for visit, text in ((1, "Ada asked what Michael builds."), (2, "Ada from Acme asked about voice agents.")):
+        store.begin_visit(tid, visit, clock())
+        clock.advance(60_000)
+        store.end_visit(tid, visit, clock(), text)
     for n, (slot, value) in enumerate([("name", "Ada"), ("company", "Acme"), ("interests", "voice agents")], 1):
         store.apply_fact_ops(tid, [_add(slot, value, n)])
         clock.advance(1000)
@@ -286,7 +290,11 @@ def test_a_v2_body_from_a_seeded_store_validates(
     assert sent["v"] == 2 and sent["retention_days"] == 30
     assert sent["visitor"] == {"name": "Ada", "visits": 2}
     assert [f["value"] for f in sent["about_visitor"]["profile"]] == ["Ada", "Acme", "voice agents"]
-    assert sent["about_visitor"]["episodes"] == []  # V2-03 adds visit_summaries
+    second, first = sent["about_visitor"]["episodes"]  # newest first
+    assert (second["visit"], second["summary"]) == (2, "Ada from Acme asked about voice agents.")
+    assert (first["visit"], first["summary"]) == (1, "Ada asked what Michael builds.")
+    assert first["started_at"] < first["ended_at"] <= second["started_at"] < second["ended_at"]
+    assert second["ended_at"].endswith("Z") and len(second["ended_at"]) == len("2026-10-20T09:15:02.123Z")
     assert sent["about_visitor"]["events"] == body_list(four_events())
     assert sent["about_agent"] == json.loads(an_about_agent().model_dump_json())
     assert list(sent)[:4] == V1_KEYS

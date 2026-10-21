@@ -9,12 +9,13 @@ import pytest
 from pydantic import ValidationError
 
 from concierge.models import AddFact, DeleteFact, Fact, InvalidateFact, Note, TurnMetrics, VisitorState
-from concierge.schema import SCHEMA, SCHEMA_VERSION, TABLES
+from concierge.schema import MIGRATIONS, SCHEMA, SCHEMA_VERSION, TABLES
 from concierge.store import FactMissing, Store, StoreError, ThreadMissing, VersionConflict
 from concierge.testing.store_writers import open_and_touch
 
-SEVEN = {
+EIGHT = {
     "threads", "state", "facts", "journal", "anonymous_turn_metrics", "daily_session_counts", "messages_for_michael",
+    "visit_summaries",
 }
 SESSION = uuid.uuid4().hex
 
@@ -29,10 +30,10 @@ def table_names(conn: sqlite3.Connection) -> set[str]:
     return {name for (name,) in rows}
 
 
-def test_schema_creates_the_seven_tables(store) -> None:
-    assert set(TABLES) == SEVEN
+def test_schema_creates_the_eight_tables(store) -> None:
+    assert set(TABLES) == EIGHT
     with raw(store) as conn:
-        assert table_names(conn) == SEVEN
+        assert table_names(conn) == EIGHT
 
 
 def test_journal_mode_is_wal(store) -> None:
@@ -43,7 +44,7 @@ def test_journal_mode_is_wal(store) -> None:
 def test_foreign_keys_and_secure_delete_are_on(store) -> None:
     assert store.pragma("foreign_keys") == 1
     assert store.pragma("secure_delete") == 1
-    assert store.pragma("user_version") == SCHEMA_VERSION == 2
+    assert store.pragma("user_version") == SCHEMA_VERSION == 3
 
 
 def test_reopening_keeps_schema_and_rows(tmp_path, clock, visitor_id) -> None:
@@ -262,11 +263,11 @@ def test_add_turn_metrics_session_id_must_be_uuid4_hex(store, session_id) -> Non
 def test_reopening_a_newer_schema_raises(tmp_path, clock) -> None:
     Store(tmp_path / "memory.db", clock=clock).close()
     with sqlite3.connect(tmp_path / "memory.db") as conn:
-        conn.execute("PRAGMA user_version = 3")
-    with pytest.raises(StoreError, match="schema version 3"):
+        conn.execute("PRAGMA user_version = 4")
+    with pytest.raises(StoreError, match="schema version 4"):
         Store(tmp_path / "memory.db", clock=clock)
     with sqlite3.connect(tmp_path / "memory.db") as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
 
 
 def test_a_version_1_file_gains_created_at(tmp_path, clock) -> None:
@@ -275,17 +276,51 @@ def test_a_version_1_file_gains_created_at(tmp_path, clock) -> None:
     with sqlite3.connect(path) as conn:
         v2_column = ",\n  created_at             INTEGER NOT NULL         -- ms, rounded down to the minute"
         assert v2_column in SCHEMA
-        conn.executescript(SCHEMA.replace(v2_column, ""))
+        conn.executescript(without_visit_summaries(SCHEMA.replace(v2_column, "")))
         conn.execute("INSERT INTO anonymous_turn_metrics (session_id, turn) VALUES (?, 1)", (SESSION,))
         conn.execute("PRAGMA user_version = 1")
         assert "created_at" not in [r[1] for r in conn.execute("PRAGMA table_info(anonymous_turn_metrics)")]
     with Store(path, clock=clock) as store:
-        assert store.pragma("user_version") == 2
+        assert store.pragma("user_version") == SCHEMA_VERSION
         store.add_turn_metrics(SESSION, TurnMetrics(turn=2))
     with sqlite3.connect(path) as conn:
         assert conn.execute("SELECT turn, created_at FROM anonymous_turn_metrics ORDER BY id").fetchall() == [
             (1, 0), (2, 1_759_999_980_000)
         ]
+
+
+def without_visit_summaries(schema: str) -> str:
+    """The DDL as version 2 had it: no visit_summaries table (V2-03 added it)."""
+    start = schema.index("CREATE TABLE IF NOT EXISTS visit_summaries")
+    end = schema.index(");", start) + 2
+    return schema[:start] + schema[end:]
+
+
+def test_a_version_2_file_gains_visit_summaries(tmp_path, clock, visitor_id) -> None:
+    path = tmp_path / "memory.db"
+    with sqlite3.connect(path) as conn:
+        conn.executescript(without_visit_summaries(SCHEMA))
+        conn.execute("PRAGMA user_version = 2")
+        assert "visit_summaries" not in table_names(conn)
+    with Store(path, clock=clock) as store:
+        assert store.pragma("user_version") == SCHEMA_VERSION == 3
+        thread = store.get_or_create_thread(visitor_id)
+        store.begin_visit(thread.id, 1, 1_760_000_000_000)
+        assert [e.visit for e in store.visit_episodes(thread.id)] == [1]
+    with sqlite3.connect(path) as conn:
+        assert "visit_summaries" in table_names(conn)
+
+
+def test_migration_3_alone_creates_visit_summaries(tmp_path) -> None:
+    # Store() runs the whole DDL before the migrations, so the test above passes on SCHEMA too; this one is the
+    # migration statement by itself, on a version-2 file.
+    with sqlite3.connect(tmp_path / "memory.db") as conn:
+        conn.executescript(without_visit_summaries(SCHEMA))
+        conn.execute(MIGRATIONS[3])
+        columns = [(r[1], r[2], r[3]) for r in conn.execute("PRAGMA table_info(visit_summaries)")]
+        assert columns == [("thread_id", "TEXT", 1), ("visit", "INTEGER", 1), ("started_at", "INTEGER", 1),
+                           ("ended_at", "INTEGER", 0), ("summary", "TEXT", 0)]
+        assert conn.execute("PRAGMA index_list(visit_summaries)").fetchall()[0][2] == 1  # the UNIQUE index
 
 
 def test_last_active_at_never_moves_backwards(store, visitor_id, clock) -> None:
@@ -790,3 +825,65 @@ def test_turn_metrics_reads_every_row_in_turn_order(tmp_path, store) -> None:
     assert store.turn_metrics() == rows
     with Store.open_readonly(store.path) as reader:  # the latency report reads it read-only
         assert reader.turn_metrics() == rows
+
+
+# V2-03: one visit_summaries row per visit (plan 2026-10-21-V2 "Store and session")
+
+
+def test_visit_episodes_returns_the_newest_5(store, visitor_id) -> None:
+    thread = store.get_or_create_thread(visitor_id)
+    for visit in range(1, 8):
+        start = 1_760_000_000_000 + visit * 3_600_000
+        store.begin_visit(thread.id, visit, start)
+        if visit < 7:  # the seventh is the current visit: not ended yet
+            store.end_visit(thread.id, visit, start + 60_000, f"Summary of visit {visit}.")
+    episodes = store.visit_episodes(thread.id)
+    assert [e.visit for e in episodes] == [7, 6, 5, 4, 3]
+    assert episodes[0].ended_at is None and episodes[0].summary is None
+    assert episodes[1].started_at == 1_760_000_000_000 + 6 * 3_600_000
+    assert episodes[1].ended_at == 1_760_000_000_000 + 6 * 3_600_000 + 60_000
+    assert [e.summary for e in episodes[1:]] == [f"Summary of visit {v}." for v in (6, 5, 4, 3)]
+    assert [e.visit for e in store.visit_episodes(thread.id, limit=2)] == [7, 6]
+
+
+def test_begin_visit_twice_leaves_one_row(store, visitor_id) -> None:
+    thread = store.get_or_create_thread(visitor_id)
+    store.begin_visit(thread.id, 1, 1_760_000_000_000)
+    store.end_visit(thread.id, 1, 1_760_000_060_000, "Asked about Rust.")
+    store.begin_visit(thread.id, 1, 1_760_000_120_000)  # a repeat changes nothing, not even started_at
+    (episode,) = store.visit_episodes(thread.id)
+    assert (episode.started_at, episode.ended_at, episode.summary) == (
+        1_760_000_000_000, 1_760_000_060_000, "Asked about Rust."
+    )
+    with raw(store) as conn:
+        assert conn.execute("SELECT count(*) FROM visit_summaries").fetchone() == (1,)
+
+
+def test_end_visit_with_no_summary_sets_ended_at_only(store, visitor_id) -> None:
+    thread = store.get_or_create_thread(visitor_id)
+    store.begin_visit(thread.id, 1, 1_760_000_000_000)
+    store.end_visit(thread.id, 1, 1_760_000_060_000, None)
+    (episode,) = store.visit_episodes(thread.id)
+    assert (episode.ended_at, episode.summary) == (1_760_000_060_000, None)
+
+
+def test_visit_writes_are_fenced(store, visitor_id) -> None:
+    thread = store.get_or_create_thread(visitor_id)
+    before = store.version(thread.id)
+    store.begin_visit(thread.id, 1, 1_760_000_000_000)
+    store.end_visit(thread.id, 1, 1_760_000_060_000, None)
+    assert store.version(thread.id) == before + 2
+
+
+def test_end_visit_on_an_erased_thread_raises_thread_missing_and_creates_nothing(store, visitor_id) -> None:
+    thread = store.get_or_create_thread(visitor_id)
+    store.begin_visit(thread.id, 1, 1_760_000_000_000)
+    assert store.forget_me(visitor_id)
+    with pytest.raises(ThreadMissing):
+        store.end_visit(thread.id, 1, 1_760_000_060_000, "Asked about Rust.")
+    with pytest.raises(ThreadMissing):
+        store.begin_visit(thread.id, 2, 1_760_000_060_000)
+    assert store.visit_episodes(thread.id) == []
+    with raw(store) as conn:
+        assert conn.execute("SELECT count(*) FROM visit_summaries").fetchone() == (0,)
+        assert conn.execute("SELECT count(*) FROM threads").fetchone() == (0,)

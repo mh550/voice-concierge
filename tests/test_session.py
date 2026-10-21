@@ -826,3 +826,72 @@ async def test_room_options_keep_the_session_through_a_disconnect() -> None:
     with fake_job_context(job_metadata=METADATA, room=FakeRoom()) as ctx:
         kwargs = concierge_session.room_start_kwargs(ctx, parse_dispatch(METADATA), Settings(), ChannelTags())
     assert kwargs["room_options"].close_on_disconnect is False  # RoomIO would close the AgentSession at once
+
+
+# --- V2-03: the visit's episode (plan 2026-10-21-V2 "Store and session") ----------------------------------------
+
+
+async def _ended_by_the_time_limit(db: Store, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """One session with a visitor turn, ended through end_session while the room is up; every concierge.memory."""
+    room = seated_room()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        assert started.closing is not None
+        await started.session.run(user_input="I work at Acme.")
+        begin_end(started.closing, "time limit")
+        await until(lambda: ending.reasons != [], 10)
+        await shutdown(ctx, started, "time limit")
+    return [json.loads(body) for body in room.local_participant.sent_on(MEMORY_TOPIC)]
+
+
+async def test_the_final_memory_carries_the_ended_episode(
+    db: Store, fakes: list[FakeLLM], memory_validator: Draft202012Validator, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent = await _ended_by_the_time_limit(db, monkeypatch)
+    first, final = sent[0], sent[-1]
+    for body in (first, final):
+        memory_validator.validate(body)
+    (opening,) = first["about_visitor"]["episodes"]  # the start body already lists the current visit
+    assert opening["visit"] == 1 and opening["ended_at"] is None and opening["summary"] is None
+    (closed,) = final["about_visitor"]["episodes"]
+    assert closed["visit"] == 1 and closed["started_at"] == opening["started_at"]
+    assert closed["ended_at"] is not None and closed["ended_at"] >= closed["started_at"]
+    assert closed["summary"] == VISIT_SUMMARY == final["summary"]  # v1's summary path is unchanged
+
+
+async def test_a_failed_summary_leaves_the_episode_summary_null(
+    db: Store, fakes: list[FakeLLM], extractor: FakeLLM, memory_validator: Draft202012Validator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def build_llm(stage: str, settings: Any = None) -> FakeLLM:  # noqa: ANN401
+        if stage == "summarizer":
+            raise RuntimeError("no provider key")
+        return extractor
+
+    monkeypatch.setattr(concierge_session, "build_llm", build_llm)
+    tid = db.get_or_create_thread(VISITOR).id  # a returning visitor: the failure keeps the previous summary
+    db.set_summary(tid, None, "Ada asked about Rust.")
+    sent = await _ended_by_the_time_limit(db, monkeypatch)
+    final = sent[-1]
+    memory_validator.validate(final)
+    (closed,) = final["about_visitor"]["episodes"]  # visit 1 had no session, so no row
+    assert closed["visit"] == 2 and closed["ended_at"] is not None
+    assert closed["summary"] is None and final["summary"] == "Ada asked about Rust."  # not the kept previous one
+    assert "error" in [r.type for r in rows_of(db)]
+
+
+async def test_a_returning_visitor_sees_the_previous_episode_under_the_current_one(
+    db: Store, fakes: list[FakeLLM], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _ended_by_the_time_limit(db, monkeypatch)
+    again = Store(db.path)  # the first session's shutdown closed the store; this one's closes it
+    room = FakeRoom()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        started = await start(ctx, again)
+        assert started.preloaded is not None and started.preloaded.visits == 2
+        (body,) = [json.loads(b) for b in room.local_participant.sent_on(MEMORY_TOPIC)]
+        await shutdown(ctx, started)
+    current, previous = body["about_visitor"]["episodes"]
+    assert (current["visit"], current["ended_at"], current["summary"]) == (2, None, None)
+    assert (previous["visit"], previous["summary"]) == (1, VISIT_SUMMARY)

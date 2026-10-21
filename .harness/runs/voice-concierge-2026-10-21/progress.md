@@ -12,6 +12,24 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+### 2026-10-21 06:50 · V2-03 · passes
+
+- **Changed.** `visit_summaries` (schema v3, `MIGRATIONS[3]`), `Store.begin_visit` / `end_visit` / `visit_episodes` /
+  `clear_visit_summaries`, `VisitEpisode`; `build_memory_payload` lists the newest 5 episodes. New
+  `concierge/summary_step.py` (`journal_row`, `write_summary` now returns the text it wrote or None, `begin_visit`,
+  `end_visit`); the messages methods moved to `concierge/store_messages.py` so `store.py` stays at 244 lines.
+  `session_started` (begin_visit, then the row) is created before the start `publisher.schedule()`; `_work` calls
+  `end_visit` before `session_ended`. `_CHILD_TABLES` gains the table; `memory_history.py` prints `visit <n>` lines.
+  Tests 986 → 1002.
+- **Verified.** `check.sh` green, 1002 tests. Swapping the task order makes `test_the_final_memory_carries_the_ended_episode`
+  fail; returning the kept summary on a failure makes `test_a_failed_summary_leaves_the_episode_summary_null` fail.
+  An Opus review (diff in scratch) found 1 Critical: `forget` left the value in past episode summaries (on disk and on
+  the page). Fixed test-first: the tool nulls every episode summary naming it (D17 (j)), and the marker bytes are gone after the checkpoint. The 6 Minor findings were fixed or recorded (D17 (k)).
+- **Next session must know.** The `forget` tool's call now reads `visit_episodes(limit=None)`. `MEMORY_WORK` names the 4
+  new store calls. MORNING §3 has the v3 rollback note: back up the db first, then delete the copy.
+- **Question for Michael.** D17 (k): an episode left open by a crash stays open. Should the page show "ended: unknown",
+  or should the worker close stale open rows at the next start?
+
 ### 2026-10-21 05:45 · V2-02 · passes
 
 - **Changed.** `concierge/contract.py` (200 lines): `Episode`, `MemoryEvent`/`EventType`, `AboutVisitor` (≤5 episodes,
