@@ -13,6 +13,88 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 13:30 · verify V3
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| V3-01 | 1 | read plan §Re-vendoring, `### resume-v4.md`, `### concierge.md` | clone command into $S, header-line loop, SOURCE.md rules, `81bb0fc` fallback, 30 days/10 minutes/5 sessions/1,500/1,200, resume-wins rule all present | yes |
+| V3-01 | 2 | read plan §'The pack's new outline' and cut list | 15 sections in the step's order with word budgets, total 1,038 body words (about 1,146 counted) ≤1,200; cut order given for the 3,000-token overrun | yes |
+| V3-01 | 3 | read plan §The instructions, §policy check, §drift check, §Tests by feature | prompt.py wording word for word, D21 policy URLs and unfetched-page rule, CLI `[--fetched DIR] [--sources DIR]` with exit 0/1/2, test names for V3-02..04 incl. two fixture trees | yes |
+| V3-01 | 4 | ran `/home/mh550/projects/agent-harness/lib/check.sh` | green, 1114 tests | yes |
+| V3-02 | 1 | `head -1` of the five sources, read SOURCE.md, concierge.md line 1, resume-v4.md; `git grep -E '[0-9]{7,}' knowledge/sources` | all five headers `vendored from mh550/portfolio_site@b7c974f <path>` (// or <!-- -->); SOURCE.md names b7c974f, 2026-10-21, 'resume v4 of 2026-10-20, from the spec', resume wins; concierge.md names README.md and spec §4.0; no 7-digit run. (Clone itself not re-run: build-only/offline; headers consistent) | yes |
+| V3-02 | 2 | read knowledge/michael.md headings, Positioning, Skills, Voice Concierge, Experience | positioning line and 'Agentic Systems Engineer' present with Source: resume-v4.md; 4 skill groups; Voice Concierge section has home box, LiveKit Cloud, one thread, background notes, Forget me, 30 days etc.; Agent Harness refreshed; Tahoma/coaching present | yes |
+| V3-02 | 3 | `pytest tests/test_knowledge.py tests/test_prompt.py -k ...` (65 passed); read the tests | test_the_pack_has_the_self_description_section, test_sources_commit_matches_the_headers, test_the_pack_carries_the_new_positioning, budget test pass; pack 1,181 words (`wc -w`), static+pack 2,866 | yes |
+| V3-02 | 4 | python regex over michael.md; read test_the_pack_has_no_phone_number_or_retired_words | no 7+ digit run; 'knowledge pack' and 'specs in, verified milestones out' absent outside Source: lines; test passes | yes |
+| V3-02 | 5 | check.sh | green, 1114 | yes |
+| V3-03 | 1 | read concierge/prompt.py; grep | old 'Never mention the pack' sentence gone (0 hits); forbid rule with the three words, 'my notes', self-description rule, heading 'What you know about Michael (the only source of facts about him):' | yes |
+| V3-03 | 2 | read test_static_instructions_forbid_the_pack_words, ran it | removes the rule line, asserts none of pack/knowledge pack/source lines, 'Voice Concierge (this agent)', 'how you were built'; passes; budget test passes at 3,000 | yes |
+| V3-03 | 3 | read docs/decisions.md D21 | entry with 4 URLs, date 2026-10-21, clauses quoted, self-hosts-own-prompt note, all pages fetched. Titled D21 'the feature's "D18"' because V2 already used D18; content matches the step, number differs by unavoidable collision | yes |
+| V3-03 | 4 | read README.md §Privacy lines 203-205 | one sentence: describes its own memory design and build on request, checked against LiveKit and Anthropic terms, points to decisions.md D21 (the D18 of the step) | yes |
+| V3-03 | 5 | check.sh | green, 1114 | yes |
+| V3-04 | 1 | read scripts/check_sources.py; ran it with --fetched on clean, drifted and missing-file trees in scratch | exit 0 'clean: 5 files match main'; exit 1 'drifted: projects.ts'; exit 2 'missing: skills.ts'; urlopen timeout 10 s, stdlib only | yes |
+| V3-04 | 2 | read tests/test_scripts.py test_check_sources_*; ran them | clean/drift/never_fetches tests exist and pass; never_fetches monkeypatches socket connect and urlopen; exit codes 0/1 and drifted name asserted | yes |
+| V3-04 | 3 | read MORNING.md §12, tests/test_morning.py | '12. Source drift check' with `.venv/bin/python scripts/check_sources.py`, Check, Undo none; COMMANDS includes it, step count range(1, 14); tests pass | yes |
+| V3-04 | 4 | read docs/decisions.md D22 | 'D22 *default*' (the step's 'D19 *default*', renumbered since V2 used D19): drift check not automatic rebuild, with the LLM-prose/key/review reason | yes |
+| V3-04 | 5 | check.sh; `ruff check .` | green, all checks passed | yes |
+| V3-05 | 1 | `wc -l` review-V3.diff in scratch; read plan ## Review and claims tables | review-V3.diff 1,661 lines exists; claims tables for 22 Voice Concierge sentences with README/spec lines and 16 numbers with source lines | yes |
+| V3-05 | 2 | read ## Review findings; test_concierge_limits_match_the_code and `git grep` for digit runs | I1 fixed with a test; no phone number in sources; resume-wins in SOURCE.md; pack word absent from prompt outside the rule; margin 134 tokens stated | yes |
+| V3-05 | 3 | `wc -l concierge/*.py`; read the simplification paragraph | max 250 (memory_writer.py); `_untraced()` simplification named | yes |
+| V3-05 | 4 | read progress.md V3-05 entry | 1,181 words, 2,866 tokens, commit b7c974f, and the section names V4 can rely on all present | yes |
+| V3-05 | 5 | check.sh | green, 1114 | yes |
+
+### 2026-10-21 12:45 · V3-05 · passes
+
+- **Changed:** I wrote the V3 diff (`69a43ee..HEAD`, 1,661 lines) to scratch `review-V3.diff`, and an Opus reviewer read it: 0 Critical, 1 Important, 5 Minor. `## Review` in `docs/plans/2026-10-21-V3-knowledge-v2.md` holds the findings and both claims tables. One table covers the 22 sentences of the Voice Concierge section, each with its README or spec line. The other covers the 16 numbers in Experience and Agent Harness, each with its source line. **I1, fixed RED→GREEN:** the number tests used a plain substring match, so "20 minutes" passed. New `test_concierge_limits_match_the_code` builds the phrases from `Settings`, `MEMORY_BLOCK_MAX_CHARS` and the word cap. **M4:** new `test_the_pack_prose_is_in_spoken_form`; the pack's prose now says "about 80 percent", "twice the sprint throughput", "about 3 dollars", and no `~ × ↔ ≈ $ %` symbols remain. **M2:** SOURCE.md's "resume wins" list now includes contact links. Simplification: `_untraced()` in `tests/test_knowledge.py`. Tests 1112 → 1114.
+- **Verified:** each new test fails on a bad value ("20 minutes", "15 sessions a day", "≈ $3") and passes on the real files. A second Opus pass on the fixes found 2 Important issues (a missing digit boundary, missing `≈ → $`), both fixed. `wc -l concierge/*.py` ≤ 250 (max `memory_writer.py`, 250). `ruff check .` clean; check.sh green, 1114.
+- **V3 numbers:** the pack is **1,181 words** of 1,200. Static + pack is **2,866** estimated tokens of 3,000 (margin 134). Sources commit **`b7c974f`**.
+- **V4 must know:** the conversation scripts can rely on these section names: `Positioning and contact`, `About`, `Experience`, `Education`, `Skills`, `Project: Voice Concierge (this agent)`, `Project: Agent Harness`, `Project: Self-hosted music library & DJ crate pipeline`, `Project: Linear Adoption + Agentic Bug Workflow`, `Project: GoHighLevel ↔ JobTread Integration`, `Project: HitList: offline-first street-spot scouting app`, `Project: React Native Paint Estimator`, `Project: RingCentral ↔ JobTread Integration`. Headings keep the `projects.ts` titles, but the prose is in spoken form, so an eval should expect "about 80 percent", not "~80%". Only 134 tokens and 19 words are spare.
+- **Questions for Michael:** (1) Is `www.mherron.dev` live? The agent now gives it as your site, from resume v4; `profile.ts` still has the vercel.app address. (2) The vendored `Bio.md` holds draft notes and an apprenticeship-application answer. They are already public upstream, but this repo now republishes them. Keep them, or vendor a trimmed copy?
+- **Proposed change:** none. M5 (rename `test_check_sources_never_fetches_in_the_suite`) was skipped because V3-04's step uses that name.
+
+### 2026-10-21 11:20 · V3-04 · passes
+
+- **Changed:** new `scripts/check_sources.py` (stdlib `urllib`, 10 s per file, all network in `fetch`; pure `diff_sources(local, fetched)` strips the LF or CRLF header line; prints `sources commit: <hex>`, then `drifted: <name>` lines or `clean: 5 files match main`; exit 0/1/2). MORNING.md gains `## 12. Source drift check` (Stop is now 13) and a D22 question. `tests/test_morning.py`: COMMANDS gains the command, `test_thirteen_numbered_steps_in_order`. `docs/decisions.md` **D22 *default*** (the step's "D19 *default*"; D19 was taken by V2, see the V3 plan's "Decision numbers"). Tests 1103 → 1112.
+- **Verified:** 9 drift tests in `tests/test_scripts.py`: clean exits 0 and drift exits 1 (subprocess, `--fetched` fixture trees); a missing file, a failed fetch, an IncompleteRead and HTTP 203 all exit 2; `diff_sources` strips only the header; `test_check_sources_never_fetches_in_the_suite` (the `urlopen` recorder is never called with `--fetched`, and is called 5× with `RAW` URLs and `timeout=10` without it; `socket.connect` patched to fail; AST: `urlopen` appears only in `fetch`). I ran it by hand on scratch fixtures: `clean` exit 0, `drifted: projects.ts` exit 1. `ruff check .` clean; full suite green, 1112.
+- **Opus review:** 1 Important (an `http.client.HTTPException` escaped `fetch`, so it showed as a traceback with exit 1, which reads as "drift"), 3 Minor. Fixed the Important one plus the untested non-200 branch and the CRLF header. Skipped: a directory where a file should be prints `missing:` (the exit code, 2, is already right).
+- **Question for Michael (D22):** run the drift check weekly from a systemd timer, or by hand from MORNING only?
+- **Proposed change:** amend V3-04 step 4's "D19 *default*" to D22 (as V3-01 proposed).
+
+### 2026-10-21 10:05 · V3-03 · passes
+
+- **Why a second session:** the 08:40 session built everything, but ruff E501 (a 132-character line in `tests/test_prompt.py:116`, a trailing comment) made `.harness/check.sh` exit 1, so the harness un-passed it. The comment is now on its own line. Tests 1103 → 1103.
+- **Verified each step again myself:** "Never mention the pack" is gone; with the rule's line removed, STATIC_INSTRUCTIONS has no "pack", "knowledge pack" or "source lines"; "Voice Concierge (this agent)", "how you were built" and the heading `What you know about Michael (the only source of facts about him):` are present; `test_static_instructions_forbid_the_pack_words` and `test_static_plus_pack_within_budget` pass; `docs/decisions.md` D21 has the 4 URLs, the date, the clauses and the self-hosted-prompt note; README § Privacy points to D21. `ruff check .` clean; full suite green, 1103.
+- **Next (V3-04):** the drift decision is **D22 *default*** (the step's "D19") and needs a MORNING question. Run `.venv/bin/ruff check .` before finishing: line length is 120.
+- **Question for Michael (still open, from 08:40):** should the greeting say "the AI concierge", or does the portfolio page already label it as an AI agent (LiveKit ToS §2.6.2/§2.6.6, Anthropic AUP disclosure)?
+- **Proposed change:** amend V3-03 steps 3–4 to D21 (D18 was taken by V2).
+
+### 2026-10-21 08:40 · V3-03 · passes
+
+- **Changed:** `concierge/prompt.py` wording as the V3 plan's table: "Never mention the pack…" is gone; a new rule forbids "pack", "knowledge pack" and "source lines" with a visitor (say "what I know about Michael" or "my notes") and, per the review, naming the source files; a self-description rule points at "Voice Concierge (this agent)"; the heading is `What you know about Michael (the only source of facts about him):`. `docs/decisions.md` **D21** (the step's "D18"; D18–D20 were taken, see the plan's "Decision numbers"); README § Privacy sentence pointing to D21; a MORNING question on D21. Tests 1101 → 1103.
+- **Verified:** `test_static_instructions_forbid_the_pack_words` (static text and the built prompt, minus the rule's line: no pack words; no `*.md`/`*.ts` names in the static text), `test_privacy_says_the_self_description_was_checked`, the two reworded prompt tests; static 662 tokens, static + pack 2,846 (margin 154 under 3,000). Full suite green, 1103.
+- **Policy check (2026-10-21, curl, all 200):** docs.livekit.io/agents, LiveKit ToS (Last Updated 10/06/2026), LiveKit AUP (incorporated by ToS §7.4.1), Anthropic AUP (version effective Nov 12, 2026). None forbids self-description; every quote checked verbatim against the fetched HTML.
+- **Opus review:** 0 Critical, 2 Important (LiveKit §2.6.6 and the LiveKit AUP missing from D21; the test scanned only the static text), 5 Minor. Fixed all but M4 ("my notes" also names the visitor's memory; kept as the step words it, noted in the plan under "V3-03 as built").
+- **Next (V3-04):** the drift decision is **D22 *default*** (the step's "D19"); it needs a MORNING question (`test_questions_cover_every_default`).
+- **Question for Michael:** LiveKit ToS §2.6.2/§2.6.6 and Anthropic's AUP want visitors told they're talking to an AI at the start or in the interface. The greeting says "the concierge" but not "AI". Does the portfolio page label it as an AI agent, or should `greeting.py`'s INTRODUCTION say "the AI concierge"?
+- **Proposed change:** amend V3-03 steps 3–4 and V3-04 step 4 to D21/D22 (as V3-01 proposed).
+
+### 2026-10-21 07:30 · V3-02 · passes
+
+- **Changed:** re-vendored `Bio.md`, `profile.ts`, `experience.ts`, `projects.ts`, `skills.ts` from a scratch clone of `mh550/portfolio_site` at **`b7c974f`** (`main`, 2026-10-20; no fallback needed), each with a `vendored from …@b7c974f <path>` header; new `knowledge/sources/resume-v4.md` (§7, no phone number) and `concierge.md` (basis: README.md, docs/spec.md §4.0); `SOURCE.md` rewritten; `knowledge/michael.md` rebuilt (new positioning, resume v4 bullets, the four skill groups, `## Project: Voice Concierge (this agent)`, refreshed `## Project: Agent Harness`); README "What it does" names the new sources. Tests 1091 → 1101.
+- **Verified:** the 5 vendored files match the clone byte for byte after the header (`tail -n +2 | cmp`); `tests/test_knowledge.py` has 11 new tests (header commit = SOURCE.md commit, no phone number, positioning, self-description, resume roles, retired words, resume = spec §7, concierge.md numbers in README/spec, "Forget me" vs LiveKit's transcripts); full suite green, 1101.
+- **Budget:** pack 1,166 words, 2,185 tokens; static + pack 2,735 now, about 2,833 with V3-03's wording (margin about 167). **Cut** (plan order): `Project: Cherished`, `Project: Mirrored Google Calendars`. Noted under "V3-02 as built" in the V3 plan.
+- **Opus review:** 1 Important (the pack said "Forget me erases everything"; LiveKit Agent Insights transcripts survive it, per README § Privacy) and 8 Minor findings. Fixed: I1, plus M2 (the tools write during a reply), M3 (taking a message), M4, M5, M7 (the self-description says "a visitor", not "you"), M8 (a `_prose()` helper skips only `Source: <file>` lines), M9 (stronger checks). Skipped M6 (`~` number forms): the plan keeps the sources' forms.
+- **Next session (V3-03) must know:** the pack's prose never uses "pack". `test_static_plus_pack_within_budget` has about 167 tokens to spare after the planned wording. V4 can use these section names: `Positioning and contact`, `About`, `Experience`, `Education`, `Skills`, `Project: Voice Concierge (this agent)`, `Project: Agent Harness`, plus 6 more `Project:` sections (no Cherished, no Mirrored Google Calendars).
+- **Proposed change:** step 2's skill-group casing ("Languages & web") differs from §7's "Languages & Web". The pack and the test use §7's casing, as the plan says.
+- No questions for Michael.
+
+### 2026-10-21 06:00 · V3-01 · passes
+
+- **Plan only:** `docs/plans/2026-10-21-V3-knowledge-v2.md` covers the re-vendoring procedure (clone into scratch, a header line in each of the 5 files, SOURCE.md, a fallback to `81bb0fc`), `resume-v4.md` (§7, no phone number) and `concierge.md` (a fact table, each fact with its README/spec line), the 16-section outline (1,038 body words, about 1,146 with headings; about 2,894 tokens against 3,000) with a cut order, the prompt.py changes word for word, the policy check (3 URLs, all 200 today), the `check_sources.py` CLI (exit codes 0/1/2), and test names for V3-02..V3-04. Tests 1091 → 1091.
+- **Verified:** a scratch clone of the public repo works; `main` is `b7c974f`. Only `projects.ts` drifted from `81bb0fc` (it gained a `voice-concierge` entry and re-orders). The static text after V3-03 measures 648 tokens, computed from the planned wording, with no "pack" left outside the forbidding rule. An Opus review found 4 Important and 6 Minor issues, all applied; Important ones: name-rule anchor, "at <Company>" names, skill-group casing, urlopen import form. Full suite green, 1091.
+- **Next session (V3-02) must know:** write "…at MAXX Potential", "…at Builder Clarity", "…at Duke University" (`test_names_are_derived_from_the_pack`). SOURCE.md needs exactly one ``commit `<hex>` ``. The pack must stay under about 8,230 characters.
+- **Proposed changes:** V3-03 step 3 says "D18" and V3-04 step 4 says "D19 *default*", but V2 already used D18–D20. The plan uses **D21** (policy check) and **D22 *default*** (drift check), and each heading names the step's original number. Please amend those two steps, and V3-03 step 4's "D18" pointer, to D21/D22.
+- No questions for Michael this session.
+
 ### 2026-10-21 12:00 · verify V2
 
 31 steps re-run; all hold (full suite 1091 passed).

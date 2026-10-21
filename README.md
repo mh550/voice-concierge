@@ -13,8 +13,9 @@ live run is Michael's ([`MORNING.md`](MORNING.md)); until then no measured numbe
 
 ## What it does
 
-- **Talks about Michael's work**, from a knowledge pack (`knowledge/michael.md`) built only from the vendored portfolio
-  files in `knowledge/sources/`. It isn't a general chatbot: off-topic requests get a polite one-sentence no.
+- **Talks about Michael's work**, from a knowledge pack (`knowledge/michael.md`) built only from `knowledge/sources/`:
+  the vendored portfolio files, his resume v4 (which wins where they differ) and `concierge.md`, the facts about this
+  agent it gives when asked about itself. It isn't a general chatbot: off-topic requests get a polite one-sentence no.
 - **Greets a returning visitor**, by name once it has confirmed one, and offers to pick up the last topic, from facts it extracted in earlier
   visits, preloaded when the visitor joins (`concierge/preload.py`, `concierge/greeting.py`).
 - **Answers typed messages from the same memory.** Typed turns arrive on `lk.chat` in the same session and the same
@@ -199,7 +200,9 @@ survives, so "Forget me" can't reset the daily cap. What LiveKit keeps is separa
 stored at LiveKit, but transcripts, traces and metrics go to LiveKit
 Agent Insights and are kept there for 30 days. "Forget me" can't erase those; the page's privacy note says so, and
 [`MORNING.md`](MORNING.md) asks Michael to turn on PII redaction in the project's observability settings. No visitor
-data is committed: `*.db` is gitignored.
+data is committed: `*.db` is gitignored. On request, the concierge describes its own memory design and how it was
+built; that was checked against LiveKit's docs and terms and Anthropic's usage policy, and none of them forbids
+it (`docs/decisions.md` D21).
 
 ## How to run it
 

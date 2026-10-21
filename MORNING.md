@@ -128,7 +128,20 @@ Read them within 30 days: the idle purge deletes them with the visitor's thread 
 Check: one line per fact, corrected ones with a `valid_to`, then one `visit <n>` line per visit (started, ended or `-`,
 the summary stored at its end or `-`); one line per message, newest first. Undo: none, both are read-only.
 
-## 12. Stop
+## 12. Source drift check
+
+```
+.venv/bin/python scripts/check_sources.py
+```
+
+It downloads the five vendored files (`Bio.md` and four from `src/lib/data/`) from the portfolio repo's `main` on
+GitHub (public, no key) and compares them with `knowledge/sources/`, header lines aside (D22).
+
+Check: exit 0 and `clean: 5 files match main`, or exit 1 and one `drifted: <name>` line per changed file; then
+re-vendor as `docs/plans/2026-10-21-V3-knowledge-v2.md` says and rebuild the pack in a session with a review. Exit 2
+means a fetch failed or a file is missing (the reason is on stderr). Undo: none, it is read-only.
+
+## 13. Stop
 
 - Ctrl-C, or `systemctl --user stop voice-concierge`.
 - Kill switch, no restart needed: `touch ~/.voice-concierge-off`. New jobs are declined and the page shows offline after
@@ -174,3 +187,8 @@ Each is a default the build took (details in `docs/decisions.md`); say if you wa
   `facts`), then events, then episodes; the v1 `facts` stay (v1's own oldest-fact backstop runs only past all three,
   which an allowed body never reaches). A v2 page should read `facts` when `profile` is
   shorter. OK, or should both lists always match and the events pay for it?
+- **D21** (not a default: your question, answered): describing its own design breaks none of LiveKit's docs, its
+  terms or Anthropic's usage policy. LiveKit's terms (§2.6.2, §2.6.6) and Anthropic's AUP both ask that visitors be
+  told they are talking to an AI; the greeting doesn't say "AI". Does the portfolio page label the concierge as an AI agent, or should the greeting say it?
+- **D22:** the vendored sources get a drift check you run (step 12), not an automatic pack rebuild. Run it weekly from
+  a systemd timer, or by hand from this list only?

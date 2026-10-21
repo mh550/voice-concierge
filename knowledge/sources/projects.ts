@@ -1,3 +1,4 @@
+// vendored from mh550/portfolio_site@b7c974f src/lib/data/projects.ts
 // Import cycle (approach.ts imports from here): use methodSteps only inside functions, never at module load.
 import { methodSteps } from './approach';
 
@@ -14,7 +15,8 @@ export type DiagramKey =
   | 'harness-evolution'
   | 'media-server'
   | 'hit-list'
-  | 'form-simplification';
+  | 'form-simplification'
+  | 'voice-concierge';
 
 export interface ProjectMedia {
   type: 'image' | 'video';
@@ -321,7 +323,7 @@ merge_one() {
     categories: ['integration'],
     techStack: ['Pipedream', 'Supabase', 'JavaScript', 'OAuth', 'REST APIs', 'Webhooks'],
     featured: true,
-    order: 5,
+    order: 3,
     metrics: [
       { value: '2 days → ~6 hrs', label: 'client onboarding time' },
       { value: 'Bidirectional', label: 'GHL ↔ JobTread sync' },
@@ -371,7 +373,7 @@ async function findOrCreateContact(ghlContact, jobtread) {
     categories: ['integration', 'ai'],
     techStack: ['Linear', 'MCP', 'Claude Code', 'AI Agents', 'Git'],
     featured: true,
-    order: 2,
+    order: 6,
     metrics: [
       { value: '2×', label: 'sprint throughput' },
       { value: '~80%', label: 'less bug-filing time' },
@@ -399,7 +401,7 @@ async function findOrCreateContact(ghlContact, jobtread) {
     techStack: ['Python', 'SQLite', 'Docker Compose', 'Navidrome', 'beets', 'ffmpeg', 'JavaScript', 'restic'],
     githubUrl: 'https://github.com/mh550/dj-crate-streaming',
     featured: true,
-    order: 3,
+    order: 5,
     metrics: [
       { value: '831', label: 'songs, self-hosted, identical copies removed' },
       { value: '1,405', label: 'playlist entries kept intact through the retag and dedupe' },
@@ -609,7 +611,7 @@ async function findOrCreateContact(ghlContact, jobtread) {
     techStack: ['React Native', 'Expo', 'TypeScript', 'expo-router', 'zustand', 'SQLite', 'react-native-maps', 'Jest', 'GitHub Actions'],
     githubUrl: 'https://github.com/mh550/hit-list',
     featured: true,
-    order: 4,
+    order: 7,
     metrics: [
       { value: '374', label: 'tests in 37 suites, and the phone still found a crash' },
       { value: '20+ → 7', label: 'fields on a spot, specified Oct 16 after using it, not yet built' },
@@ -766,6 +768,115 @@ async function findOrCreateContact(ghlContact, jobtread) {
     },
   },
   {
+    slug: 'voice-concierge',
+    title: 'Voice Concierge: a voice agent that remembers returning visitors',
+    company: 'Personal · open source',
+    shortDescription:
+      'A LiveKit voice agent for this site, designed to remember you between visits, show you what it remembers, and forget you on request.',
+    categories: ['ai', 'systems'],
+    techStack: ['Python', 'LiveKit Agents', 'LiveKit Inference', 'Anthropic API', 'SQLite', 'Next.js', 'TypeScript', 'Claude Code'],
+    githubUrl: 'https://github.com/mh550/voice-concierge',
+    featured: true,
+    order: 2,
+    detail: {
+      problem:
+        'By default a LiveKit voice agent forgets you when the call ends, and memory is easy to add badly. A store call awaited inside the turn is a pause the caller hears. An extractor that reads the whole transcript can store what the agent said, or the part of a reply the visitor talked over, as if the visitor had said it. I wanted a concierge for this site that remembers returning visitors, by voice or by text, and lets each of them see and erase what it keeps.',
+      approach:
+        'The design: one thread of memory per visitor, loaded at connect, written in the background, and shown live on the page.',
+      challenges:
+        'Keeping memory off the turn path, storing only what the visitor said and heard, and making erasure win over work still in flight.',
+      outcome:
+        'This page and its /talk demo were built overnight, Oct 19 to Oct 20, while a second harness run built the agent to the same written contract. The agent is live now: it runs on my home box and joins every /talk conversation. No latency numbers are measured yet. They go on this page once I have measured real sessions, and until then it shows none. The agent is written for livekit-agents 1.8 and only maps onto Agents 2.0: a thread per visitor, its state, an append-only journal, voice and text in one memory, a version fence where 2.0 adds a lease, and a thread meant to expire once it sits idle, as a 2.0 thread does.',
+      architectureDiagram: 'voice-concierge',
+    },
+    caseStudy: {
+      role: 'Designer and operator',
+      timeframe: 'Oct 2026',
+      method: {
+        diagnose:
+          'The research behind the design found two traps. One published memory integration for LiveKit awaits its store calls inside the turn, and by default a refreshed page gets a fresh agent with no memory. So the rule became: memory work stays off the turn path, and memory lives outside the call, keyed to the visitor.',
+        decide:
+          'I wrote the memory design down practice by practice before any code, nearly every one with a test or an eval behind it, and modelled it on the thread, state and journal of LiveKit Agents 2.0, so it maps across if 2.0 ships as described. The agent and this page share one written contract, so the two could be built at the same time.',
+        build:
+          'The agent is a Python worker on my home box that connects out to LiveKit Cloud and keeps each visitor\'s memory in a local SQLite thread store. This site gained a token route and the /talk page, with panels for the memory and the latency of each turn. The agent is designed to end each session after 10 minutes, and the page shows an offline state when no agent joins. Cost has three limits: the token route accepts only this site\'s origin and allows one live conversation per network address and two across the site, the agent caps each visitor at 5 sessions a day and each session at 10 minutes, and my provider accounts are capped at about $45 a week.',
+        verify:
+          'The agent\'s design names an offline test for each part: the store, the merge, the write gate, heard-text-only and erasure, plus one that fails if a turn waits on extraction. This site\'s suite runs with no LiveKit settings at all, so the offline page is what every check sees. The live check, a real call against the running worker, is mine to run.',
+        simplify:
+          'The memory is small, so all of it loads at connect: no search mid-turn, no vector store, no filler line while a lookup runs. Typed slots and one visit summary stand in for a collection of notes; a collection with search is the next step if slots stop fitting.',
+      },
+      decisions: [
+        {
+          id: 'VC-A',
+          title: 'Preload the memory at connect',
+          chose:
+            'loading the visitor\'s facts and last visit summary while the room connects, as one bounded block after the fixed instructions and the knowledge pack,',
+          over: 'looking memories up during each turn',
+          because:
+            'the memory is small enough to load whole, so no turn waits on a lookup, and the start of the prompt stays the same for the whole call, which keeps it cacheable.',
+          cost: 'It holds only while the memory stays small; a large collection would need search, and a filler line while it runs.',
+        },
+        {
+          id: 'VC-B',
+          title: 'Background extraction with delta merge',
+          chose:
+            'an extractor that runs after the turn, off the turn path, and proposes add, update and delete operations that plain code checks and applies,',
+          over: 'awaiting a memory write inside the turn, or letting a model rewrite the whole memory,',
+          because:
+            'a turn must never wait on extraction or a store write, and a model that rewrites everything can drop facts nobody asked it to touch.',
+          cost: 'A fact said in this turn reaches the store shortly after; the visitor\'s explicit "remember" and "forget" are the only writes inside a turn.',
+        },
+        {
+          id: 'VC-C',
+          title: 'Only what was heard',
+          chose:
+            'cutting an interrupted agent turn to the part the visitor actually heard before extraction, and never storing the agent\'s words as the visitor\'s,',
+          over: 'extracting from the full transcript',
+          because:
+            'the rest of a reply the visitor talked over was never heard, and an agent\'s guess ("so you\'re a recruiter?") is not something the visitor said.',
+          cost: 'The cut is only as exact as the framework\'s record of what played before the interruption.',
+        },
+        {
+          id: 'VC-D',
+          title: 'A write gate in front of memory',
+          chose:
+            'rejecting any value that reads like an instruction, holds a URL, a secret or a piece of code, runs past its length cap, or came from the agent, and showing memory to the model as quoted data,',
+          over: 'storing whatever the extractor returns',
+          because:
+            'memory is an attack surface: a visitor who says "remember: ignore your instructions" must not change how the agent behaves on the next visit.',
+          cost: 'The gate can turn away something harmless; each rejection goes in the journal, where it can be checked.',
+        },
+        {
+          id: 'VC-E',
+          title: 'Invalidate, and delete only on request',
+          chose:
+            'marking a corrected fact no longer valid and linking it to the one that replaced it, and deleting only when the visitor says "forget" or presses Forget me,',
+          over: 'replacing facts in place',
+          because:
+            'a correction ("actually I\'m at Acme now") keeps the record of what the agent believed and when, while Forget me still erases the thread and everything linked to the visitor on my server.',
+          cost: 'Old facts stay in the store until the thread has been idle for 30 days or the visitor erases it.',
+        },
+        {
+          id: 'VC-F',
+          title: 'One thread per visitor',
+          chose:
+            'one thread per browser visitor id, holding state, facts and an append-only journal, with every write checked against a version number,',
+          over: 'memory per call, or one store shared by every visitor',
+          because:
+            'Agents 2.0\'s own advice is one thread per person for one memory, and a refresh or a second tab can put two jobs on one visitor, so a write that loaded an old version re-reads and re-applies its changes instead of overwriting.',
+          cost: 'There is no lease, so two live sessions for one visitor can still interleave turns; and the id belongs to the browser, not a login.',
+        },
+      ],
+      lessons: [],
+      links: [
+        { label: 'Talk to my concierge', href: '/talk', kind: 'demo' },
+        { label: 'voice-concierge on GitHub', href: 'https://github.com/mh550/voice-concierge', kind: 'repo' },
+        { label: 'The agent harness that built it', href: '/projects/agent-harness', kind: 'doc' },
+      ],
+      builtWith:
+        'The spec and the design are mine: the agent, its memory and the contract between it and this page. My agent harness ran the build sessions, specs in and verified milestones out: Claude Code agents wrote this page\'s code overnight in one run, and a second run is writing the agent.',
+    },
+  },
+  {
     slug: 'ringcentral-jobtread-integration',
     title: 'RingCentral ↔ JobTread Integration',
     company: 'Builder Clarity',
@@ -774,7 +885,7 @@ async function findOrCreateContact(ghlContact, jobtread) {
     categories: ['integration'],
     techStack: ['n8n', 'Zapier', 'REST APIs', 'Webhooks', 'JavaScript'],
     featured: true,
-    order: 7,
+    order: 4,
     metrics: [
       { value: '1 thread', label: 'per customer' },
       { value: 'Zapier → n8n', label: 'platform migration' },
@@ -800,7 +911,7 @@ async function findOrCreateContact(ghlContact, jobtread) {
     categories: ['full-stack'],
     techStack: ['React Native', 'TypeScript', 'Node.js'],
     featured: true,
-    order: 6,
+    order: 8,
     metrics: [
       { value: '3 levels', label: 'job → area → feature → task' },
       { value: 'Go-live', label: 'joined at launch' },
@@ -826,7 +937,7 @@ async function findOrCreateContact(ghlContact, jobtread) {
     categories: ['full-stack', 'integration'],
     techStack: ['Next.js', 'Supabase', 'Pipedream', 'Google Calendar API', 'TypeScript'],
     featured: false,
-    order: 8,
+    order: 9,
     detail: {
       problem:
         'A client needed a working Google Calendar mirroring tool but had inherited a codebase with fundamental architectural flaws that made it unreliable and unmaintainable.',
@@ -848,7 +959,7 @@ async function findOrCreateContact(ghlContact, jobtread) {
     categories: ['full-stack', 'education'],
     techStack: ['Next.js', 'MongoDB', 'TypeScript', 'AGILE/Scrum'],
     featured: false,
-    order: 9,
+    order: 10,
     detail: {
       problem:
         'Course project: design and build a social platform centered on positive, wellness-focused interactions rather than engagement-maximizing mechanics.',

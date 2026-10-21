@@ -1,3 +1,4 @@
+// vendored from mh550/portfolio_site@b7c974f src/lib/data/skills.ts
 export interface SkillCategory {
   id: string;
   name: string;

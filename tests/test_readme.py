@@ -228,6 +228,13 @@ def test_privacy_section_says_what_survives_forget_me_and_what_livekit_keeps() -
     assert "can't erase" in text
 
 
+def test_privacy_says_the_self_description_was_checked() -> None:
+    text = " ".join(_section("Privacy").split())
+    assert "memory design" in text and "on request" in text.lower()
+    assert "LiveKit" in text and "Anthropic" in text
+    assert "docs/decisions.md" in text and "D21" in text
+
+
 def test_how_to_run_it_names_the_commands() -> None:
     section = _section("How to run it")
     for command in (".harness/check.sh", "scripts/run-worker.sh start", "deploy/voice-concierge.service",

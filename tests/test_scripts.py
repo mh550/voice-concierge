@@ -534,3 +534,178 @@ def test_messages_usage_missing_db_and_not_a_store_exit_2(tmp_path, home) -> Non
     result = run_py(MESSAGES, junk, env=scrubbed_env(home))
     assert result.returncode == 2
     assert "not a memory store" in result.stderr and "Traceback" not in result.stderr
+
+
+# --- scripts/check_sources.py (V3-04, plan V3 "The drift check") ---------------------------------------------------
+
+CHECK_SOURCES = ROOT / "scripts" / "check_sources.py"
+SOURCES = ROOT / "knowledge" / "sources"
+VENDORED = ("Bio.md", "profile.ts", "experience.ts", "projects.ts", "skills.ts")
+
+
+def check_sources_module():
+    spec = importlib.util.spec_from_file_location("check_sources_probe", CHECK_SOURCES)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def fetched_tree(tmp_path: Path, change: str | None = None) -> Path:
+    """The five vendored files as upstream holds them (header line removed); `change` gets one extra line."""
+    tree = tmp_path / ("drifted" if change else "clean")
+    tree.mkdir()
+    for name in VENDORED:
+        body = (SOURCES / name).read_bytes().split(b"\n", 1)[1]
+        (tree / name).write_bytes(body + b"// one more line\n" if name == change else body)
+    return tree
+
+
+def run_check_sources(*args: str | Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(CHECK_SOURCES), *map(str, args)], capture_output=True, text=True, timeout=60, check=False
+    )
+
+
+def sources_commit() -> str:
+    found = re.search(r"commit `([0-9a-f]{7,40})`", (SOURCES / "SOURCE.md").read_text())
+    assert found
+    return found.group(1)
+
+
+def test_check_sources_clean(tmp_path) -> None:
+    result = run_check_sources("--fetched", fetched_tree(tmp_path), "--sources", SOURCES)
+    assert result.returncode == 0, result.stderr
+    assert f"sources commit: {sources_commit()}" in result.stdout
+    assert "clean: 5 files match main" in result.stdout
+    assert "drifted:" not in result.stdout
+
+
+def test_check_sources_reports_drift(tmp_path) -> None:
+    result = run_check_sources("--fetched", fetched_tree(tmp_path, change="projects.ts"), "--sources", SOURCES)
+    assert result.returncode == 1, result.stderr
+    assert f"sources commit: {sources_commit()}" in result.stdout
+    assert re.findall(r"^drifted: (\S+)$", result.stdout, re.M) == ["projects.ts"]
+    assert "clean:" not in result.stdout
+
+
+def test_check_sources_exits_2_when_a_file_is_missing(tmp_path) -> None:
+    tree = fetched_tree(tmp_path)
+    (tree / "skills.ts").unlink()
+    result = run_check_sources("--fetched", tree, "--sources", SOURCES)
+    assert result.returncode == 2
+    assert "missing: skills.ts" in result.stderr and "Traceback" not in result.stderr
+
+
+def test_diff_sources_strips_only_the_header_line(tmp_path) -> None:
+    diff_sources = check_sources_module().diff_sources
+    local, fetched = tmp_path / "local", fetched_tree(tmp_path)
+    local.mkdir()
+    for name in VENDORED:
+        shutil.copy(SOURCES / name, local / name)
+    assert diff_sources(local, fetched) == []
+
+    head, second, rest = (local / "Bio.md").read_bytes().split(b"\n", 2)
+    (local / "Bio.md").write_bytes(head + b"\n" + second + b" changed\n" + rest)
+    assert diff_sources(local, fetched) == ["Bio.md"]
+
+    shutil.copy(fetched / "skills.ts", local / "skills.ts")  # no header: compared whole, so still equal
+    assert diff_sources(local, fetched) == ["Bio.md"]
+    (local / "skills.ts").write_bytes(b"// not a header\n" + (fetched / "skills.ts").read_bytes())
+    assert diff_sources(local, fetched) == ["Bio.md", "skills.ts"]
+
+
+class _Response:
+    def __init__(self, body: bytes) -> None:
+        self.status, self._body = 200, body
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self) -> "_Response":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+
+def test_check_sources_never_fetches_in_the_suite(tmp_path, monkeypatch) -> None:
+    import ast
+    import socket
+    import urllib.request
+
+    def no_socket(*args: object, **kwargs: object) -> None:
+        raise AssertionError("the suite opened a socket")
+
+    monkeypatch.setattr(socket.socket, "connect", no_socket)
+    module = check_sources_module()
+    clean = fetched_tree(tmp_path)
+    calls: list[tuple[str, object]] = []
+
+    def recorder(url: str, timeout: object = None) -> _Response:
+        calls.append((url, timeout))
+        return _Response((clean / url.rsplit("/", 1)[1]).read_bytes())
+
+    monkeypatch.setattr(urllib.request, "urlopen", recorder)
+
+    assert module.main(["--fetched", str(clean), "--sources", str(SOURCES)]) == 0
+    assert calls == []
+
+    assert module.main(["--sources", str(SOURCES)]) == 0
+    assert calls == [(module.RAW + module.REMOTE_PATHS[name], 10) for name in VENDORED]
+    assert all(url.startswith("https://raw.githubusercontent.com/mh550/portfolio_site/main/") for url, _ in calls)
+
+    tree = ast.parse(CHECK_SOURCES.read_text())
+    owners = [
+        fn.name
+        for fn in ast.walk(tree)
+        if isinstance(fn, ast.FunctionDef)
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Attribute) and node.attr == "urlopen"
+    ]
+    imported = [a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names]
+    bare = [n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and n.id == "urlopen"]
+    assert owners == ["fetch"] and "urlopen" not in imported and bare == []
+
+
+def test_check_sources_exits_2_when_a_fetch_fails(tmp_path, monkeypatch, capsys) -> None:
+    import urllib.error
+    import urllib.request
+
+    def offline(url: str, timeout: object = None) -> _Response:
+        raise urllib.error.URLError("no network in the suite")
+
+    monkeypatch.setattr(urllib.request, "urlopen", offline)
+    assert check_sources_module().main(["--sources", str(SOURCES)]) == 2
+    assert "fetch failed: Bio.md:" in capsys.readouterr().err
+
+
+class _Broken(_Response):
+    def read(self) -> bytes:
+        import http.client
+
+        raise http.client.IncompleteRead(b"half")
+
+
+@pytest.mark.parametrize("response", [_Broken(b""), _Response(b"")], ids=["incomplete-read", "status-203"])
+def test_check_sources_a_bad_response_is_a_failed_fetch(response, monkeypatch, capsys) -> None:
+    """A protocol error or a status other than 200 exits 2 ("fetch failed"), never 1 ("drift") or a traceback."""
+    import urllib.request
+
+    if not isinstance(response, _Broken):
+        response.status = 203
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=None: response)
+    assert check_sources_module().main(["--sources", str(SOURCES)]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("fetch failed: Bio.md: ")
+    assert "HTTP 203" in err or "IncompleteRead" in err
+
+
+def test_diff_sources_strips_a_crlf_header(tmp_path) -> None:
+    local, fetched = tmp_path / "local", fetched_tree(tmp_path)
+    local.mkdir()
+    for name in VENDORED:
+        shutil.copy(SOURCES / name, local / name)
+    head, rest = (local / "profile.ts").read_bytes().split(b"\n", 1)
+    (local / "profile.ts").write_bytes(head + b"\r\n" + rest)
+    assert check_sources_module().diff_sources(local, fetched) == []
