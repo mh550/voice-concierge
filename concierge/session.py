@@ -55,6 +55,7 @@ from concierge.store import Store, now_ms
 from concierge.summary_step import journal_row, session_started
 from concierge.tasks import track
 from concierge.text_input import ChannelTags, make_text_input_cb
+from concierge.usher import Usher, allowlist_from_pack
 
 logger = logging.getLogger("concierge.session")
 
@@ -195,13 +196,16 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
         session.on("conversation_item_added", writer.on_item_added)  # before start: the greeting is seen too
         ring = EventRing()
         add_erase_hook(writer, ring.clear)  # "Forget me" empties it with the rest of the pending work
+    journal = functools.partial(journal_row, store, writer.thread_id, session_id, writer=writer) if writer else None
+    pack = load_pack()
+    usher = Usher(ctx.room, allowlist_from_pack(pack), publish, journal, time.monotonic)  # V6: show_page
     agent = agent_or_memoryless(
-        load_pack(), preloaded.block if preloaded else None, writer, events=ring, on_changed=publisher.schedule
+        pack, preloaded.block if preloaded else None, writer, events=ring, on_changed=publisher.schedule,
+        usher=usher,
     )
     # Compaction is about the context budget, not the store: it runs without memory too (then nothing is journaled).
     compactor = closing.compactor = Compactor(
-        agent, session, functools.partial(build_llm, "summarizer", settings),
-        journal=functools.partial(journal_row, store, writer.thread_id, session_id, writer=writer) if writer else None,
+        agent, session, functools.partial(build_llm, "summarizer", settings), journal=journal,
         erased=(lambda: writer.erased) if writer else (lambda: False), on_compacted=publisher.schedule,
     )
     if writer is not None:

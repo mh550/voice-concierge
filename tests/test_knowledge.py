@@ -58,7 +58,8 @@ def test_every_section_names_its_source_within_three_lines() -> None:
 
 
 def test_every_source_line_names_an_existing_source_file() -> None:
-    cited = re.findall(r"^Source: (.+?)\s*$", PACK, re.MULTILINE)
+    cited = re.findall(r"^Source: (\S+)(?: \(slug: [a-z0-9-]+\))?\s*$", PACK, re.MULTILINE)
+    assert len(cited) == PACK.count("\nSource: ")  # every Source line, slug or not, matched the form
     assert cited
     for name in cited:
         assert name in SOURCE_FILES, f"{name!r} is not one of {SOURCE_FILES}"
@@ -84,7 +85,7 @@ def test_pack_has_no_url_absent_from_the_sources() -> None:
 
 
 DIGIT_TOKEN = re.compile(r"\S*\d\S*")
-SOURCE_LINE = re.compile(r"^Source: (\S+)\s*$")
+SOURCE_LINE = re.compile(r"^Source: (\S+)(?: \(slug: [a-z0-9-]+\))?\s*$")
 
 
 def _prose(text: str = PACK) -> str:
@@ -167,7 +168,8 @@ def _section(title: str) -> str:
 
 
 def _source_lines(title: str) -> list[str]:
-    return [line[len("Source: ") :].strip() for line in _section(title).splitlines()[:3] if line.startswith("Source: ")]
+    """The file each of the section's Source lines names, without its ` (slug: …)`."""
+    return [m.group(1) for line in _section(title).splitlines()[:3] if (m := SOURCE_LINE.match(line))]
 
 
 def test_sources_commit_matches_the_headers() -> None:
@@ -285,3 +287,24 @@ def test_the_pack_prose_is_in_spoken_form() -> None:
     body = "\n".join(line for line in _prose().splitlines() if not line.startswith("#"))
     found = TTS_SYMBOLS.findall(URL.sub("", body))
     assert not found, found
+
+
+CITED_SLUG = re.compile(r"^Source: projects\.ts \(slug: ([a-z0-9-]+)\)\s*$", re.MULTILINE)
+
+
+def test_every_cited_slug_is_a_projects_ts_slug() -> None:
+    # V6: the usher's /projects/<slug> hrefs come from these (plan V6 "The slugs in the pack").
+    projects_ts = (SOURCES_DIR / "projects.ts").read_text(encoding="utf-8")
+    slugs = CITED_SLUG.findall(PACK)
+    assert slugs and len(slugs) == len(set(slugs))
+    for slug in slugs:
+        assert f"slug: '{slug}'" in projects_ts, f"{slug!r} is not a projects.ts slug"
+
+
+def test_each_projects_ts_section_carries_its_slug_and_voice_concierge_none() -> None:
+    projects = [t for t in PROJECT_HEADING.findall(PACK)]
+    for title in projects:
+        files = _source_lines(f"Project: {title}")
+        has_slug = bool(CITED_SLUG.search(_section(f"Project: {title}")))
+        assert has_slug == ("projects.ts" in files), title
+    assert "slug:" not in _section("Project: Voice Concierge (this agent)")

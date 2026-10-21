@@ -74,7 +74,7 @@ agent harness built me overnight from a written spec, after the memory design wa
 practice by practice.
 
 ## Project: Agent Harness
-Source: projects.ts
+Source: projects.ts (slug: agent-harness)
 Source: resume-v4.md
 
 Personal and open source (https://github.com/mh550/agent-harness), October 2026 to present. A deterministic Bash
@@ -84,7 +84,7 @@ with project rules as procedural memory and run retros as episodic memory. It ru
 laptop or phone, and 189 features passed in 4 days at about 3 dollars each.
 
 ## Project: Self-hosted music library & DJ crate pipeline
-Source: projects.ts
+Source: projects.ts (slug: home-media-server)
 Source: resume-v4.md
 
 Personal (https://github.com/mh550/dj-crate-streaming), November 2025 to present. A music library he hosts at home
@@ -93,33 +93,33 @@ tracks; a worker downloads, verifies and files them. Only decode-identical audio
 deletes from the library.
 
 ## Project: Linear Adoption + Agentic Bug Workflow
-Source: projects.ts
+Source: projects.ts (slug: linear-ai-workflow)
 
 At MAXX Potential. He moved QA from per-person spreadsheets to Linear, chosen partly for its MCP server, and wired it
 into the team's Claude Code workflow, so bug filing, triage and duplicate detection became automated.
 
 ## Project: GoHighLevel ↔ JobTread Integration
-Source: projects.ts
+Source: projects.ts (slug: ghl-jobtread-integration)
 
 At Builder Clarity. A bidirectional integration between GoHighLevel CRM and JobTread for contractors, matching
 people by phone, then email, then name so no one is created twice. It became the foundation of Builder Clarity's
 productized offering.
 
 ## Project: HitList: offline-first street-spot scouting app
-Source: projects.ts
+Source: projects.ts (slug: hit-list)
 
 Personal, an iPhone app built with Expo (https://github.com/mh550/hit-list). It logs street snowboard and skate
 spots with cold hands and no signal: capture first, add the details later, everything stored on the phone. React
 Native, TypeScript and SQLite, with 374 tests in 37 suites.
 
 ## Project: React Native Paint Estimator
-Source: projects.ts
+Source: projects.ts (slug: paint-estimator)
 
 At MAXX Potential. A mobile app that lets paint estimators price a job by breaking it into areas, features and tasks.
 He established the team's development paradigms and reusable modules.
 
 ## Project: RingCentral ↔ JobTread Integration
-Source: projects.ts
+Source: projects.ts (slug: ringcentral-jobtread-integration)
 
 At Builder Clarity. Synced calls and texts from RingCentral into JobTread, giving contractors one communication
 history per customer. He led its migration from Zapier to n8n.

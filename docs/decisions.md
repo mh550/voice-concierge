@@ -469,6 +469,27 @@ offline suite, and the suite would go red on a change to the portfolio site that
 **Question for Michael.** Run the drift check weekly from a systemd timer (a unit in `deploy/`, mailing or logging
 the result), or by hand from MORNING only?
 
+## D23 *default*: what the usher does where §9 is silent (2026-10-21, V6-01; V6-02's step calls the V6 entry "D20 *default*")
+
+D20 was taken by V2-05, so the V6 choices are D23; V6-02 adds its own to this entry. Plan:
+`docs/plans/2026-10-21-V6-usher.md`.
+
+**Decision.** (a) A `show_page` reason the write gate rejects (an instruction, a URL, an email) is not sent: the
+navigation still goes with `reason: ""`, since the page names the destination from the href itself. It isn't
+journaled `gate_rejected`: that type and its event lines are about memory values, and the reason is never stored. (b) The 8 s
+agent-side limit mirrors the page's, per session, on a monotonic clock; refusals don't count, the slot is taken before
+the send is awaited (two calls in one turn send once) and a failed send gives it back unless a later send took it. (c) An href is allowed only by
+exact match with the allowlist (no normalising of a trailing slash, query or host). (d) A refused href is journaled
+`navigate_refused` with its path only (no host, no query, no reason text, at most 120 characters), and only a site
+path the write gate passes: a `mailto:`, `tel:` or `javascript:` href, or a path holding an email, journals `""`. Each
+distinct path is journaled once per session. A session without memory has no thread and journals nothing. (e) The Voice Concierge section carries no slug, as the V6-01 step says,
+though `projects.ts` now has a `voice-concierge` entry; its section is sourced from `concierge.md`. (f) A fifth reply
+beyond the step's three: a send that fails or takes over 2 s answers `That page didn't open; keep talking`, so the
+tool never raises into the turn and never waits on a room that is going away.
+
+**Question for Michael.** Should the Voice Concierge section get `Source: projects.ts (slug: voice-concierge)` so the
+agent can show its own project page? One line in the pack; the allowlist follows.
+
 ## Health port: loopback only (Michael, 2026-10-20)
 
 **Decision.** The worker's health endpoint (8081 under `start`) binds 127.0.0.1: `AgentServer(host="127.0.0.1")` in

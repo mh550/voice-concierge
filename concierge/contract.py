@@ -31,12 +31,24 @@ RETENTION_DAYS = 30  # §2 "retention_days": 30, the B6 idle TTL (Settings.idle_
 MAX_EPISODES = 5  # §2: newest first, at most 5
 MAX_EVENTS = 12  # §2: this session only, newest first, at most 12
 MAX_DETAIL = 120  # an event's detail: one short plain sentence (D17 (a))
+NAVIGATE_TOPIC = "concierge.navigate"  # §2, V6: agent → page, sent only by usher.Usher
+NAVIGATE_MAX_BYTES = 1024  # §2 "body ≤ 1 KiB"
 
 EventType = Literal[
     "fact_added", "fact_invalidated", "fact_deleted", "gate_rejected", "extraction_ran", "remember", "forget"
 ]
 
 MetricsPayload = TurnMetrics  # one model, so the anonymous table and the topic can't drift
+
+
+class NavigatePayload(BaseModel):
+    """`concierge.navigate` (§2): an allowlisted href, a gated reason of at most 120 characters, and when."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    href: str
+    reason: str = Field(max_length=MAX_DETAIL)
+    at: str
 
 
 class VisitorView(BaseModel):

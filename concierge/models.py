@@ -18,7 +18,7 @@ Channel = Literal["voice", "text"]
 JournalType = Literal[
     "session_started", "session_ended", "user_turn", "agent_turn", "memory_preloaded", "extraction_ran",
     "fact_added", "fact_invalidated", "fact_deleted", "turn_metrics", "gate_rejected", "error",
-    "summary_written", "compacted", "visitor_left",
+    "summary_written", "compacted", "visitor_left", "navigate_refused",
 ]
 
 SINGLE_CAP = 120

@@ -13,6 +13,14 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 10:30 · V6-01 · passes
+- **Changed:** `concierge/usher.py` (new, 105 lines) has `FIXED_ROUTES`, `allowlist_from_pack` and `Usher.show_page`, the three step replies plus `That page didn't open; keep talking` (D23 (f)). `contract.py` gains `NAVIGATE_TOPIC`, `NAVIGATE_MAX_BYTES` and `NavigatePayload`; `models.py` adds `navigate_refused` to `JournalType`. `agent.py` has the `show_page` tool, and `session.py` builds the Usher from one `load_pack()` and shares the `journal_row` partial with the Compactor. In `knowledge/michael.md`, 7 project Source lines carry `(slug: …)`; Voice Concierge has none. New files: `tests/contract/navigate.schema.json`, `tests/test_usher.py` (30 tests), `docs/plans/2026-10-21-V6-usher.md`, and D23 in decisions plus MORNING. Tests 1209 → 1241.
+- **Verified:** check.sh green, 1241 tests. Each test was seen failing first. An Opus review of the 843-line diff found no Critical issues. Its Important finding was that a refused `mailto:`/`javascript:` href journaled its payload as the "path"; that is fixed test-first, along with 7 Minor ones (see the plan's `## Review (V6-01)`).
+- **Flaky test fixed:** `test_metrics.py::test_one_row_per_turn_with_the_anonymous_columns` failed once under suite load. Each turn's metrics insert is its own thread, so the `id` order of the rows can vary; the assertion now ignores order.
+- **Next session (V6-02):** `contract.py` and `session.py` are both at 249 lines, so keep the prompt rule in `prompt.py` and leave the session alone. The conversation evals run with no usher, so `show_page` answers "not one I can show" there, but `tool_called` still passes. The decision entry the V6-02 step calls "D20 *default*" is D23 (D20 was taken), and V6-02 should extend it.
+- **Question for Michael:** `projects.ts` now has a `voice-concierge` entry (line 771). The step treated that project as having none, so it gets no slug. Add `Source: projects.ts (slug: voice-concierge)` so the agent can show its own page?
+- **Proposed changes:** V6-02 step 3 should say D23, not D20, and should drop "no slug for a project without a projects.ts entry" (no such project remains).
+
 ### 2026-10-21 09:10 · verify V5
 
 | Feature | Step | What you ran or read | What you saw | Holds |

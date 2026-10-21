@@ -117,7 +117,7 @@ async def test_the_llm_gets_the_production_instructions() -> None:
     assert text.startswith(STATIC_INSTRUCTIONS)
     assert pack in text
     names = sorted(t.info.name for t in fake.calls[0].tools if isinstance(t, llm.FunctionTool))
-    assert names == ["forget", "leave_message_for_michael", "remember"]
+    assert names == ["forget", "leave_message_for_michael", "remember", "show_page"]
 
 
 async def test_a_memory_block_reaches_the_instructions() -> None:

@@ -120,7 +120,7 @@ async def test_one_row_per_turn_with_the_anonymous_columns(
     assert [c for c in columns if c != "id"] == ANONYMOUS_COLUMNS
     assert "visitor_id" not in columns and "thread_id" not in columns and "text" not in columns
     written = rows(store)
-    assert [r["turn"] for r in written] == [1, 2, 3]
+    assert sorted(r["turn"] for r in written) == [1, 2, 3]  # each turn's write is its own thread: any id order
     assert {r["session_id"] for r in written} == {session_id}
     assert all(isinstance(r["created_at"], int) and 0 <= clock.now - r["created_at"] < 60_000 for r in written)
     assert "Acme" not in json.dumps(written)  # numbers only, never the text
