@@ -115,3 +115,15 @@ def test_static_instructions_carry_the_name_confirmation_rule() -> None:
     assert "Never ask to confirm a name from their earlier visits" in text
     # The names rule comes before the memory paragraph.
     assert text.index("Names:") < text.index("earlier visits may follow what you know about Michael")
+
+
+def test_static_instructions_carry_the_show_page_rule() -> None:
+    # V6-02: show the page once when a project or a page's topic comes up, never the same one twice, don't announce it.
+    lines = [line for line in STATIC_INSTRUCTIONS.splitlines() if "show_page" in line]
+    assert len(lines) == 1
+    rule = lines[0]
+    assert "when you start talking about one of Michael's projects or a page's topic" in rule
+    assert "call show_page once for it, then keep talking" in rule
+    assert "Never call it for the same page twice in a row" in rule
+    assert "Don't announce the page unless asked" in rule
+    assert estimate_tokens(build_instructions(load_pack(), None)) <= STATIC_AND_PACK_MAX_TOKENS == 3000

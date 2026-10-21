@@ -487,6 +487,15 @@ though `projects.ts` now has a `voice-concierge` entry; its section is sourced f
 beyond the step's three: a send that fails or takes over 2 s answers `That page didn't open; keep talking`, so the
 tool never raises into the turn and never waits on a room that is going away.
 
+In short, the V6 choices "D20 *default*" names: the 8 s agent-side limit mirrors the page's; a refused href is
+journaled as a path only; a project with no projects.ts slug (now only Voice Concierge) carries no slug and gets no href.
+
+**V6-02 adds.** (g) The instructions' rule is one line under "Pages:": call show_page once for it when a project or a
+page's topic comes up, never for the same page twice in a row, without announcing it unless asked. The routes are
+listed in the tool's own description, not the rule, so the rule costs about 60 tokens of the 3,000 budget. (h)
+`evals/conversation/12-show-the-harness.yaml` asserts the call; it runs with no room, so offline the tool answers
+`That page is not one I can show` and only the call itself is checked.
+
 **Question for Michael.** Should the Voice Concierge section get `Source: projects.ts (slug: voice-concierge)` so the
 agent can show its own project page? One line in the pack; the allowlist follows.
 

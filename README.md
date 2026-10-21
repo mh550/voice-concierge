@@ -32,6 +32,10 @@ live run is Michael's ([`MORNING.md`](MORNING.md)); until then no measured numbe
 - **Leaves when the visitor does.** When the visitor's participant disconnects and doesn't reconnect within a 20 s
   grace, the agent saves its notes (final extraction, visit summary, a last `concierge.memory`) and leaves, so the
   room closes and the address frees within about 30 s; a reload inside the grace keeps the session.
+- **Shows the page it is talking about.** When it starts on one of Michael's projects or a page's topic, the agent
+  calls its `show_page` tool, which sends `concierge.navigate` with the page's address (`concierge/usher.py`). Only
+  the site's fixed pages and the project pages the knowledge pack names are allowed, and at most one every 8 s; the
+  page follows only while the visitor has Guide me on.
 - **Explains itself on request.** Asked how its memory works or how it was built, it answers from `knowledge/sources/concierge.md`
   instead of guessing, and what it says about its own memory matches what the memory panel shows.
 - **Is tested in three tiers**: offline, llm and live, each proving something the others can't (see
@@ -61,7 +65,7 @@ flowchart LR
     inference["LiveKit Inference (STT, TTS)"]
     deepgram["Deepgram (alternative speech, by config)"]
 
-    page <-->|"audio, lk.chat, concierge.memory, concierge.metrics, RPCs concierge.forget_me and concierge.get_memory"| cloud
+    page <-->|"audio, lk.chat, concierge.memory, concierge.metrics, concierge.navigate, RPCs concierge.forget_me and concierge.get_memory"| cloud
     worker -->|"outbound only, explicit dispatch as concierge"| cloud
     worker <-->|"preload at join, background writes"| db
     worker -->|"LLM calls"| anthropic

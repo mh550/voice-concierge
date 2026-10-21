@@ -115,3 +115,15 @@ async def test_the_remember_script_calls_remember() -> None:
 def test_a_generic_or_wrong_reply_fails_the_script(stem: str, reply: str) -> None:
     turn = load_conversation(EVALS / f"{stem}.yaml").turns[0]
     assert reply_failures(turn, reply, []), f"{stem} passes a reply it should fail: {reply!r}"
+
+
+def test_the_show_the_harness_script_calls_show_page() -> None:
+    # V6-02: the usher's eval; offline there is no room, so the tool refuses, but the call is what's asserted.
+    script = load_conversation(EVALS / "12-show-the-harness.yaml")
+    assert len(script.turns) == 2
+    ask, reply = script.turns
+    assert ask.user == "tell me about the harness" and ask.tool_called == "show_page"
+    call = ask.fake_tool_call
+    assert call is not None and call["name"] == "show_page" and call["reply"]
+    assert call["arguments"]["href"] == "/projects/agent-harness"
+    assert reply.fake_reply and reply.tool_called is None
