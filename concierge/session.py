@@ -28,10 +28,11 @@ from livekit.agents.voice.room_io import RoomOptions, TextInputOptions
 from concierge.agent import ConciergeAgent, agent_or_memoryless
 from concierge.compactor import Compactor
 from concierge.config import Settings, build_llm, build_stt, build_tts, recording_options
-from concierge.contract import METRICS_TOPIC
+from concierge.contract import METRICS_TOPIC, MemoryPayload, empty_memory_payload
 from concierge.departure import DEPARTURE_GRACE_S, JOIN_GRACE_S, DepartureWatcher
 from concierge.dispatch import DispatchInfo, parse_dispatch
 from concierge.erasure_hooks import add_erase_hook
+from concierge.events import EventRing
 from concierge.greeting import greeting_instructions
 from concierge.knowledge import load_pack
 from concierge.limits import (
@@ -42,14 +43,16 @@ from concierge.limits import (
     start_session_timer,
     was_capped,
 )
+from concierge.memory_view import AgentView, current_memory
 from concierge.memory_writer import MemoryWriter
 from concierge.merge import MergeResult
 from concierge.metrics import TurnMetricsCollector
 from concierge.preload import Preloaded, preload, preload_or_none
 from concierge.publish import MemoryPublisher, publish
-from concierge.rpc import current_memory, serve_rpcs
-from concierge.session_end import Closing, begin_end, end_session, journal_row, shut_down
-from concierge.store import Store
+from concierge.rpc import serve_rpcs
+from concierge.session_end import Closing, begin_end, end_session, shut_down
+from concierge.store import Store, now_ms
+from concierge.summary_step import journal_row, session_started
 from concierge.tasks import track
 from concierge.text_input import ChannelTags, make_text_input_cb
 
@@ -76,6 +79,7 @@ class Started:
     collector: TurnMetricsCollector | None = None
     timer: asyncio.Task[None] | None = None  # the session_max_s limit; cancelled first at shutdown
     closing: Closing | None = None  # what every end runs (session_end.end_session)
+    events: EventRing | None = None  # this session's memory events (V2-04); None without memory
 
 
 def room_start_kwargs(ctx: JobContext, info: DispatchInfo, settings: Settings, channels: ChannelTags) -> dict[str, Any]:
@@ -112,6 +116,7 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     `end_session` (the closing work, then ctx.shutdown); the shutdown callback runs it if no end did, then closes
     everything, the store last."""
     info = parse_dispatch(ctx.job.metadata)  # the entrypoint validated it; pure and cheap
+    started_ms = now_ms()  # the visit's episode starts here
     closing = Closing(
         end=lambda reason: ctx.shutdown(reason), store=store, session_id=uuid.uuid4().hex, visitor_id=info.visitor_id,
         began=time.monotonic(), tasks=set(), make_summarizer=lambda: build_llm("summarizer", settings),
@@ -120,6 +125,8 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     writer: MemoryWriter | None = None
     compactor: Compactor | None = None
     collector: TurnMetricsCollector | None = None
+    ring: EventRing | None = None  # with the writer: this session's memory events (V2-04)
+    view: AgentView | None = None  # once the agent exists: what the body says about it (V2-05)
 
     async def on_shutdown(reason: str) -> None:  # a plain async def: add_shutdown_callback reads its __code__
         await shut_down(closing, reason)
@@ -151,21 +158,32 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     end = functools.partial(begin_end, closing)  # every end but a departure: the closing work, then ctx.shutdown
     session = closing.session = build_session(ctx, settings)
     channels = ChannelTags()
-    # What concierge.memory and get_memory carry now: on the writer's thread, in order with its writes.
-    publisher = closing.publisher = MemoryPublisher(ctx.room, lambda: current_memory(store, writer, info.visitor_id))
+    async def memory() -> MemoryPayload:  # concierge.memory and get_memory: one build path (V2-05)
+        if publisher.closed:  # "Forget me" sent the empty body last (or the room is gone): get_memory says the same
+            return empty_memory_payload()
+        return await current_memory(store, writer, info.visitor_id, events=ring, agent=view)
+
+    publisher = closing.publisher = MemoryPublisher(ctx.room, memory)
     rpcs = functools.partial(  # after connect: local_participant exists
         serve_rpcs, ctx.room, visitor_id=info.visitor_id, store=store, publisher=publisher, session=session,
         end=end, tasks=tasks, preloading=preloading, stop_timer=closing.stop,  # "Forget me": no cap line, one end
+        memory=memory,
     )
     if capped:  # memoryless, no greeting; the RPCs still answer (a capped visitor can still press "Forget me")
         rpcs(writer=None)
-        await session.start(agent=ConciergeAgent(load_pack()), **room_start_kwargs(ctx, info, settings, channels))
+        view = AgentView(ConciergeAgent(load_pack()))
+        await session.start(agent=view.agent, **room_start_kwargs(ctx, info, settings, channels))
         track(tasks, say_and_end(session, DAILY_CAP_LINE, end, "daily cap"), log=logger)
         return Started(session, None, session_id, None, tasks, publisher=publisher, closing=closing)
 
-    def on_merged(result: MergeResult) -> None:
+    def on_merged(result: MergeResult) -> None:  # the writer's background run, never a turn handler
         if collector is not None:
             collector.note_extraction(result.extraction_ms)  # on the next turn's concierge.metrics
+        if ring is not None:
+            try:
+                ring.note_merge(result)  # before the send, so it carries the lines
+            except Exception as exc:  # a line never costs the send
+                logger.warning("the merge's events weren't noted (%s)", type(exc).__name__)
         publisher.schedule()  # a fresh concierge.memory after every merge
 
     if store is not None and preloaded is not None:  # no thread, no writer: nothing is ever scheduled
@@ -175,12 +193,16 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
             on_merged=on_merged,
         )
         session.on("conversation_item_added", writer.on_item_added)  # before start: the greeting is seen too
-    agent = agent_or_memoryless(load_pack(), preloaded.block if preloaded else None, writer)
+        ring = EventRing()
+        add_erase_hook(writer, ring.clear)  # "Forget me" empties it with the rest of the pending work
+    agent = agent_or_memoryless(
+        load_pack(), preloaded.block if preloaded else None, writer, events=ring, on_changed=publisher.schedule
+    )
     # Compaction is about the context budget, not the store: it runs without memory too (then nothing is journaled).
     compactor = closing.compactor = Compactor(
         agent, session, functools.partial(build_llm, "summarizer", settings),
         journal=functools.partial(journal_row, store, writer.thread_id, session_id, writer=writer) if writer else None,
-        erased=(lambda: writer.erased) if writer else (lambda: False),
+        erased=(lambda: writer.erased) if writer else (lambda: False), on_compacted=publisher.schedule,
     )
     if writer is not None:
         add_erase_hook(writer, compactor.cancel)  # "Forget me" cancels the compaction too (spec §4.2)
@@ -195,7 +217,14 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     session.on("agent_state_changed", collector.on_state_changed)
     if isinstance(session.llm, llm.LLM):
         session.llm.on("metrics_collected", collector.on_llm_metrics)
+    view = AgentView(agent, compactor, collector)
     rpcs(writer=writer)
+
+    def started(loaded: Preloaded | None = None, greeting: SpeechHandle | None = None) -> Started:
+        """Without a greeting (the cap, or an end during the start) the preload isn't reported either."""
+        return Started(session, loaded, session_id, greeting, tasks, writer, compactor, publisher, collector,
+                       closing.timer, closing, ring)
+
     await session.start(agent=agent, **room_start_kwargs(ctx, info, settings, channels))
     # An end that began during the start ("Forget me" says goodbye and ends, review A-M1; the visitor gone, V1-03) or
     # during the late count runs alone: no cap line, no greeting, no timer, no session_started after session_ended.
@@ -204,16 +233,13 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
             preloading.cancel()  # a count that timed out may still come back under the cap: no preload then
         if not closing.stopped:
             track(tasks, say_and_end(session, DAILY_CAP_LINE, end, "daily cap"), log=logger)
-        return Started(session, None, session_id, None, tasks, writer, compactor, publisher, collector, closing=closing)
+        return started()
     if closing.stopped:
-        return Started(session, None, session_id, None, tasks, writer, compactor, publisher, collector, closing=closing)
+        return started()
     greeting = session.generate_reply(instructions=greeting_instructions(preloaded))
+    if writer is not None and preloaded is not None:  # created first: its begin_visit is queued ahead of the start read
+        row = {"visits": preloaded.visits, "preload_ms": preloaded.ms, "returning": preloaded.block is not None}
+        track(tasks, session_started(writer, preloaded.visits, started_ms, row), log=logger)
     publisher.schedule()  # after the greeting is queued: the read waits behind the writer's thread, not the reply
-    timer = closing.timer = start_session_timer(session, settings.session_max_s, end)  # B7: 10 minutes, one line
-
-    if store is not None and preloaded is not None:
-        started = {"visits": preloaded.visits, "preload_ms": preloaded.ms, "returning": preloaded.block is not None}
-        track(tasks, journal_row(store, preloaded.thread_id, session_id, "session_started", started, writer),
-              log=logger)
-    return Started(session, preloaded, session_id, greeting, tasks, writer, compactor, publisher, collector, timer,
-                   closing)
+    closing.timer = start_session_timer(session, settings.session_max_s, end)  # B7: 10 minutes, one line
+    return started(preloaded, greeting)

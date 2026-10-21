@@ -8,10 +8,22 @@ import pytest
 from livekit.agents import llm
 
 from concierge.agent import ConciergeAgent
+from concierge.events import EventRing
 from concierge.knowledge import load_pack
-from concierge.memory_tools import CANT_REMEMBER, CANT_SAVE, FORGOTTEN, NOTHING_TO_FORGET, STORE_FAILED
+from concierge.memory_tools import (
+    ALREADY_KNOWN,
+    CANT_REMEMBER,
+    CANT_SAVE,
+    FORGOTTEN,
+    NOTHING_TO_FORGET,
+    REMEMBERED,
+    STORE_FAILED,
+    do_forget,
+)
+from concierge.memory_view import current_memory, memory_with_events
 from concierge.memory_writer import MemoryWriter
-from concierge.models import AddFact
+from concierge.merge_result import FactChange, MergeResult
+from concierge.models import AddFact, DeleteFact, VisitorState
 from concierge.prompt import STATIC_AND_PACK_MAX_TOKENS, STATIC_INSTRUCTIONS, estimate_tokens
 from concierge.store import Store
 from concierge.testing.fake_llm import FakeLLM, FakeResponse, FakeToolCall
@@ -345,3 +357,72 @@ async def test_forget_a_value_with_no_word_tokens(agent: ConciergeAgent, store: 
     seed(store, thread_id, "interests", "C++", 1)  # review M9: words("C++") is empty
     assert await agent.forget("C++") == FORGOTTEN
     assert store.fact_history(thread_id) == []
+
+
+# --- V2-04: the tools note this session's memory events (plan 2026-10-21-V2 "Events (V2-04)") ---------------------
+
+
+def lines(ring: EventRing) -> list[tuple[str, str]]:
+    return [(e.type, e.detail) for e in ring.items()]
+
+
+async def test_remember_notes_a_remember_event(writer: MemoryWriter, store: Store, thread_id: str) -> None:
+    seed(store, thread_id, "company", "Initech", 1)
+    ring, changed = EventRing(), []
+    agent = ConciergeAgent(PACK, None, memory=writer, events=ring, on_changed=lambda: changed.append(1))
+    writer.note_item(user("Remember that I work at Acme now.", "u1"))
+    assert await agent.remember("company: Acme") == REMEMBERED
+    assert lines(ring) == [("remember", "Remembered at your request: company"),
+                           ("fact_invalidated", "Updated your company")]
+    assert changed == [1]  # the page hears at once (D17 (h))
+    assert await agent.remember("company: Acme") == ALREADY_KNOWN  # nothing changed: no line, no send
+    assert await agent.remember("company: http://x.test") == CANT_REMEMBER
+    assert len(ring.items()) == 2 and changed == [1]
+
+
+async def test_forget_notes_fact_deleted_and_forget(writer: MemoryWriter, store: Store, thread_id: str) -> None:
+    seed(store, thread_id, "company", "Acme", 1)
+    seed(store, thread_id, "role", "engineer", 2)
+    ring, changed = EventRing(), []
+    ring.note_merge(merged(FactChange(kind="added", slot="company", value="Acme")))
+    agent = ConciergeAgent(PACK, None, memory=writer, events=ring, on_changed=lambda: changed.append(1))
+    writer.note_item(user("Forget where I work.", "u1"))
+    assert await agent.forget("where I work") == FORGOTTEN
+    assert lines(ring)[:2] == [("forget", "Forgot at your request: company"), ("fact_deleted", "Forgot your company")]
+    assert changed == [1]
+    body = await current_memory(store, writer, "v", events=ring)  # the older line lost the value it showed
+    assert [e.detail for e in body.about_visitor.events][2] == "Remembered your company"  # type: ignore[union-attr]
+    assert await agent.forget("Rust") == NOTHING_TO_FORGET
+    assert len(ring.items()) == 4 and changed == [1]
+
+
+def merged(*changes: FactChange) -> MergeResult:
+    return MergeResult(version=1, added=[], invalidated=[], rejected=[], skipped=[], state=VisitorState(),
+                       changes=list(changes))
+
+
+async def test_forgetting_a_value_by_name_keeps_it_off_the_page(writer: MemoryWriter, store: Store,
+                                                                 thread_id: str) -> None:
+    seed(store, thread_id, "role", "engineer", 1)
+    ring = EventRing()
+    ring.note_merge(merged(FactChange(kind="added", slot="role", value="engineer")))
+    writer.note_item(user("Forget engineer. I work in IT.", "u1"))
+    assert await do_forget(writer, "engineer", events=ring) == FORGOTTEN
+    assert lines(ring)[:2] == [("forget", "Forgot something at your request"), ("fact_deleted", "Forgot your role")]
+    body = await current_memory(store, writer, "v", events=ring)
+    assert "engineer" not in body.model_dump_json()
+    assert await do_forget(writer, "I work in IT", events=ring) == NOTHING_TO_FORGET  # nothing stored: no line
+
+
+async def test_a_value_forgotten_after_the_lines_were_read_is_not_sent(
+    writer: MemoryWriter, store: Store, thread_id: str
+) -> None:
+    """Review V2-04 I1: a send that snapshotted the ring before a forget (here or in another tab's session) ran
+    builds on the writer's thread after it, so the line is checked against the store there."""
+    fact_id = seed(store, thread_id, "company", "Acme", 1)
+    ring = EventRing()
+    ring.note_merge(merged(FactChange(kind="added", slot="company", value="Acme")))
+    snapshot = ring.lines()
+    store.apply_fact_ops(thread_id, [DeleteFact(fact_id=fact_id)])  # the other session's forget
+    body = await writer.call(memory_with_events, store, thread_id, snapshot)
+    assert "Acme" not in body.model_dump_json()

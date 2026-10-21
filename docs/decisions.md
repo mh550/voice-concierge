@@ -254,6 +254,167 @@ already, and a long join grace only costs a stray session's address for a minute
 page is slow to join. Rejected: no join check (I3's bug); the 20 s departure grace (a slow join would end a live call).
 Question for Michael: is 60 s right?
 
+## D17 *default*: what contract v2 (§2) leaves open (2026-10-21, V2-01)
+
+**Finding.** Spec 2026-10-21 §2 and §4 fix the v2 keys and types but not the event wording, how the current visit's
+episode row comes to exist, what a failed summary leaves, or how the 15 KiB cap trims the new lists. The plan
+(`docs/plans/2026-10-21-V2-contract-v2.md`) had to pick.
+
+**Choice.**
+- (a) **Event lines** (`concierge/events.py`), slot words `name`, `role`, `company`, `interest`, `follow-up`, and
+  `what you asked about` (which drops "your": "Remembered what you asked about: Rust"):
+
+  | type | line | value-free form |
+  |---|---|---|
+  | `fact_added` | `Remembered your <slot>: <value>` | `Remembered your <slot>` |
+  | `fact_invalidated` | `Updated your <slot>` | (same) |
+  | `fact_deleted` | `Forgot your <slot>` | (same) |
+  | `gate_rejected` | `Didn't store something that looked like <an instruction \| a link \| contact details \| a secret \| code>` | (same; never a value) |
+  | `extraction_ran` | `Took notes in the background (<n> change \| changes>)` | (same) |
+  | `remember` | `Remembered at your request: <slot>` | (same) |
+  | `forget` | `Forgot at your request: <about>` | `Forgot something at your request` |
+
+  Gate reasons in words: `instruction` → an instruction, `url` → a link, `email`/`phone` → contact details, `secret`
+  → a secret, `code` → code. Other rejections (`agent_attributed`, `empty`, `unsafe_chars`, `too_long` and the
+  merge's own rules: grounding, the name rule, an unknown slot) get no line: they are the model's mistakes, not
+  something the visitor said that was refused. A line that `check_text` rejects or that is over 120 characters falls
+  back to the value-free form. Every fixed line above passes `check_text` today (checked in V2-01).
+- (b) **The current visit's episode row** is inserted at session start by the `session_started` background task
+  (`begin_visit`, idempotent), queued on the writer's thread before the start `concierge.memory` read, and completed by
+  `end_visit` after the summary step. `end_visit` only updates: if `begin_visit` failed there is no episode for that
+  visit, and an erased thread raises `ThreadMissing` and re-creates nothing. The visit number is `preloaded.visits`.
+- (c) **A failed summary leaves that episode's `summary` null** (so does a skipped one: no visitor turn, or erased);
+  `ended_at` is still set. An episode's summary is the text the summary step stored at that visit's end, which is the
+  rolling summary (it starts from the previous one, `write_summary`), not a summary of that visit alone.
+- (d) **`extraction_ran` is noted only when the run changed or rejected something** (n = added + invalidated).
+- (e) **Events come from the `MergeResult` and the tools, not by reading the journal back**: same rows, no store read
+  on the event loop. `MergeResult.changes` carries slot and value in memory only; the journal still holds no values (D8).
+- (f) **The trimmer** drops the oldest facts from `facts` and `profile` together (they stay equal), then the oldest
+  events, then the oldest episodes; never a v1 key. *Superseded by D19 (a) (V2 review).*
+- (g) **The empty body** (after "Forget me", or a session without memory) is v2: `v: 2`, `about_visitor` with three
+  empty lists, `retention_days: 30`, `about_agent` null. A forget_me also clears the event ring.
+- (h) **`remember` and `forget` publish at once** (the tools call the publisher's `schedule` after noting their
+  events), so the page doesn't wait for the next merge.
+- (i) **A top-level v2 key may be null** (V2-02): `v`, `about_visitor`, `about_agent` and `retention_days` default to
+  `None` on `MemoryPayload`, pydantic dumps that as `null`, and `memory.schema.json` accepts `null` for each, which a
+  page reads like a missing key: "not reported". Our builders always fill `v`, `about_visitor` and `retention_days`;
+  only `about_agent` is null in practice (no agent view yet, or a body built outside a session). *Sending changed by D19
+  (b) (V2 review): a null top-level v2 key is left out of the JSON; the schema still accepts null.*
+- (j) **`forget` clears the episode summaries too** (V2-03 review): each ended episode keeps the rolling summary as it
+  stood at that visit's end, so a forgotten value could sit in several rows. The `forget` tool nulls the `summary` of
+  every episode that names a deleted value or the value the request names, in the same store-thread call that clears
+  `last_visit_summary` (one fenced write, then the checkpoint), and the reply counts it as forgotten.
+- (k) **An episode left open stays open** (V2-03): a worker killed before `end_visit` (crash, SIGKILL, the 25 s closing
+  deadline) leaves that visit's `ended_at` null, so a later body can show two visits with no end. Nothing closes it
+  after the fact: a later session can't tell a dead session from another tab's live one without a lease.
+- (l) **A forgotten value leaves the event lines too** (V2-04): the ring shows values ("Remembered your company:
+  Acme"), and each such line keeps its value; every body checks it against the thread's fact history on the writer's
+  thread (`events.shown`, `memory_view.memory_with_events`), so a value deleted by `forget`, here or in another tab's session,
+  goes out as the value-free form ("Remembered your company"), even in a send whose lines were read before the forget
+  ran (review I1). The `forget` line names the slot the request names, never the visitor's words, which can hold a
+  value ("forget where I work" → "Forgot at your request: company"; "forget I work in IT" would echo "IT"); a request
+  that names a value ("forget Acme") gets "Forgot something at your request". `remember` notes nothing when nothing changed ("I already have that", or refused), and
+  `fact_invalidated` lines for what it replaced, then `remember`. Every type has a value-free form (`PLAIN` in
+  `concierge/events.py`), the last guard when a caller's line fails `check_text` or the 120-character cap.
+
+**Rejected.** Noting every extraction run (a 10-minute call has ~30 runs, mostly with no change: they would push the
+real lines out of the 12-line ring). Creating the episode row in the summary step only (the start body could not show
+the current visit, and a session that dies before its summary would leave no episode at all). Keeping the last good
+summary in a failed visit's episode (it would describe an earlier visit as this one). A line per non-gate rejection
+(noise the visitor can't act on). Trimming `profile` before `facts` (a v2 page would show less than a v1 page). Dropping null keys with `exclude_none`
+(it would drop v1's `summary: null` too, which the schema requires) or keeping the schema non-null (a body re-dumped
+from a parsed v1 one would fail it). For (l): echoing `about` as §2's wording has it (the page would show the value the visitor
+just asked to forget, for the rest of the session), rewriting the ring on the event loop after the forget (a send
+already building would still carry the value, and another session's forget is never seen), and dropping the older
+lines instead (the count of what happened this session would change under the visitor).
+
+**Question for Michael.** Are these lines how you want the page to read? In particular: should "Took notes in the
+background" show on every run (including no change), and should an episode carry the rolling summary or should the
+summarizer write a per-visit one as well? (k): should an episode a crash left open be shown as "ended: unknown" by
+the page, or should the worker close stale open rows (older than the 10-minute cap plus the grace) at the next start?
+
+## D18 *default*: what `about_agent` reports where §2 is silent (2026-10-21, V2-05)
+
+**Decision.** (a) `cache.cached_share` is the last closed turn **that had LLM metrics**: a turn with no LLM call
+(none in 1.8 today, but a tool-only turn could be) keeps the share before it; a turn whose `prompt_tokens` were 0 sets
+it to null; it is capped at 1. (b) `knowledge.sources_commit` is the first 7-40 character lower-case hex word in
+`knowledge/sources/SOURCE.md`, or `"unknown"` when there is none (a missing commit must not cost every memory send).
+(c) `working` is read when the body is built: the start body is built before the greeting lands, so it counts the
+instructions and the config update only. `working.items` is every item in the agent's context (the instructions
+item and config updates too, as the plan's `len(agent.chat_ctx.items)` has it), while `working.est_tokens` is
+`estimate_ctx_tokens`, the conversation part only (the instructions are `instructions_est_tokens` plus the pack's
+`est_tokens`; review M4). (d) A session over the daily cap, and one without memory, still report
+`about_agent` (the agent exists; only the visitor's memory is missing); the empty body after "Forget me" does not, and
+`concierge.get_memory` answers with that empty body once it was sent (review M2). (e) `memory_block_chars` is null for a blank block too, as `build_instructions` drops it.
+
+**Rejected.** Null after any turn without LLM metrics (the page would flicker between a share and "not reported").
+Failing the build on a SOURCE.md without a commit. Leaving `about_agent` out of a memoryless session's body. Failing the whole body when
+`about_agent` can't be read (it is optional in the contract: it goes out null and the read is logged by type, review
+I1). Taking the first hex word anywhere in SOURCE.md (a word like "defaced" would pass for a commit, review M3).
+
+**Question for Michael.** Is "the last turn with LLM metrics" the share you want the page to show, or would you
+rather see the session's cumulative cached share?
+
+## D19 *default*: the V2 review's three fixes (2026-10-21, V2-06)
+
+**Finding.** The V2 review (Opus, `$HARNESS_SCRATCH/review-V2.diff`; notes under "## Review" in
+`docs/plans/2026-10-21-V2-contract-v2.md`) found three Important gaps against spec 2026-10-21 §2 and §4.
+
+**Decision.**
+- (a) **The trimmer keeps the v1 facts** (replaces D17 (f); *order changed by D20: `profile` goes first*).
+  Over 15 KiB, `contract.trim_to_fit` drops the oldest
+  events, then the oldest episodes, then the oldest `profile` items, and the oldest v1 `facts` only after all of
+  those, one item at a time, re-measured. §4 says "keep the v1 keys populated as before" and "the events and episodes
+  are capped so a full body fits"; D17 (f) dropped v1 facts first, so the largest ASCII body lost facts a v1 agent
+  sent, and a 4-byte one sent `facts: []`. Now the largest bodies keep all 20 facts (ASCII: a few of the oldest
+  events go; 4-byte: every event and episode, then the oldest `profile` items). So `profile` can be shorter than
+  `facts`, and only in a body over the cap.
+- (b) **A top-level v2 key with nothing to report is left out, not sent as null** (changes how D17 (i) is sent).
+  `MemoryPayload` serializes without a `None` `v`, `about_visitor`, `about_agent` or `retention_days`; v1's
+  `summary: null` and every nested `|null` that §2 spells stay. §2 says "missing fields render as 'not reported'", and a v1
+  agent leaves them out, so a page must take a missing key; a page that takes `.optional()` but not null would
+  reject a null one. The schema still accepts null (tolerant reader).
+- (c) **An event line never quotes a value that reads as a link or an order**, which is stricter than the write gate.
+  `events.plain_enough`: no `.`, `:`, `/`, `\` or `@` between two non-spaces, no spaced `.tld` or "dot tld", no
+  scheme word, no "always/never/must/should/you will … say/speak/reply/…", and no word that mixes Latin, Cyrillic or
+  Greek letters (lookalikes); NFKC first. Otherwise the line falls back to its value-free form. "Node.js" or
+  "Ph.D." read "Remembered your interest" without the value; names in any one script show.
+
+**Rejected.** For (a), lower caps (5 episodes at 400 characters are what §2 and the summarizer allow) and trimming
+`facts` together with `profile` after the events and episodes (a 4-byte body would still lose v1 facts). For (b),
+a blanket `exclude_none` (it would drop v1's `summary: null`). For (c), tightening the write gate itself in V2: it
+also guards the memory block, and changing what is stored belongs in its own feature (proposed for V3).
+
+**Question for Michael.** (a): with more than 15 KiB, should a v2 page see a short `profile` (as now), or should
+both lists stay equal and the v1 facts pay for it? (c): should the write gate refuse these values too, so they are
+never stored, and not only never shown?
+
+## D20 *default*: the trim order the V2-05 step names (2026-10-21, V2-05 retry)
+
+**Finding.** The V2 verify failed V2-05 on one step: "the trimmer drops the oldest facts first, then the oldest
+events, then the oldest episodes, never a v1 key". D17 (f) read "facts" as both lists (so v1 `facts` lost items, a
+v1 key's content); D19 (a) kept the v1 facts but put `profile` after the events and episodes. The only reading that
+holds every clause of the step and §4's "keep the v1 keys populated as before" is that the facts it drops first are
+the `about_visitor.profile` facts (§2: "the valid typed-slot facts, same shape as v1 facts").
+
+**Decision.** Over 15 KiB, `contract.trim_to_fit` drops the oldest `profile` facts first, then the oldest events,
+then the oldest episodes, one item at a time, re-measured. `profile` is a copy of `facts`, so a v2 page that finds
+`profile` shorter than `facts` loses nothing: every fact is still in `facts`. The largest allowed body (V2-05's) now
+loses only the 2 oldest `profile` facts (15,738 → 15,238 bytes) and keeps all 12 events and 5 episodes; the 4-byte
+ones lose all of `profile`, then events, then the oldest episodes, and keep all 20 v1 facts. v1's own backstop stays
+last: a body still over after all three (only possible with more facts than the merge keeps, the C6 80-fact test, or
+an `about_agent` past its caps) drops its oldest v1 `facts`, as a v1 agent did. Tests:
+`test_the_largest_allowed_body_fits`, `test_a_multibyte_body_trims_profile_then_events_then_episodes`,
+`test_a_multibyte_body_drops_only_the_oldest_episodes_it_must`, `test_trim_to_fit_drops_the_oldest_profile_fact_first`
+(each checks the order and that one item put back goes over).
+
+**Rejected.** D19 (a)'s order (the events and the episodes are the only copy of what they say; `profile` is a second
+copy of `facts`), and D17 (f)'s (a v1 page would lose facts a v1 agent sends). Dropping the v1 backstop (the 80-fact
+body would then fail to send at all).
+
+**Question for Michael.** A v2 page should read `facts` when `profile` is shorter (only in a body over 15 KiB). Fine,
+or should `profile` and `facts` always match and the events pay for it?
+
 ## Health port: loopback only (Michael, 2026-10-20)
 
 **Decision.** The worker's health endpoint (8081 under `start`) binds 127.0.0.1: `AgentServer(host="127.0.0.1")` in

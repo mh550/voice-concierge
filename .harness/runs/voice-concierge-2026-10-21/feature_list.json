@@ -63,7 +63,7 @@
         ".harness/check.sh exits 0"
       ],
       "after": ["V1"],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V2-02",
@@ -78,7 +78,7 @@
         "tests/test_publish.py asserts that the concierge.memory sent after session.start in the `fakes` fixture carries v == 2 and validates against the schema, and tests/test_rpc.py asserts concierge.get_memory returns a body with v == 2",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V2-03",
@@ -94,7 +94,7 @@
         "scripts/memory_history.py prints the visit episodes (visit, started_at, ended_at, summary) after the facts, and tests/test_scripts.py checks one line per visit",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V2-04",
@@ -109,7 +109,7 @@
         "tests/test_session.py: after one merged extraction in the `fakes` fixture (an extractor FakeLLM scripted to ADD role: engineer), the next concierge.memory body has about_visitor.events[0].type == 'fact_added' with detail 'Remembered your role: engineer' and an 'extraction_ran' event after it",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V2-05",
@@ -125,7 +125,7 @@
         "README.md § What it does has one paragraph on the v2 body (what the page can show by kind: what is remembered about the visitor, this session's memory events, what the agent carries about itself) and § Architecture has a field table of the v2 keys (one row per top-level key with its source module); tests/test_readme.py checks the table names about_visitor, about_agent and retention_days",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V2-06",
@@ -140,7 +140,7 @@
         "README.md § What it does and § Architecture, docs/decisions.md and the plan agree with the code; progress.md has a V2 entry with the test counts and what a V3 session must know (the about_agent.knowledge fields V3 changes)",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V3-01",

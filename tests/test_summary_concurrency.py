@@ -11,8 +11,8 @@ from livekit.agents import llm
 from concierge.memory_tools import do_forget
 from concierge.memory_writer import MemoryWriter
 from concierge.models import AddFact
-from concierge.session_end import write_summary
 from concierge.store import StaleSummary, Store
+from concierge.summary_step import write_summary
 from concierge.testing.fake_llm import FakeLLM
 from concierge.turns import Turn
 
@@ -110,7 +110,7 @@ async def test_a_summary_that_keeps_changing_is_left_alone_after_one_retry(
         store.set_summary(thread_id, None, f"Another tab wrote this, take {calls}.")
         return "Tab B's summary."
 
-    await write_summary(b, lambda: FakeLLM(respond=always_raced))
+    assert await write_summary(b, lambda: FakeLLM(respond=always_raced)) is None  # V2-03: no episode summary
     assert calls == 2
     assert store.state(thread_id).last_visit_summary == "Another tab wrote this, take 2."
     errors = [r.payload for r in store.journal_rows(thread_id) if r.type == "error"]

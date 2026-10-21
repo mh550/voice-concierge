@@ -14,9 +14,26 @@ from livekit.agents.testing import fake_job_context
 from pydantic import BaseModel
 
 from concierge import session as concierge_session
-from concierge.contract import MAX_BODY_BYTES, MEMORY_TOPIC, METRICS_TOPIC, MemoryPayload, empty_memory_payload
+from concierge.contract import (
+    MAX_BODY_BYTES,
+    MEMORY_TOPIC,
+    METRICS_TOPIC,
+    AboutAgent,
+    Cache,
+    Knowledge,
+    MemoryEvent,
+    MemoryPayload,
+    Working,
+    body_bytes,
+    build_memory_payload,
+    empty_memory_payload,
+    trim_to_fit,
+)
+from concierge.models import SET_ITEM_CAP, SET_MAX_ITEMS, SINGLE_CAP, SLOTS, AddFact
+from concierge.prompt import MEMORY_BLOCK_MAX_CHARS
 from concierge.publish import MemoryPublisher, PayloadTooLarge, publish
 from concierge.store import Store
+from concierge.summary import SUMMARY_MAX_CHARS
 from concierge.testing.fake_llm import FakeLLM, FakeResponse, FakeToolCall
 from concierge.testing.fake_room import FakeRoom
 from concierge.testing.sessions import METADATA, VISITOR, shutdown, start
@@ -165,6 +182,23 @@ async def test_session_start_publishes_memory_once(
     assert len(room.local_participant.sent) == before  # nothing at shutdown: the room is gone by then (plan C6)
 
 
+async def test_the_start_memory_is_v2_and_validates(
+    db: Store, fakes: list[FakeLLM], memory_validator: Draft202012Validator
+) -> None:
+    tid = db.get_or_create_thread(VISITOR).id  # a returning visitor, so the profile has something to repeat
+    db.add_fact(tid, AddFact(slot="company", value="Acme", source="user_said", channel="voice", turn_id="t1"))
+    room = FakeRoom()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        started = await start(ctx, db)
+        (sent,) = room.local_participant.sent_on(MEMORY_TOPIC)
+        body = json.loads(sent)
+        memory_validator.validate(body)
+        assert body["v"] == 2 and body["retention_days"] == 30
+        assert [f["value"] for f in body["about_visitor"]["profile"]] == ["Acme"]
+        assert body["about_visitor"]["profile"] == body["facts"]
+        await shutdown(ctx, started)
+
+
 async def test_a_session_without_memory_publishes_the_empty_payload(
     fakes: list[FakeLLM], memory_validator: Draft202012Validator
 ) -> None:
@@ -237,3 +271,152 @@ async def test_a_merge_in_the_shutdown_flush_publishes_nothing(
         thread = s.thread_for(VISITOR)
         assert thread is not None and [f.value for f in s.valid_facts(thread.id)] == ["Acme"]  # the flush merged
     assert len(room.local_participant.sent_on(MEMORY_TOPIC)) == 1 and len(room.local_participant.sent) == before
+
+
+# --- the size rule (V2-05; plan V2 "The size rule") -----------------------------------------------------------------
+
+V1_KEYS = ("visitor", "facts", "summary", "updated_at")
+SINGLE_SLOTS = [slot for slot, spec in SLOTS.items() if spec.kind == "single"]
+SET_SLOTS = [slot for slot, spec in SLOTS.items() if spec.kind == "set"]
+
+
+def maximal_store(  # noqa: ANN401 (FakeClock)
+    store: Store, clock: Any, ch: str = "a", summary_ch: str = "s", episode_ch: str | None = None  # noqa: ANN401
+) -> str:
+    """Every single slot at its 120-character cap, every set slot 8 items at the 60-character cap (the maximal valid
+    fact list: 20 facts), a 400-character last-visit summary and 5 completed visits with 400-character summaries."""
+    tid = store.get_or_create_thread(VISITOR).id
+    n = 0
+    for slot in [*SINGLE_SLOTS, *(s for s in SET_SLOTS for _ in range(SET_MAX_ITEMS))]:
+        n += 1
+        cap = SINGLE_CAP if slot in SINGLE_SLOTS else SET_ITEM_CAP
+        store.add_fact(tid, AddFact(slot=slot, value=f"{n:02d}" + ch * (cap - 2), source="user_said",
+                                    channel="voice", turn_id=f"t{n}"))
+        clock.advance(1)
+    assert len(store.valid_facts(tid)) == len(SINGLE_SLOTS) + SET_MAX_ITEMS * len(SET_SLOTS) == 20
+    store.set_summary(tid, None, summary_ch * SUMMARY_MAX_CHARS)
+    for visit in range(1, 6):
+        store.begin_visit(tid, visit, clock())
+        store.end_visit(tid, visit, clock() + 1, f"{visit}" + (episode_ch or ch) * (SUMMARY_MAX_CHARS - 1))
+    return tid
+
+
+def maximal_events(ch: str = "e") -> list[MemoryEvent]:
+    return [MemoryEvent(ts="2026-10-21T09:15:02.123Z", type="fact_added", detail=f"{n:02d}" + ch * 118)
+            for n in range(12)]  # newest first: 00 is the newest
+
+
+def maximal_about_agent(ch: str = "x") -> AboutAgent:
+    return AboutAgent(
+        knowledge=Knowledge(words=99_999, est_tokens=99_999, sources_commit="0" * 40,
+                            sections=[f"{n:02d}" + ch * 78 for n in range(20)]),
+        instructions_est_tokens=99_999, memory_block_chars=MEMORY_BLOCK_MAX_CHARS,
+        working=Working(items=99_999, est_tokens=99_999, compacted=True, compactions=99),
+        cache=Cache(cached_share=0.123456789),
+    )
+
+
+def assert_trimmed_in_order(payload: MemoryPayload, uncapped: MemoryPayload) -> tuple[int, int, int]:
+    """The size rule (V2-05 step 4, D20): the oldest `profile` facts go first, then the oldest events, then the
+    oldest episodes, each only once the list before it is empty, and only as many as it must (one more item back
+    goes over). No v1 key changes, so `facts` keeps every fact a v1 agent sends. Returns the kept counts."""
+    about, full = payload.about_visitor, uncapped.about_visitor
+    assert about is not None and full is not None
+    assert body_bytes(payload) <= MAX_BODY_BYTES
+    for key in (*V1_KEYS, "v", "about_agent", "retention_days"):
+        if key != "updated_at":
+            assert getattr(payload, key) == getattr(uncapped, key), key
+    profile, events, episodes = about.profile, about.events, about.episodes
+    assert profile == (full.profile[-len(profile):] if profile else [])  # oldest first: the newest stay
+    assert events == full.events[: len(events)] and episodes == full.episodes[: len(episodes)]  # newest first
+    if len(events) < len(full.events):
+        assert profile == []
+    if len(episodes) < len(full.episodes):
+        assert events == []
+    all_events, all_episodes = len(events) == len(full.events), len(episodes) == len(full.episodes)
+    for dropped, put_back in (  # the last drop: the lists after it were still whole
+        (len(profile) < len(full.profile) and all_events and all_episodes,
+         {"profile": full.profile[-len(profile) - 1:]}),
+        (not all_events and all_episodes, {"events": full.events[: len(events) + 1]}),
+        (not all_episodes, {"episodes": full.episodes[: len(episodes) + 1]}),
+    ):
+        if dropped:
+            probe = payload.model_copy(update={"about_visitor": about.model_copy(update=put_back)})
+            assert body_bytes(probe) > MAX_BODY_BYTES, put_back.keys()  # it dropped only what it had to
+    return len(profile), len(events), len(episodes)
+
+
+def test_the_largest_allowed_body_fits(store: Store, clock: Any, memory_validator: Draft202012Validator) -> None:  # noqa: ANN401
+    """Only the oldest `profile` facts go: every event and episode stays, and `facts` keeps all 20 (D20)."""
+    tid = maximal_store(store, clock)
+    events, agent = maximal_events(), maximal_about_agent()
+    uncapped = build_memory_payload(store, tid, max_bytes=None, about_agent=agent, events=events)
+    assert body_bytes(uncapped) > MAX_BODY_BYTES  # the plan's measured worst case, 16,671 bytes, is over
+    payload = build_memory_payload(store, tid, about_agent=agent, events=events)
+    assert body_bytes(payload) <= 15 * 1024
+    memory_validator.validate(json.loads(payload.model_dump_json()))
+    profile, kept_events, episodes = assert_trimmed_in_order(payload, uncapped)
+    assert len(payload.facts) == 20 and 0 < profile < 20 and (kept_events, episodes) == (12, 5)
+
+
+@pytest.mark.parametrize("ch", ["🙂", "𝄞"])
+def test_a_multibyte_body_trims_profile_then_events_then_episodes(store: Store, clock: Any, ch: str) -> None:  # noqa: ANN401
+    """4-byte characters: every `profile` fact goes, then every event, then the oldest episodes; the v1 facts all
+    stay."""
+    tid = maximal_store(store, clock, ch)
+    events, agent = maximal_events(ch), maximal_about_agent()  # the section titles are the pack's own
+    uncapped = build_memory_payload(store, tid, max_bytes=None, about_agent=agent, events=events)
+    payload = build_memory_payload(store, tid, about_agent=agent, events=events)
+    profile, kept_events, episodes = assert_trimmed_in_order(payload, uncapped)
+    assert len(payload.facts) == 20 and (profile, kept_events) == (0, 0) and 0 < episodes < 5
+
+
+def test_4_byte_events_drop_only_the_oldest_events_it_must(store: Store, clock: Any) -> None:  # noqa: ANN401
+    """Every `profile` fact goes, then the oldest events, as few as fit; every episode and v1 fact stays."""
+    tid = maximal_store(store, clock)
+    events, agent = maximal_events("🙂"), maximal_about_agent()
+    uncapped = build_memory_payload(store, tid, max_bytes=None, about_agent=agent, events=events)
+    payload = build_memory_payload(store, tid, about_agent=agent, events=events)
+    profile, kept_events, episodes = assert_trimmed_in_order(payload, uncapped)
+    assert len(payload.facts) == 20 and profile == 0 and 0 < kept_events < 12 and episodes == 5
+    assert payload.about_visitor is not None
+    assert [e.detail[:2] for e in payload.about_visitor.events] == [f"{n:02d}" for n in range(kept_events)]
+
+
+def test_a_multibyte_body_drops_only_the_oldest_episodes_it_must(store: Store, clock: Any) -> None:  # noqa: ANN401
+    tid = maximal_store(store, clock, summary_ch="🙂", episode_ch="🙂")  # a 1,600-byte v1 summary
+    events, agent = maximal_events("🙂"), maximal_about_agent()
+    uncapped = build_memory_payload(store, tid, max_bytes=None, about_agent=agent, events=events)
+    payload = build_memory_payload(store, tid, about_agent=agent, events=events)
+    profile, kept_events, episodes = assert_trimmed_in_order(payload, uncapped)
+    assert len(payload.facts) == 20 and (profile, kept_events) == (0, 0) and 0 < episodes < 5
+    assert payload.about_visitor is not None
+    assert [e.visit for e in payload.about_visitor.episodes] == list(range(5, 5 - episodes, -1))
+
+
+def test_the_trimmer_never_drops_a_v1_key(store: Store, clock: Any) -> None:  # noqa: ANN401
+    """A body that can't fit (the about_agent alone is over): every profile fact, event and episode goes, then v1's
+    own backstop takes the facts; no key goes, and the send then fails as too large."""
+    tid = maximal_store(store, clock)
+    huge = maximal_about_agent().model_copy(update={"knowledge": Knowledge(
+        words=1, est_tokens=1, sources_commit="abc1234", sections=["y" * 100] * 200)})
+    uncapped = build_memory_payload(store, tid, max_bytes=None, about_agent=huge, events=maximal_events())
+    payload = build_memory_payload(store, tid, about_agent=huge, events=maximal_events())
+    dumped, full = payload.model_dump(), uncapped.model_dump()
+    assert list(dumped) == list(full)  # every key is still there
+    for key in ("visitor", "summary", "v", "about_agent", "retention_days"):
+        assert dumped[key] == full[key], key
+    assert dumped["facts"] == [] and len(full["facts"]) == 20
+    assert dumped["about_visitor"] == {"profile": [], "episodes": [], "events": []}
+    assert body_bytes(payload) > MAX_BODY_BYTES
+
+
+def test_trim_to_fit_drops_the_oldest_profile_fact_first(store: Store, clock: Any) -> None:  # noqa: ANN401
+    """A cap one byte under the body: exactly the oldest `profile` fact goes, nothing else."""
+    tid = maximal_store(store, clock)
+    full = build_memory_payload(store, tid, max_bytes=None, about_agent=maximal_about_agent(), events=maximal_events())
+    trimmed = trim_to_fit(full, body_bytes(full) - 1)
+    assert trimmed.about_visitor is not None and full.about_visitor is not None
+    assert trimmed.about_visitor.profile == full.about_visitor.profile[1:]
+    assert trimmed.about_visitor.events == full.about_visitor.events
+    assert trimmed.about_visitor.episodes == full.about_visitor.episodes and trimmed.facts == full.facts

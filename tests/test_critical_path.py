@@ -20,7 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 HANDLER_PATH = ("on_item_added", "note_item", "schedule")  # what a conversation_item_added event runs, in order
 MEMORY_WORK = {"extract", "merge", "apply_fact_ops", "add_fact", "journal", "delete_fact", "invalidate_fact",
                "valid_facts", "fact_history", "forget_me", "write", "flush", "do_remember", "do_forget",
-               "do_leave_message", "add_message"}
+               "do_leave_message", "add_message", "begin_visit", "end_visit", "visit_episodes",
+               "clear_visit_summaries"}
 
 
 # What the Compactor's conversation_item_added and agent_state_changed handlers run (plan C5 "The Compactor").
@@ -146,7 +147,7 @@ def _guarded(real: Any) -> Any:  # noqa: ANN401
 
 
 for _name in ("apply_fact_ops", "valid_facts", "fact_history", "journal", "journal_rows", "state", "version",
-              "write"):
+              "write", "visit_episodes"):
     setattr(LoopGuardStore, _name, _guarded(getattr(Store, _name)))
 
 
@@ -216,3 +217,62 @@ async def test_a_message_for_michael_is_written_off_the_event_loop(tmp_path: Pat
     finally:
         await writer.aclose()
         await asyncio.to_thread(guarded.close)
+
+
+# The event ring (V2-04) is fed by the writer's background run (on_merged) and the two tools, never a turn handler.
+RING_WORK = {"note", "note_merge", "EventRing"}
+
+
+def _own_called_names(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    """`_called_names` of `fn`'s own body, leaving out the functions defined inside it."""
+    nested = [n for n in ast.walk(fn) if n is not fn and isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)]
+    inner = set().union(*(_called_names(n) for n in nested)) if nested else set()
+    return _called_names(fn) - inner
+
+
+def test_no_item_handler_calls_ring_note() -> None:
+    paths = [(ROOT / "concierge" / "memory_writer.py", HANDLER_PATH),
+             (ROOT / "concierge" / "compactor.py", COMPACTOR_HANDLER_PATH),
+             (ROOT / "concierge" / "metrics.py", COLLECTOR_HANDLER_PATH)]
+    for path, names in paths:  # every conversation_item_added handler session.py registers, and what it runs
+        functions = _functions(path)
+        for name in names:
+            assert not _called_names(functions[name]) & RING_WORK, f"{path.name}:{name} calls the ring"
+    writer = _functions(ROOT / "concierge" / "memory_writer.py")
+    callers = sorted(n for n, fn in writer.items() if "_on_merged" in {
+        c.func.attr for c in ast.walk(fn) if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)})
+    assert callers == ["_run_once"]  # on_merged runs after the background merge, never on the handler path
+    session = _functions(ROOT / "concierge" / "session.py")
+    assert "note_merge" in _called_names(session["on_merged"])
+    noting = sorted(n for n, fn in session.items() if _own_called_names(fn) & {"note", "note_merge"})
+    assert noting == ["on_merged"]
+    tools = _functions(ROOT / "concierge" / "memory_tools.py")
+    assert {"note"} <= _called_names(tools["do_remember"]) and {"note"} <= _called_names(tools["do_forget"])
+
+
+AGENT_VIEW_READS = {"about_agent", "_about", "current_memory", "memory", "pack_stats", "estimate_ctx_tokens"}
+
+
+def test_the_agent_view_is_not_read_in_an_item_handler() -> None:
+    """V2-05: the about_agent reads run on the publisher's build path (a task) and in the RPC, never in a handler."""
+    paths = [(ROOT / "concierge" / "memory_writer.py", HANDLER_PATH),
+             (ROOT / "concierge" / "compactor.py", COMPACTOR_HANDLER_PATH),
+             (ROOT / "concierge" / "metrics.py", COLLECTOR_HANDLER_PATH)]
+    for path, names in paths:
+        functions = _functions(path)
+        for name in names:
+            assert not _called_names(functions[name]) & AGENT_VIEW_READS, f"{path.name}:{name} reads the view"
+    readers = sorted(
+        (path.name, name) for path in (ROOT / "concierge").glob("*.py") for name, fn in _functions(path).items()
+        if "about_agent" in _own_called_names(fn)
+    )
+    assert readers == [("memory_view.py", "_about")]  # through current_memory only
+    view = _functions(ROOT / "concierge" / "memory_view.py")
+    assert sorted(n for n, fn in view.items() if "_about" in _own_called_names(fn)) == ["current_memory"]
+    session = _functions(ROOT / "concierge" / "session.py")
+    builders = sorted(n for n, fn in session.items() if "current_memory" in _own_called_names(fn))
+    assert builders == ["memory"]  # the one callable the publisher and serve_rpcs share
+    tree = ast.parse((ROOT / "concierge" / "session.py").read_text())
+    registered = {ast.unparse(c.args[1]) for c in ast.walk(tree) if isinstance(c, ast.Call)
+                  and isinstance(c.func, ast.Attribute) and c.func.attr == "on" and len(c.args) == 2}
+    assert registered and not registered & {"memory", "publisher.schedule"}, registered

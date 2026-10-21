@@ -18,10 +18,11 @@ from concierge import session as concierge_session
 from concierge.config import Settings
 from concierge.contract import FORGET_ME_METHOD, GET_MEMORY_METHOD, MEMORY_TOPIC, build_memory_payload
 from concierge.limits import GOODBYE_LINE
+from concierge.memory_view import current_memory
 from concierge.memory_writer import MemoryWriter
 from concierge.models import AddFact
 from concierge.publish import MemoryPublisher
-from concierge.rpc import build_handlers, current_memory, register_rpcs
+from concierge.rpc import build_handlers, register_rpcs
 from concierge.session import start_session
 from concierge.store import Store
 from concierge.testing.fake_llm import FakeLLM
@@ -149,6 +150,14 @@ async def test_get_memory_returns_the_topic_json(rig: Rig, store: Store) -> None
     await rig.aclose()
 
 
+async def test_get_memory_returns_a_v2_body(rig: Rig) -> None:
+    body = json.loads(await rig.rpc[GET_MEMORY_METHOD](invocation(GET_MEMORY_METHOD)))
+    validator("memory.schema.json").validate(body)
+    assert body["v"] == 2 and body["retention_days"] == 30
+    assert [f["value"] for f in body["about_visitor"]["profile"]] == ["Ada", "Acme"]
+    await rig.aclose()
+
+
 async def test_get_memory_without_a_writer_reads_the_store(store: Store) -> None:
     rig = Rig(store, with_writer=False)  # the preload missed its deadline, or the daily cap
     body = json.loads(await rig.rpc[GET_MEMORY_METHOD](invocation(GET_MEMORY_METHOD)))
@@ -224,6 +233,41 @@ async def test_no_merge_publish_after_the_forget_publish(rig: Rig) -> None:
 # --- through start_session (a real AgentSession over FakeLLMs, a FakeRoom as ctx.room) ---------------------------
 
 
+async def test_get_memory_equals_the_last_published_body(fakes: list[FakeLLM], db: Store) -> None:
+    """V2-05: one build path, so the RPC answers with what the topic last carried, about_agent and events included."""
+    tid = db.get_or_create_thread(VISITOR).id
+    db.add_fact(tid, AddFact(slot="company", value="Acme", source="user_said", channel="voice", turn_id="t1"))
+    room = FakeRoom()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        started = await start(ctx, db)
+        assert started.events is not None and started.publisher is not None
+        started.events.note("remember", "Remembered at your request: company")
+        started.publisher.schedule()  # a send after the greeting landed: nothing changes between it and the call
+        await started.publisher.idle()
+        last = json.loads(room.local_participant.sent_on(MEMORY_TOPIC)[-1])
+        body = json.loads(await room.local_participant.rpc_handlers[GET_MEMORY_METHOD](invocation(GET_MEMORY_METHOD)))
+        await shutdown(ctx, started)
+    validator("memory.schema.json").validate(body)
+    assert body["about_agent"] is not None and body["about_visitor"]["events"] != []
+    assert {**body, "updated_at": None} == {**last, "updated_at": None}
+
+
+async def test_get_memory_after_forget_me_without_memory_equals_the_last_send(fakes: list[FakeLLM]) -> None:
+    """Review M2: no writer (here no store): the last send is the empty body, and get_memory answers the same."""
+    room = FakeRoom()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        started = await start(ctx, None)
+        before = json.loads(await room.local_participant.rpc_handlers[GET_MEMORY_METHOD](invocation(GET_MEMORY_METHOD)))
+        assert before["about_agent"] is not None  # the agent exists, so it reports itself (D18 (d))
+        assert json.loads(await room.local_participant.rpc_handlers[FORGET_ME_METHOD](invocation(FORGET_ME_METHOD)))
+        await until(lambda: started.publisher is not None and started.publisher.closed, 3)
+        await until(lambda: len(room.local_participant.sent_on(MEMORY_TOPIC)) == 2, 3)
+        last = json.loads(room.local_participant.sent_on(MEMORY_TOPIC)[-1])
+        body = json.loads(await room.local_participant.rpc_handlers[GET_MEMORY_METHOD](invocation(GET_MEMORY_METHOD)))
+        await shutdown(ctx, started)
+    assert "about_agent" not in last and {**body, "updated_at": None} == {**last, "updated_at": None}
+
+
 async def test_start_session_registers_both_rpcs(fakes: list[FakeLLM], db: Store) -> None:
     room = FakeRoom()
     with fake_job_context(job_metadata=METADATA, room=room) as ctx:
@@ -289,7 +333,7 @@ async def test_get_memory_failure_is_an_rpc_error_without_the_message(
 ) -> None:
     """Review M5: rtc logs a handler's exception with its message (participant.py:629-634); ours carries the type."""
 
-    async def broken(*args: Any) -> Any:
+    async def broken(*args: Any, **kwargs: Any) -> Any:
         raise ValueError("Zephyrine")
 
     assert rig.writer is not None

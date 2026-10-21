@@ -15,11 +15,11 @@ from livekit.agents.testing import fake_job_context
 from concierge import session as concierge_session
 from concierge.erasure_hooks import forget_visitor
 from concierge.memory_writer import MemoryWriter
-from concierge.store import Store
+from concierge.store import Store, ThreadMissing
 from concierge.testing.fake_llm import FakeLLM, FakeResponse, FakeToolCall
 from concierge.testing.sessions import METADATA, VISITOR, shutdown, stage_llms, start
 
-VISITOR_TABLES = ("threads", "facts", "state", "journal", "messages_for_michael")
+VISITOR_TABLES = ("threads", "facts", "state", "journal", "messages_for_michael", "visit_summaries")
 
 
 class CitingLLM(FakeLLM):
@@ -165,3 +165,38 @@ async def test_forget_visitor_cancels_then_erases(store: Store, visitor_id: str)
         assert counts(store.path) == dict.fromkeys(VISITOR_TABLES, 0)
     finally:
         await writer.aclose()
+
+
+async def test_forget_me_during_the_shutdown_leaves_no_visit_summary(
+    db: Store, fakes: list[FakeLLM], extractor: FakeLLM, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """V2-03: another tab's "Forget me" lands during the summary call. The summary's swap and then end_visit hit the
+    fence (ThreadMissing): the episode row begin_visit made is gone with the thread and nothing re-creates it."""
+    def erase_then_reply(chat_ctx: llm.ChatContext) -> str:
+        assert db.forget_me(VISITOR)  # straight through the store: this writer never hears of it
+        return "The visitor works at Acme."
+
+    ended: list[BaseException | None] = []
+    real_end_visit = db.end_visit
+
+    def end_visit(*args: Any) -> None:  # noqa: ANN401
+        try:
+            real_end_visit(*args)
+        except BaseException as exc:
+            ended.append(exc)
+            raise
+        ended.append(None)
+
+    monkeypatch.setattr(db, "end_visit", end_visit)
+    summarizer = FakeLLM(respond=erase_then_reply)
+    monkeypatch.setattr(concierge_session, "build_llm", stage_llms(extractor=extractor, summarizer=summarizer))
+    with fake_job_context(job_metadata=METADATA) as ctx:
+        started = await start(ctx, db)
+        assert started.preloaded is not None
+        thread_id = started.preloaded.thread_id
+        assert [e.visit for e in db.visit_episodes(thread_id)] == [1]  # the start's begin_visit
+        await started.session.run(user_input="I work at Acme.")
+        await shutdown(ctx, started)
+    assert len(summarizer.calls) == 1
+    assert len(ended) == 1 and isinstance(ended[0], ThreadMissing)
+    assert counts(db.path) == dict.fromkeys(VISITOR_TABLES, 0)

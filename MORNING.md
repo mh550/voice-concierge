@@ -47,6 +47,13 @@ Optionally `loginctl enable-linger "$USER"`, so the unit survives logout.
 Check: the log shows the worker registered, no traceback. Undo: Ctrl-C (it waits for live sessions; a second Ctrl-C
 forces), or `systemctl --user disable --now voice-concierge`.
 
+The first start of V2 code moves the memory db to schema version 3 (it adds the `visit_summaries` table, one row per
+visit; nothing existing changes). Older code then refuses that file ("schema version 3; this code knows 2"), so rolling
+back to V1 code means keeping a copy of the db from before: `cp ~/.local/share/voice-concierge/concierge.db
+~/.local/share/voice-concierge/concierge.db.v2` with the worker stopped, before the first V2 start. That copy holds
+visitor data "Forget me" and the 30-day purge can't reach: `rm` it once V2 runs fine, and within 30 days in any case.
+Until the V2 worker has started once, the scripts in §11 refuse the old file ("schema version 2; this code reads 3").
+
 ## 4. Voice
 
 Open the portfolio page and press talk. Say your name and a project, answer the name confirmation, hang up, and come
@@ -118,8 +125,8 @@ The visitor id is in the page's local storage (browser dev tools). Run it to a t
 `.venv/bin/python scripts/messages.py ~/.local/share/voice-concierge/concierge.db` lists the messages left for you.
 Read them within 30 days: the idle purge deletes them with the visitor's thread (D15).
 
-Check: one line per fact, corrected ones with a `valid_to`; one line per message, newest first. Undo: none, both are
-read-only.
+Check: one line per fact, corrected ones with a `valid_to`, then one `visit <n>` line per visit (started, ended or `-`,
+the summary stored at its end or `-`); one line per message, newest first. Undo: none, both are read-only.
 
 ## 12. Stop
 
@@ -148,3 +155,22 @@ Each is a default the build took (details in `docs/decisions.md`); say if you wa
 - **D15:** should messages outlive the 30-day idle purge, until you delete them?
 - **D16:** is 20 s the right wait for the visitor to reconnect before the agent leaves (or 10 s, or 30 s)? And is
   60 s right for a visitor who isn't in the room yet when the agent starts watching (V1-03)?
+- **D17:** the memory panel's event lines (contract v2): should "Took notes in the background" show on every run, even
+  with no change (now only when something changed)? And should each past visit carry the rolling summary as it stood
+  then (the default), or should the summarizer also write a per-visit one?
+  And (D17 (i)): a v2 key with no value is sent as `null` (the default, and the page's schema must accept it), not
+  left out. Is that fine for the page?
+  And (D17 (l)): the forget line names the slot ("Forgot at your request: company"), or reads "Forgot something at
+  your request" for "forget Acme", and earlier lines lose a forgotten value, rather than §2's literal
+  "Forgot at your request: <the visitor's words>". OK?
+- **D18:** the memory panel's cache share is the last turn that had LLM metrics (it keeps its value through a turn
+  with none). OK, or should it be the session's cumulative share?
+- **D19:** the V2 review's three fixes. (a) Over 15 KiB, the v1 `facts` keep every fact (the order is now D20's,
+  below). (b) A v2 key with nothing to report (`about_agent` after "Forget me") is left out
+  rather than sent as null: tell the portfolio run if its page expects null. (c) An event line never quotes a value
+  that reads as a link or an order ("Node.js" shows as "Remembered your interest"). Should the write gate refuse
+  such values too, so they are never stored?
+- **D20** (replaces D19 (a)'s order): over 15 KiB the body drops the oldest v2 `profile` facts first (a copy of
+  `facts`), then events, then episodes; the v1 `facts` stay (v1's own oldest-fact backstop runs only past all three,
+  which an allowed body never reaches). A v2 page should read `facts` when `profile` is
+  shorter. OK, or should both lists always match and the events pay for it?

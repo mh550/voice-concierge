@@ -4,6 +4,7 @@ through a real AgentSession over FakeLLMs, items added the way agent_activity.py
 `_update_agent_state` emits it."""
 
 import asyncio
+import json
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -33,11 +34,13 @@ from concierge.compaction import (
     summary_text,
 )
 from concierge.compactor import Compactor
+from concierge.contract import MEMORY_TOPIC
 from concierge.erasure_hooks import forget_visitor
 from concierge.knowledge import load_pack
 from concierge.prompt import MEMORY_HEADER, STATIC_INSTRUCTIONS
 from concierge.store import Store
 from concierge.testing.fake_llm import FakeLLM, FakeResponse, FakeToolCall
+from concierge.testing.fake_room import FakeRoom
 from concierge.testing.sessions import METADATA, VISIT_SUMMARY, VISITOR, shutdown, stage_llms, start
 
 INSTRUCTIONS_ID = "lk.agent_task.instructions"  # voice/generation.py:1280
@@ -680,3 +683,44 @@ async def test_the_erase_hook_is_held_weakly() -> None:
     del writer, holder
     gc.collect()
     assert alive() is None  # no cycle through the registry's value keeps the key alive
+
+
+async def test_an_applied_compaction_publishes_the_memory(
+    db: Store, fakes: list[FakeLLM], summarizer: FakeLLM, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """V2-05: one more concierge.memory after the apply, saying so in about_agent.working (plan V2 "Publish points")."""
+    monkeypatch.setattr(concierge_session, "EXTRACTION_DEBOUNCE_S", 60)  # no merge, so no merge publish
+    room = FakeRoom()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        started = await start(ctx, db)
+        compactor, agent = started.compactor, started.session.current_agent
+        assert compactor is not None
+        sends = lambda: room.local_participant.sent_on(MEMORY_TOPIC)  # noqa: E731
+        (first,) = sends()
+        working = json.loads(first)["about_agent"]["working"]  # built at the start, before the greeting landed
+        assert (working["compacted"], working["compactions"]) == (False, 0) and working["items"] >= 1
+        add_turns(started.session, agent, range(30))
+        await until(lambda: compactor.ready is not None)
+        await asyncio.sleep(0.05)
+        assert len(sends()) == 1  # ready is not applied: nothing yet
+        listening(started.session)
+        await until(lambda: len(sends()) == 2)
+        body = json.loads(sends()[-1])
+        assert compactor.applied == 1
+        working = body["about_agent"]["working"]
+        assert working["compacted"] is True and working["compactions"] == 1
+        assert working["items"] == len(agent.chat_ctx.items) <= 8  # the compacted context
+        await shutdown(ctx, started)
+
+
+async def test_a_failing_on_compacted_never_breaks_the_apply(caplog: pytest.LogCaptureFixture) -> None:
+    def boom() -> None:
+        raise RuntimeError("publisher gone: Acme")
+
+    async with live(FakeLLM([FakeResponse(text=SUMMARY)]), on_compacted=boom) as (session, agent, compactor):
+        add_turns(session, agent, range(30))
+        await until(lambda: compactor.ready is not None)
+        listening(session)
+        await until(lambda: compactor.applied == 1)
+        assert len(turn_ids(agent)) == 6
+    assert "wasn't published (RuntimeError)" in caplog.text and "Acme" not in caplog.text  # by type only

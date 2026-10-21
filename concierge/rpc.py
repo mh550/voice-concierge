@@ -17,15 +17,10 @@ from typing import Any
 
 from livekit import rtc
 
-from concierge.contract import (
-    FORGET_ME_METHOD,
-    GET_MEMORY_METHOD,
-    MemoryPayload,
-    build_memory_payload,
-    empty_memory_payload,
-)
+from concierge.contract import FORGET_ME_METHOD, GET_MEMORY_METHOD, MemoryPayload, empty_memory_payload
 from concierge.erasure_hooks import forget_visitor
 from concierge.limits import GOODBYE_LINE, End, Speaker, say_and_end
+from concierge.memory_view import current_memory
 from concierge.memory_writer import MemoryWriter
 from concierge.publish import MemoryPublisher
 from concierge.store import Store
@@ -46,23 +41,6 @@ class RpcHandlers:
     end: Callable[[str, str], Awaitable[None]]  # (line, reason): say it, then end the session
     tasks: set[asyncio.Task[Any]]  # the session's tracked tasks: on_shutdown waits for the forget task
     stop_timer: Callable[[], None] = lambda: None  # cancels the session_max_s timer: no time-up line after goodbye
-
-
-def _memory_for_visitor(store: Store, visitor_id: str) -> MemoryPayload:
-    """Read-only: no thread is created for a visitor who has none."""
-    thread = store.thread_for(visitor_id)
-    return empty_memory_payload() if thread is None else build_memory_payload(store, thread.id)
-
-
-async def current_memory(store: Store | None, writer: MemoryWriter | None, visitor_id: str) -> MemoryPayload:
-    """The visitor's memory as the page shows it: on the writer's thread (in order with its writes) when the session
-    has memory, else read from the store in a thread (the preload missed its deadline, or the daily cap), else
-    nobody."""
-    if writer is not None:
-        return await writer.call(build_memory_payload, writer.store, writer.thread_id)
-    if store is not None:
-        return await asyncio.to_thread(_memory_for_visitor, store, visitor_id)
-    return empty_memory_payload()
 
 
 async def erase_visitor(
@@ -95,17 +73,22 @@ def build_handlers(
     tasks: set[asyncio.Task[Any]],
     preloading: asyncio.Task[Any] | None = None,
     stop_timer: Callable[[], None] = lambda: None,
+    memory: Callable[[], Awaitable[MemoryPayload]] | None = None,
 ) -> RpcHandlers:
+    """`memory`: the session's build callable, the one its MemoryPublisher sends, so `concierge.get_memory` answers
+    with what `concierge.memory` last carried (V2-05); None reads the store alone."""
     async def erase() -> None:
         await erase_visitor(store, writer, visitor_id, preloading)
 
-    async def memory() -> MemoryPayload:
+    async def stored() -> MemoryPayload:
         return await current_memory(store, writer, visitor_id)
 
     async def end_with(line: str, reason: str) -> None:
         await say_and_end(session, line, end, reason)
 
-    return RpcHandlers(f"visitor-{visitor_id}", erase, memory, publisher.final, end_with, tasks, stop_timer)
+    return RpcHandlers(
+        f"visitor-{visitor_id}", erase, memory or stored, publisher.final, end_with, tasks, stop_timer
+    )
 
 
 async def _forget(handlers: RpcHandlers) -> None:

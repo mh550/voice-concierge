@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "concierge.memory",
-  "title": "concierge.memory (spec §6): the visitor's memory, sent at session start and after every merge",
+  "title": "concierge.memory (spec §6; the optional v2 keys spec 2026-10-21 §2): the visitor's memory",
   "type": "object",
   "additionalProperties": false,
   "required": ["visitor", "facts", "summary", "updated_at"],
@@ -10,10 +10,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["name", "visits"],
-      "properties": {
-        "name": {"type": ["string", "null"]},
-        "visits": {"type": "integer", "minimum": 0}
-      }
+      "properties": {"name": {"type": ["string", "null"]}, "visits": {"type": "integer", "minimum": 0}}
     },
     "facts": {
       "type": "array",
@@ -33,6 +30,108 @@
       }
     },
     "summary": {"type": ["string", "null"]},
-    "updated_at": {"type": "string", "format": "date-time"}
+    "updated_at": {"type": "string", "format": "date-time"},
+    "v": {"enum": [2, null]},
+    "about_visitor": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["profile", "episodes", "events"],
+      "properties": {
+        "profile": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "slot", "value", "channel", "source", "learned_at", "confidence"],
+            "properties": {
+              "id": {"type": "integer"},
+              "slot": {"enum": ["name", "role", "company", "follow_up_wanted", "interests", "asked_about"]},
+              "value": {"type": "string"},
+              "channel": {"enum": ["voice", "text"]},
+              "source": {"enum": ["user_said", "user_typed", "user_asked_to_remember"]},
+              "learned_at": {"type": "string", "format": "date-time"},
+              "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+            }
+          }
+        },
+        "episodes": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["visit", "started_at", "ended_at", "summary"],
+            "properties": {
+              "visit": {"type": "integer"},
+              "started_at": {"type": "string", "format": "date-time"},
+              "ended_at": {"type": ["string", "null"], "format": "date-time"},
+              "summary": {"type": ["string", "null"]}
+            }
+          }
+        },
+        "events": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ts", "type", "detail"],
+            "properties": {
+              "ts": {"type": "string", "format": "date-time"},
+              "type": {
+                "enum": [
+                  "fact_added",
+                  "fact_invalidated",
+                  "fact_deleted",
+                  "gate_rejected",
+                  "extraction_ran",
+                  "remember",
+                  "forget"
+                ]
+              },
+              "detail": {"type": "string", "maxLength": 120}
+            }
+          }
+        }
+      }
+    },
+    "about_agent": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["knowledge", "instructions_est_tokens", "memory_block_chars", "working", "cache"],
+      "properties": {
+        "knowledge": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["words", "est_tokens", "sources_commit", "sections"],
+          "properties": {
+            "words": {"type": "integer", "minimum": 0},
+            "est_tokens": {"type": "integer", "minimum": 0},
+            "sources_commit": {"type": "string"},
+            "sections": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "instructions_est_tokens": {"type": "integer", "minimum": 0},
+        "memory_block_chars": {"type": ["integer", "null"], "minimum": 0},
+        "working": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["items", "est_tokens", "compacted", "compactions"],
+          "properties": {
+            "items": {"type": "integer", "minimum": 0},
+            "est_tokens": {"type": "integer", "minimum": 0},
+            "compacted": {"type": "boolean"},
+            "compactions": {"type": "integer", "minimum": 0}
+          }
+        },
+        "cache": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cached_share"],
+          "properties": {"cached_share": {"type": ["number", "null"], "minimum": 0, "maximum": 1}}
+        }
+      }
+    },
+    "retention_days": {"type": ["integer", "null"], "minimum": 1}
   }
 }

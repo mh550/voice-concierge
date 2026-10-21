@@ -58,6 +58,7 @@ class Compactor:
         *,
         journal: Journal | None = None,
         erased: Callable[[], bool] = lambda: False,
+        on_compacted: Callable[[], None] | None = None,
     ) -> None:
         self.ready: Compacted | None = None
         self.applied = 0  # how many compactions were applied (C6's metrics read "compacted" from it)
@@ -68,6 +69,7 @@ class Compactor:
         self._llm: llm.LLM | None = None
         self._journal = journal
         self._erased = erased
+        self._on_compacted = on_compacted  # after each apply: the session's publisher.schedule (V2-05)
         self._task: asyncio.Task[None] | None = None
         self._applying: asyncio.Task[None] | None = None
         self._tasks: set[asyncio.Task[Any]] = set()  # its own: the shutdown's gather never waits on a compaction
@@ -151,8 +153,16 @@ class Compactor:
             counts |= {"items_after": len(after.items), "tokens_after": estimate_ctx_tokens(after)}
         finally:
             self._applying = None
+        self._notify()
         await self._write("compacted", {**counts, "fallback": ready.fallback, "ms": ready.ms})
         self._maybe_start()  # turns added while compacting may need another one
+
+    def _notify(self) -> None:
+        if self._on_compacted is not None:
+            try:
+                self._on_compacted()
+            except Exception as exc:  # a failed send never costs the compaction
+                logger.warning("the compaction wasn't published (%s)", type(exc).__name__)
 
     async def _write(self, kind: JournalType, payload: dict[str, Any]) -> None:
         if self._journal is not None and not self.stopped:

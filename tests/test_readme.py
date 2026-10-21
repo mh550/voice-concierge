@@ -253,3 +253,20 @@ def test_every_cited_module_and_script_path_exists() -> None:
     assert any(p.startswith("concierge/") for p in paths) and any(p.startswith("scripts/") for p in paths)
     missing = [p for p in paths if not (list(ROOT.glob(p)) if "*" in p else (ROOT / p).exists())]
     assert not missing, sorted(missing)
+
+
+V2_KEYS = ["v", "about_visitor", "about_agent", "retention_days"]
+
+
+def test_the_field_table_names_the_v2_keys() -> None:
+    """V2-05: § Architecture has one row per top-level v2 key with the module its value comes from."""
+    rows = {row[0].strip("`"): row for row in _table_rows(_section("Architecture"))}
+    assert [key for key in rows if key in V2_KEYS] == V2_KEYS
+    for key in ("about_visitor", "about_agent", "retention_days"):
+        assert re.search(r"`concierge/[\w-]+\.py`", " ".join(rows[key][1:])), key
+
+
+def test_what_it_does_describes_the_v2_body_by_kind() -> None:
+    section = " ".join(_section("What it does").split())
+    for phrase in ("`about_visitor`", "`about_agent`", "this session's memory events", "`concierge.get_memory`"):
+        assert phrase in section, phrase

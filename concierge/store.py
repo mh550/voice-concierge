@@ -4,7 +4,8 @@ Every write to a thread's rows is one `BEGIN IMMEDIATE` transaction that bumps `
 fence, in `concierge/store_journal.py` with the journal); fact ops go through `apply_fact_ops`, which reloads and
 reapplies on a conflict. Only `get_or_create_thread` ever inserts a thread, so a write to an erased thread raises
 `ThreadMissing` instead of re-creating it. The connection, its lock and the anonymous tables are in
-`concierge/store_base.py`; `forget_me` and the TTL purge in `concierge/store_erasure.py`.
+`concierge/store_base.py`; `forget_me` and the TTL purge in `concierge/store_erasure.py`; the messages for Michael in
+`concierge/store_messages.py`.
 """
 
 from __future__ import annotations
@@ -25,9 +26,9 @@ from concierge.models import (
     DeleteFact,
     Fact,
     InvalidateFact,
-    Message,
     Thread,
     ThreadSnapshot,
+    VisitEpisode,
     VisitorState,
 )
 from concierge.store_base import (  # noqa: F401 (the errors and now_ms are re-exported)
@@ -39,7 +40,7 @@ from concierge.store_base import (  # noqa: F401 (the errors and now_ms are re-e
     VersionConflict,
     now_ms,
 )
-from concierge.store_journal import JournalStore
+from concierge.store_messages import MessageStore
 
 T = TypeVar("T")
 
@@ -57,7 +58,7 @@ def _thread(row: tuple[Any, ...]) -> Thread:
     )
 
 
-class Store(JournalStore):
+class Store(MessageStore):
     """The thread store. Every method blocks: up to the 5 s busy timeout for the write lock (plus apply_fact_ops'
     backoff), and forget_me, purge_idle and close up to 5 s more for a checkpoint a reader holds up. Call it from
     `asyncio.to_thread`, never on the event loop or the turn path (§4.4). Errors: StoreError and its subclasses,
@@ -212,25 +213,32 @@ class Store(JournalStore):
             thread_id, None, lambda conn: fact_ops.store_summary(conn, thread_id, text, self._clock(), (expected,))
         )
 
-    # Messages for Michael (spec §4.6, C8)
+    # Visits (V2-03, the episodes of concierge.memory v2; plan 2026-10-21-V2 "Store and session")
 
-    def add_message(self, thread_id: str, text: str, contact: str | None) -> int:
-        """Insert one `messages_for_michael` row in one fenced write; ThreadMissing (nothing written, no thread
-        re-created) once the visitor is erased. The caller caps and gates the values (`concierge/message_tool.py`)."""
+    def begin_visit(self, thread_id: str, visit: int, started_at: int) -> None:
+        """The visit's open row, in one fenced write; a repeat for the same (thread_id, visit) changes nothing."""
+        sql = "INSERT INTO visit_summaries (thread_id, visit, started_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING"
+        self.write(thread_id, None, lambda conn: conn.execute(sql, (thread_id, visit, started_at)))
 
-        def insert(conn: sqlite3.Connection) -> int:
-            cursor = conn.execute(
-                "INSERT INTO messages_for_michael (thread_id, text, contact, created_at) VALUES (?, ?, ?, ?)",
-                (thread_id, text, contact, self._clock()),
-            )
-            return int(cursor.lastrowid or 0)
+    def end_visit(self, thread_id: str, visit: int, ended_at: int, summary: str | None) -> None:
+        """Close the visit's row (`summary` None: it failed or was skipped), in one fenced write. An update only:
+        no row (its begin_visit failed) changes nothing, and an erased thread raises ThreadMissing (D17 (b))."""
+        sql = "UPDATE visit_summaries SET ended_at = ?, summary = ? WHERE thread_id = ? AND visit = ?"
+        self.write(thread_id, None, lambda conn: conn.execute(sql, (ended_at, summary, thread_id, visit)))
 
-        return self.write(thread_id, None, insert)
+    def clear_visit_summaries(self, thread_id: str, visits: list[int]) -> None:
+        """Null these visits' summaries (the `forget` tool: they name a forgotten value), in one fenced write; then the
+        old text leaves the disk at the checkpoint, as a deleted fact's does."""
+        marks = ", ".join("?" * len(visits))
+        sql = f"UPDATE visit_summaries SET summary = NULL WHERE thread_id = ? AND visit IN ({marks})"
+        self.write(thread_id, None, lambda conn: conn.execute(sql, (thread_id, *visits)))
+        with self._locked() as conn:
+            self._settle(conn, wait=False)
 
-    def messages(self) -> list[Message]:
-        """Every visitor's messages, newest first."""
+    def visit_episodes(self, thread_id: str, limit: int | None = 5) -> list[VisitEpisode]:
+        """Newest first, at most `limit` (None: all); [] for an erased thread."""
         rows = self._read(
-            "SELECT id, thread_id, text, contact, created_at FROM messages_for_michael "
-            "ORDER BY created_at DESC, id DESC"
+            "SELECT visit, started_at, ended_at, summary FROM visit_summaries WHERE thread_id = ? "
+            "ORDER BY visit DESC LIMIT ?", (thread_id, -1 if limit is None else limit),
         )
-        return [Message(id=i, thread_id=t, text=x, contact=c, created_at=ts) for i, t, x, c, ts in rows]
+        return [VisitEpisode(visit=v, started_at=s, ended_at=e, summary=t) for v, s, e, t in rows]

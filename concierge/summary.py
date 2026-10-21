@@ -132,7 +132,7 @@ async def summarize(
 ) -> SummaryOutcome:
     """The new summary; on a failure the previous one with the error's type (cleared if it names a forgotten value).
     `forgotten_about` are this visit's forget requests, `forgotten_values` the value_keys forgotten this visit
-    (`session_end.forgotten_values`). Never raises (but a cancel)."""
+    (`summary_step.forgotten_values`). Never raises (but a cancel)."""
     began = time.perf_counter()
     text: str | None = None
     try:

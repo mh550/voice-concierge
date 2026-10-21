@@ -67,6 +67,25 @@ def test_memory_history_prints_one_line_per_fact(tmp_path) -> None:
     assert "current" in result.stdout
 
 
+def test_memory_history_prints_one_line_per_visit(tmp_path) -> None:
+    db, visitor_id = tmp_path / "memory.db", str(uuid.uuid4())
+    seed(db, visitor_id)
+    with Store(db, clock=lambda: 1_760_000_600_000) as store:
+        thread = store.get_or_create_thread(visitor_id)  # visit 2
+        store.begin_visit(thread.id, 1, 1_760_000_000_000)
+        store.end_visit(thread.id, 1, 1_760_000_300_000, "Ann asked about RAG.")
+        store.begin_visit(thread.id, 2, 1_760_000_600_000)  # the current visit: not ended
+
+    result = run(db, visitor_id)
+
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    assert len(lines) == 2 + 2  # the two facts, then one line per visit
+    ended = ["2025-10-09T08:53:20.000Z", "2025-10-09T08:58:20.000Z"]
+    assert lines[2].split("\t") == ["visit 1", *ended, "Ann asked about RAG."]
+    assert lines[3].split("\t") == ["visit 2", "2025-10-09T09:03:20.000Z", "-", "-"]
+
+
 def test_memory_history_unknown_visitor_exits_1(tmp_path) -> None:
     db = tmp_path / "memory.db"
     seed(db, str(uuid.uuid4()))

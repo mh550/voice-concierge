@@ -8,9 +8,11 @@ the MemoryWriter.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from livekit.agents import Agent, llm
 
+from concierge.events import EventRing
 from concierge.memory_tools import do_forget, do_remember
 from concierge.memory_writer import MemoryWriter
 from concierge.message_tool import do_leave_message
@@ -20,11 +22,19 @@ logger = logging.getLogger("concierge.session")  # its warning is the session's
 
 
 class ConciergeAgent(Agent):
-    def __init__(self, pack: str, memory_block: str | None = None, memory: MemoryWriter | None = None) -> None:
+    def __init__(
+        self, pack: str, memory_block: str | None = None, memory: MemoryWriter | None = None, *,
+        events: EventRing | None = None, on_changed: Callable[[], None] | None = None,
+    ) -> None:
         # Mid-session facts reach the model through the conversation, so nothing here calls update_instructions
         # (that would change the cached prefix). memory=None: a session without memory; the tools save nothing.
+        # events / on_changed: the session's event ring and its publisher.schedule (V2-04), for the two tools.
         self._memory = memory
+        self._events = events
+        self._on_changed = on_changed
         super().__init__(instructions=build_instructions(pack, memory_block))
+        # The block the instructions carry, for about_agent.memory_block_chars (V2-05); None: a new visitor.
+        self.memory_block = memory_block if memory_block and memory_block.strip() else None
 
     @llm.function_tool
     async def remember(self, fact: str) -> str:
@@ -34,7 +44,7 @@ class ConciergeAgent(Agent):
             fact: "<slot>: <value>", slot one of name, role, company, interest, follow-up (e.g. "company: Acme"),
                 the value in the visitor's own words. Confirm a name before saving it.
         """
-        return await do_remember(self._memory, fact)
+        return await do_remember(self._memory, fact, events=self._events, on_changed=self._on_changed)
 
     @llm.function_tool
     async def forget(self, about: str) -> str:
@@ -43,7 +53,7 @@ class ConciergeAgent(Agent):
         Args:
             about: what to forget, in the visitor's words (e.g. "where I work", "my name", "Rust").
         """
-        return await do_forget(self._memory, about)
+        return await do_forget(self._memory, about, events=self._events, on_changed=self._on_changed)
 
     @llm.function_tool
     async def leave_message_for_michael(self, text: str, contact: str | None = None) -> str:
@@ -57,11 +67,14 @@ class ConciergeAgent(Agent):
         return await do_leave_message(self._memory, text, contact)
 
 
-def agent_or_memoryless(pack: str, memory_block: str | None, writer: MemoryWriter | None = None) -> ConciergeAgent:
+def agent_or_memoryless(
+    pack: str, memory_block: str | None, writer: MemoryWriter | None = None, *, events: EventRing | None = None,
+    on_changed: Callable[[], None] | None = None,
+) -> ConciergeAgent:
     """The agent with the visitor's memory block, or without one if build_instructions rejects it (the renderer
     keeps it under the cap, so this is the backstop that keeps a session from failing over memory)."""
     try:
-        return ConciergeAgent(pack, memory_block, memory=writer)
+        return ConciergeAgent(pack, memory_block, memory=writer, events=events, on_changed=on_changed)
     except ValueError:
         logger.warning("no memory this session: the memory block was rejected")
-        return ConciergeAgent(pack, memory=writer)
+        return ConciergeAgent(pack, memory=writer, events=events, on_changed=on_changed)
