@@ -13,6 +13,14 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 06:00 · V3-01 · passes
+
+- **Plan only:** `docs/plans/2026-10-21-V3-knowledge-v2.md` covers the re-vendoring procedure (clone into scratch, a header line in each of the 5 files, SOURCE.md, a fallback to `81bb0fc`), `resume-v4.md` (§7, no phone number) and `concierge.md` (a fact table, each fact with its README/spec line), the 16-section outline (1,038 body words, about 1,146 with headings; about 2,894 tokens against 3,000) with a cut order, the prompt.py changes word for word, the policy check (3 URLs, all 200 today), the `check_sources.py` CLI (exit codes 0/1/2), and test names for V3-02..V3-04. Tests 1091 → 1091.
+- **Verified:** a scratch clone of the public repo works; `main` is `b7c974f`. Only `projects.ts` drifted from `81bb0fc` (it gained a `voice-concierge` entry and re-orders). The static text after V3-03 measures 648 tokens, computed from the planned wording, with no "pack" left outside the forbidding rule. An Opus review found 4 Important and 6 Minor issues, all applied; Important ones: name-rule anchor, "at <Company>" names, skill-group casing, urlopen import form. Full suite green, 1091.
+- **Next session (V3-02) must know:** write "…at MAXX Potential", "…at Builder Clarity", "…at Duke University" (`test_names_are_derived_from_the_pack`). SOURCE.md needs exactly one ``commit `<hex>` ``. The pack must stay under about 8,230 characters.
+- **Proposed changes:** V3-03 step 3 says "D18" and V3-04 step 4 says "D19 *default*", but V2 already used D18–D20. The plan uses **D21** (policy check) and **D22 *default*** (drift check), and each heading names the step's original number. Please amend those two steps, and V3-03 step 4's "D18" pointer, to D21/D22.
+- No questions for Michael this session.
+
 ### 2026-10-21 12:00 · verify V2
 
 31 steps re-run; all hold (full suite 1091 passed).
