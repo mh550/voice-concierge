@@ -13,6 +13,20 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 09:10 · verify V5
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| V5-01 | 1 | Read README § What it does and the mermaid edge; `pytest tests/test_readme.py tests/test_morning.py` | Bullets for departure (20 s, about 30 s), self-description, three tiers linking `#hows-it-verified`; the v2 view by kind (about_visitor, events, about_agent) is the paragraph right under the bullet list, plus the "Shows its memory" bullet, not its own bullet. Edge lists concierge.memory, concierge.metrics, concierge.forget_me, concierge.get_memory; 71 passed | yes (v2 view is a paragraph, not a bullet) |
+| V5-01 | 2 | Read MORNING.md headings, steps 4, 9, 13; `test_fourteen_numbered_steps_in_order`, `test_drift_and_conversation_steps_have_check_and_undo`, `test_voice_step_covers_the_link_click_round_trip` | Steps 1..14 with no gap; 9 and 13 have Check and Undo; step 4 has the click-without-Leave round trip and "Closing your earlier conversation…" at most briefly, panel fills again | yes |
+| V5-01 | 3 | Read `test_the_harness_phrase_is_absent` (globs docs/plans/2026-10-21-*.md), `test_no_doc_shows_forget_me_before_a_call`; grep "forget me" | Phrase test covers plans and passes; every Forget me button sentence says "during a call" | yes |
+| V5-01 | 4 | `git show e7fd3b2 -- docs/spec.md` | One line changed: status line gains "See `docs/specs/2026-10-21-integrated-concierge.md` for V1–V6."; nothing else | yes |
+| V5-01 | 5 | `/home/mh550/projects/agent-harness/lib/check.sh` | green, 1209 tests | yes |
+| V5-02 | 1 | `ls` scratch; read plan `## Review` | `review-V5.diff` exists; plan has `## Review` with 147 claim rows (127 cited, 2 "wrong: fixed", 18 unverifiable offline) | yes |
+| V5-02 | 2 | Read W1/W2 fixes; `test_live_tier_says_it_runs_on_a_fake_room`, `test_old_schema_refusal_names_what_each_script_prints`, Results tests | Both pass; README § Results rule tests pass (all cells `to measure`) | yes |
+| V5-02 | 3 | Read the V5-02 progress entry | Lists claims left for Michael, each with a MORNING step | yes |
+| V5-02 | 4 | check.sh | green, 1209 tests | yes |
+
 ### 2026-10-21 08:40 · V5-02 · passes
 - **Changed:** `docs/plans/2026-10-21-V5-docs.md` has `## Review`, a table of 147 claims (README § What it does / Failure cases / Privacy / How it's verified, and each MORNING Check line). 127 cite the line that implements them, 2 were wrong and are fixed, and 18 can only be checked live. **W1:** README's live tier row said a real LiveKit room where the worker joins; the live tests actually run `start_session` in-process on a FakeRoom, so the row now says that. **W2:** MORNING step 3 said the §12 scripts print "schema version 2; this code reads 3"; only `memory_history.py` does, and the line now says so. Tests 1207 → 1209: `test_live_tier_says_it_runs_on_a_fake_room` and `test_old_schema_refusal_names_what_each_script_prints`, both seen failing first.
 - **Verified:** check.sh green, 1209 tests. Diff `fa92ce9..HEAD` (146 lines) is in `$HARNESS_SCRATCH/review-V5.diff`. The Opus reviewer ran the offline evals (11/11 scripts passed; memory recall 20/20, harm 0). I re-opened 3 sampled citations and both wrong claims. README § Results is all `to measure`.
