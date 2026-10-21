@@ -415,6 +415,37 @@ body would then fail to send at all).
 **Question for Michael.** A v2 page should read `facts` when `profile` is shorter (only in a body over 15 KiB). Fine,
 or should `profile` and `facts` always match and the events pay for it?
 
+## D21: describing itself vs the LiveKit and Anthropic terms (2026-10-21, V3-03; the feature's "D18")
+
+**Question (Michael's).** Does an agent that describes its own implementation (its memory design, what it stores,
+how it was built) conflict with LiveKit's Agents docs, LiveKit's terms for LiveKit Cloud, or Anthropic's usage
+policy? The step numbered this "D18"; V2 had already used D18–D20, so it is D21 (plan
+`docs/plans/2026-10-21-V3-knowledge-v2.md`, "Decision numbers").
+
+**Checked on 2026-10-21**, each page fetched in the V3-03 session (`curl -sL`, HTTP 200, no keys):
+
+| Page | URL | What it says on this |
+|---|---|---|
+| LiveKit Agents docs (Introduction) | https://docs.livekit.io/agents/ | No clause on this: the page has no rule on an agent describing its own design, prompt or memory. |
+| LiveKit Terms of Service (Build, Ship, Scale plans; LiveKit Cloud), "Last Updated: 10/06/2026" | https://livekit.io/legal/terms-of-service (redirects to livekit.com) | No clause restricts a customer's application from describing itself. The nearest: §3.2 (a) bars attempts to "reverse engineer, decompile, or otherwise attempt to extract the source code of the Services"; §8.3 keeps confidential each party's "proprietary or non-public information relating to the other's businesses, technologies, products, pricing, or services"; §2.6.2: "Customer is solely responsible for ensuring that end users are appropriately informed when interacting with AI-powered agents"; §2.6.6: "Customer will not deploy agents, hosted agents, or any voice agents to impersonate an individual without documented consent or to mislead users about the agent's artificial nature." §7.4.1 brings in LiveKit's Acceptable Use Policy and the AI model providers' usage policies (the next two rows). |
+| LiveKit Acceptable Use Policy, "Last Updated: 08/07/2023" (incorporated by the terms' §7.4.1) | https://livekit.com/legal/acceptable-use-policy | No clause on this. Its rule on "the artificial nature of the voice or the AI agent using it" is about cloned voices, which the concierge doesn't use; the nearest general rule is "Modify, adapt, translate, or reverse engineer any portion of the LiveKit Services". |
+| Anthropic Usage Policy, the version served that day ("Effective Nov 12, 2026") | https://www.anthropic.com/legal/aup | No clause on an application describing its own prompt, implementation or memory. It does require: "All consumer-facing chatbots or AI agents that communicate directly with external users must disclose to users that they are interacting with AI rather than a human." That disclosure goes "at a minimum at the beginning of each chat session or in the product interface". |
+
+**Finding.** No conflict. The agent self-hosts its own prompt (`concierge/prompt.py`, in this public repo), and what
+it says about itself comes from `knowledge/sources/concierge.md`, built from this repo's README.md and docs/spec.md:
+the operator's own design, already public, not LiveKit's or Anthropic's non-public material. It extracts nothing from
+LiveKit's or Anthropic's services and says nothing about them beyond what their public docs say. Describing its
+memory and its build also tells the visitor plainly that they are talking to an AI agent, which the AUP's disclosure
+rule and LiveKit's §2.6.2 ask for (and §2.6.6 forbids misleading users about it). But self-description tells a
+visitor it is an AI only when asked, so it does not meet either disclosure rule by itself.
+
+**What remains for Michael.** (a) The disclosure "at the beginning of each chat session or in the product interface":
+the greeting introduces "the concierge on Michael Herron's portfolio site" without saying it is an AI, and a returning
+visitor's greeting has no introduction. If the portfolio page doesn't already label the concierge as an AI voice
+agent, the page label or the greeting needs to say so (not built here: outside V3-03). (b) The Anthropic AUP read is the
+version effective 2026-11-12 (the page already served it on 2026-10-21); a later version needs a fresh read. All four
+pages were fetched, so nothing is unconfirmed.
+
 ## Health port: loopback only (Michael, 2026-10-20)
 
 **Decision.** The worker's health endpoint (8081 under `start`) binds 127.0.0.1: `AgentServer(host="127.0.0.1")` in

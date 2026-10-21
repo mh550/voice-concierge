@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from concierge.knowledge import load_pack
@@ -46,7 +48,7 @@ def test_same_inputs_give_identical_text() -> None:
 def test_static_instructions_carry_the_anti_goal_rules() -> None:
     text = STATIC_INSTRUCTIONS
     assert "Michael" in text and "concierge" in text  # persona
-    assert "only from the knowledge pack" in text
+    assert "only from what you know about him below" in text
     assert "I don't know, but you can ask Michael directly" in text
     for word in ("numbers", "dates", "employers"):
         assert word in text
@@ -74,6 +76,26 @@ def test_static_plus_pack_within_budget() -> None:
     assert estimate_tokens(build_instructions(load_pack(), None)) <= 3000  # separators included
 
 
+def test_static_instructions_forbid_the_pack_words() -> None:
+    # The model repeats what it is told not to say, so only the forbidding rule's own line may name the words.
+    # The pack is read too: a rebuild that carried "the pack" into its prose would teach the word back.
+    for text in (STATIC_INSTRUCTIONS, build_instructions(load_pack(), None)):
+        lines = text.splitlines()
+        rule = [line for line in lines if "Never use the words" in line]
+        assert len(rule) == 1
+        rest = "\n".join(line for line in lines if line not in rule).lower()
+        for word in ("pack", "knowledge pack", "source lines"):
+            assert word not in rest, word
+    assert '"pack", "knowledge pack" or "source lines"' in rule[0]
+    assert '"what I know about Michael" or "my notes"' in rule[0]
+    assert "never name the files your facts come from" in rule[0]  # the pack's Source: lines name them
+    assert not re.search(r"\w+\.(md|ts)\b", STATIC_INSTRUCTIONS)
+    assert "Voice Concierge (this agent)" in STATIC_INSTRUCTIONS
+    assert "how you were built" in STATIC_INSTRUCTIONS
+    assert "Michael wants it explained" in STATIC_INSTRUCTIONS
+    assert STATIC_INSTRUCTIONS.endswith("What you know about Michael (the only source of facts about him):")
+
+
 def test_memory_block_cap() -> None:
     assert MEMORY_BLOCK_MAX_CHARS == 1500
     pack = load_pack()
@@ -91,4 +113,4 @@ def test_static_instructions_carry_the_name_confirmation_rule() -> None:
     assert '"Did I get that right, <name>?"' in text
     assert "only after they say yes" in text
     assert "Never ask to confirm a name from their earlier visits" in text
-    assert text.index("Names:") < text.index("earlier visits may follow the pack")  # before the memory paragraph
+    assert text.index("Names:") < text.index("earlier visits may follow what you know about Michael")  # before the memory paragraph

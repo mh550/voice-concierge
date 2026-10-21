@@ -189,6 +189,18 @@ forbidding rule's own line and search the rest. The module docstring and comment
 are not sent); `STATIC_INSTRUCTIONS` may not, outside that one rule. `test_static_instructions_carry_the_anti_goal_rules`
 changes its `"only from the knowledge pack"` assertion to `"only from what you know about him below"`.
 
+### V3-03 as built
+
+- The wording is the table's, plus one clause the review asked for: the forbidding rule ends `…or "my notes", and
+  never name the files your facts come from.` The removed sentence also covered the pack's `Source: <file>` lines,
+  which the new rule's "source lines" alone did not. Static 662 tokens, static + pack 2,846 (margin 154 under 3,000).
+- `test_static_instructions_forbid_the_pack_words` scans the built prompt (static + pack) as well as the static text,
+  and asserts no `*.md`/`*.ts` file name in the static text.
+- The policy check fetched a fourth page: LiveKit's Acceptable Use Policy, which the terms' §7.4.1 incorporates. D21
+  also quotes the terms' §2.6.6 (no misleading users about "the agent's artificial nature").
+- Known overlap: "my notes" (the step's words for the pack) is also what the greeting and the pack call the visitor's
+  memory. Left as the step has it; V4's evals can show whether the agent blurs the two.
+
 ## The policy check (V3-03)
 
 Michael asked whether an agent describing its own implementation conflicts with LiveKit's or the providers' terms.

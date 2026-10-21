@@ -200,7 +200,9 @@ survives, so "Forget me" can't reset the daily cap. What LiveKit keeps is separa
 stored at LiveKit, but transcripts, traces and metrics go to LiveKit
 Agent Insights and are kept there for 30 days. "Forget me" can't erase those; the page's privacy note says so, and
 [`MORNING.md`](MORNING.md) asks Michael to turn on PII redaction in the project's observability settings. No visitor
-data is committed: `*.db` is gitignored.
+data is committed: `*.db` is gitignored. On request, the concierge describes its own memory design and how it was
+built; that was checked against LiveKit's docs and terms and Anthropic's usage policy, and none of them forbids
+it (`docs/decisions.md` D21).
 
 ## How to run it
 

@@ -185,7 +185,7 @@
         "README.md § Privacy has one sentence saying the concierge describes its own memory design and build on request and that this was checked against the LiveKit and Anthropic terms (pointing to docs/decisions.md D18)",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V3-04",

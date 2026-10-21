@@ -13,6 +13,16 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 08:40 · V3-03 · passes
+
+- **Changed:** `concierge/prompt.py` wording as the V3 plan's table: "Never mention the pack…" is gone; a new rule forbids "pack", "knowledge pack" and "source lines" with a visitor (say "what I know about Michael" or "my notes") and, per the review, naming the source files; a self-description rule points at "Voice Concierge (this agent)"; the heading is `What you know about Michael (the only source of facts about him):`. `docs/decisions.md` **D21** (the step's "D18"; D18–D20 were taken, see the plan's "Decision numbers"); README § Privacy sentence pointing to D21; a MORNING question on D21. Tests 1101 → 1103.
+- **Verified:** `test_static_instructions_forbid_the_pack_words` (static text and the built prompt, minus the rule's line: no pack words; no `*.md`/`*.ts` names in the static text), `test_privacy_says_the_self_description_was_checked`, the two reworded prompt tests; static 662 tokens, static + pack 2,846 (margin 154 under 3,000). Full suite green, 1103.
+- **Policy check (2026-10-21, curl, all 200):** docs.livekit.io/agents, LiveKit ToS (Last Updated 10/06/2026), LiveKit AUP (incorporated by ToS §7.4.1), Anthropic AUP (version effective Nov 12, 2026). None forbids self-description; every quote checked verbatim against the fetched HTML.
+- **Opus review:** 0 Critical, 2 Important (LiveKit §2.6.6 and the LiveKit AUP missing from D21; the test scanned only the static text), 5 Minor. Fixed all but M4 ("my notes" also names the visitor's memory; kept as the step words it, noted in the plan under "V3-03 as built").
+- **Next (V3-04):** the drift decision is **D22 *default*** (the step's "D19"); it needs a MORNING question (`test_questions_cover_every_default`).
+- **Question for Michael:** LiveKit ToS §2.6.2/§2.6.6 and Anthropic's AUP want visitors told they're talking to an AI at the start or in the interface. The greeting says "the concierge" but not "AI". Does the portfolio page label it as an AI agent, or should `greeting.py`'s INTRODUCTION say "the AI concierge"?
+- **Proposed change:** amend V3-03 steps 3–4 and V3-04 step 4 to D21/D22 (as V3-01 proposed).
+
 ### 2026-10-21 07:30 · V3-02 · passes
 
 - **Changed:** re-vendored `Bio.md`, `profile.ts`, `experience.ts`, `projects.ts`, `skills.ts` from a scratch clone of `mh550/portfolio_site` at **`b7c974f`** (`main`, 2026-10-20; no fallback needed), each with a `vendored from …@b7c974f <path>` header; new `knowledge/sources/resume-v4.md` (§7, no phone number) and `concierge.md` (basis: README.md, docs/spec.md §4.0); `SOURCE.md` rewritten; `knowledge/michael.md` rebuilt (new positioning, resume v4 bullets, the four skill groups, `## Project: Voice Concierge (this agent)`, refreshed `## Project: Agent Harness`); README "What it does" names the new sources. Tests 1091 → 1101.

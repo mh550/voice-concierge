@@ -174,3 +174,6 @@ Each is a default the build took (details in `docs/decisions.md`); say if you wa
   `facts`), then events, then episodes; the v1 `facts` stay (v1's own oldest-fact backstop runs only past all three,
   which an allowed body never reaches). A v2 page should read `facts` when `profile` is
   shorter. OK, or should both lists always match and the events pay for it?
+- **D21** (not a default: your question, answered): describing its own design breaks none of LiveKit's docs, its
+  terms or Anthropic's usage policy. LiveKit's terms (§2.6.2, §2.6.6) and Anthropic's AUP both ask that visitors be
+  told they are talking to an AI; the greeting doesn't say "AI". Does the portfolio page label the concierge as an AI agent, or should the greeting say it?
