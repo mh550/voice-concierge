@@ -6,8 +6,9 @@ from pathlib import Path
 import pytest
 
 from concierge import knowledge
+from concierge.config import Settings
 from concierge.knowledge import PACK_PATH, load_pack, pack_stats, pack_word_count, sources_commit
-from concierge.prompt import estimate_tokens
+from concierge.prompt import MEMORY_BLOCK_MAX_CHARS, estimate_tokens
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCES_DIR = ROOT / "knowledge" / "sources"
@@ -24,6 +25,7 @@ PROJECT_HEADING = re.compile(r"^## Project: (.+?)\s*$", re.MULTILINE)
 AT_COMPANY = re.compile(r"\b[Aa]t ((?:[A-Z][\w&]*)(?: [A-Z][\w&]*)*)")
 NAMES = sorted(set(PROJECT_HEADING.findall(PACK)) | set(AT_COMPANY.findall(PACK)))
 
+TTS_SYMBOLS = re.compile(r"[~×↔≈→%$]|\d\+|/(?:week|day|hour)")
 URL = re.compile(r"https?://[^\s)>\]`'\"]+")
 
 
@@ -90,14 +92,19 @@ def _prose(text: str = PACK) -> str:
     return "\n".join(
         line for line in text.splitlines() if not ((m := SOURCE_LINE.match(line)) and m.group(1) in SOURCE_FILES)
     )
+
+
 SOURCES_FLAT = " ".join(SOURCES_TEXT.split())
+
+
+def _untraced(text: str, basis: str) -> list[str]:
+    """Each digit-bearing token of `text`, stripped of prose punctuation, that `basis` doesn't contain."""
+    return sorted({t for t in (m.strip(".,;:()*`'\"") for m in DIGIT_TOKEN.findall(text)) if t and t not in basis})
 
 
 def test_every_number_and_date_in_the_pack_is_in_the_sources() -> None:
     # §4.1: never guess numbers or dates. Each digit-bearing token, stripped of prose punctuation, must be sourced.
-    missing = sorted(
-        {t for t in (m.strip(".,;:()*`'\"") for m in DIGIT_TOKEN.findall(_prose())) if t and t not in SOURCES_FLAT}
-    )
+    missing = _untraced(_prose(), SOURCES_FLAT)
     assert not missing, f"not in knowledge/sources/: {missing}"
 
 
@@ -239,7 +246,7 @@ def test_concierge_numbers_are_in_readme_or_spec() -> None:
     basis = " ".join((ROOT / name).read_text(encoding="utf-8") for name in ("README.md", "docs/spec.md"))
     basis = " ".join(basis.split())
     text = "\n".join((SOURCES_DIR / "concierge.md").read_text(encoding="utf-8").splitlines()[1:])  # first line: basis
-    missing = sorted({t for t in (m.strip(".,;:()*`'\"") for m in DIGIT_TOKEN.findall(text)) if t not in basis})
+    missing = _untraced(text, basis)
     assert not missing, f"not in README.md or docs/spec.md: {missing}"
 
 
@@ -247,3 +254,34 @@ def test_forget_me_is_not_claimed_to_erase_what_livekit_keeps() -> None:
     """Review I1: README § Privacy: Agent Insights transcripts survive "Forget me"; the agent must not say otherwise."""
     for text in (_section("Project: Voice Concierge (this agent)"), (SOURCES_DIR / "concierge.md").read_text("utf-8")):
         assert "LiveKit keeps" in text and "not erased" in text
+
+
+def _limits_in_words() -> list[str]:
+    """The limits the self-description speaks: the code's values, and the pack's word cap (V3-05 review I1)."""
+    fields = Settings.model_fields
+    return [
+        f"{fields['session_max_s'].default // 60} minutes",
+        f"{fields['sessions_per_day'].default} sessions a day",
+        f"{fields['idle_ttl_days'].default} days",
+        f"{MEMORY_BLOCK_MAX_CHARS:,} characters",
+        f"{MAX_WORDS:,} words",
+    ]
+
+
+def test_concierge_limits_match_the_code() -> None:
+    # Substring tracing can't catch a wrong small number ("20 minutes": README.md has a 20), so each limit is
+    # checked as the phrase the code's value makes, in concierge.md and in the pack's section built from it.
+    concierge = " ".join((SOURCES_DIR / "concierge.md").read_text(encoding="utf-8").split())
+    section = " ".join(_section("Project: Voice Concierge (this agent)").split())
+    for phrase in _limits_in_words():
+        spoken = re.compile(rf"(?<![\d,]){re.escape(phrase)}")  # "15 sessions a day" is not "5 sessions a day"
+        assert spoken.search(concierge), f"concierge.md: {phrase}"
+        assert spoken.search(section), f"michael.md: {phrase}"
+
+
+def test_the_pack_prose_is_in_spoken_form() -> None:
+    # 1.8's filter_markdown strips only ~~struck~~ text, so a lone "~", "×", "↔" or "$" reaches the TTS as is. Headings
+    # keep the projects.ts titles (V4 relies on them) and URLs are said as site names (prompt rule).
+    body = "\n".join(line for line in _prose().splitlines() if not line.startswith("#"))
+    found = TTS_SYMBOLS.findall(URL.sub("", body))
+    assert not found, found

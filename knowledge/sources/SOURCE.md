@@ -11,8 +11,8 @@ Two more files:
   the site's new positioning line, subline and tagline. No phone number, on purpose.
 - `concierge.md`: facts about this agent, written from this repo's `README.md` and `docs/spec.md` §4.0.
 
-**Where the resume and the vendored files differ, the resume wins** (it is newer): titles, dates, numbers and the
-grouping of skills.
+**Where the resume and the vendored files differ, the resume wins** (it is newer): titles, dates, numbers, contact links (the
+website) and the grouping of skills.
 
 `knowledge/michael.md` is built only from these files. To refresh the five vendored files, follow
 `docs/plans/2026-10-21-V3-knowledge-v2.md` ("Re-vendoring the sources"), record the new commit here, and rebuild

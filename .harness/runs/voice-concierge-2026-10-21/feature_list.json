@@ -219,7 +219,7 @@
         "progress.md has a V3 entry with the pack's word count, the static + pack token estimate, the sources commit, and what V4 must know (the section names the conversation scripts can rely on)",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V4-01",

@@ -344,6 +344,112 @@ make two decisions answer to one name (and MORNING's questions refer to D18–D2
 section with its `concierge.md` line and that line's README or spec basis; every number in Experience and Agent
 Harness with its source file); fixes RED → GREEN; simplification pass; `wc -l concierge/*.py` ≤ 250.
 
+## Review
+
+V3-05, 2026-10-21. `git diff 69a43ee..HEAD -- . ':!.harness'` (69a43ee is the last V2 commit, "HARNESS: V2 verified";
+1,661 lines) was written to `$HARNESS_SCRATCH/review-V3.diff` and read by an Opus reviewer for facts, privacy, tone,
+budget and the drift script's code. A second agent built the claims table below, and I checked its cited lines with
+`sed -n`.
+
+**Findings.** 0 Critical, 1 Important, 5 Minor.
+
+- **I1 (fixed, RED → GREEN).** `test_concierge_numbers_are_in_readme_or_spec` and the pack's number test only checked
+  that each digit-bearing token appears somewhere in the basis, so "a session ends after 20 minutes" would still pass
+  (README.md has a "20"). I checked that: with concierge.md changed to "20 minutes", the old test passed and the new
+  `test_concierge_limits_match_the_code` failed (`concierge.md: 10 minutes`). The new test builds each spoken limit
+  from the code (`Settings` defaults `session_max_s // 60` minutes, `sessions_per_day` sessions a day,
+  `idle_ttl_days` days; `MEMORY_BLOCK_MAX_CHARS` characters; the 1,200-word cap) and requires the phrase in both
+  concierge.md and the pack's section.
+- **M2 (fixed).** The pack's website (`www.mherron.dev`) comes from the resume, while `profile.ts` has the old
+  vercel.app address. SOURCE.md's "the resume wins" list now names contact links (the website).
+- **M3 (kept).** "job-description agent" expands the resume's "JD agent" so it reads aloud; the meaning is the
+  resume's.
+- **M4 (fixed, RED → GREEN).** Symbols reached the TTS: 1.8's `filter_markdown` strips only `~~struck~~` text, and the
+  prompt says to repeat numbers exactly as written. `test_the_pack_prose_is_in_spoken_form` (no `~`, `×`, `↔`, `%`,
+  `≈`, `→`, `$`, digit-`+` or `/week` in the prose; headings and URLs excepted) failed with 12 hits in 8 phrases. The prose now says "about 8
+  issues a week", "twice the sprint throughput", "about 80 percent", "from about 2 days to about 6 hours", "about 8
+  hours a week", "4 or more sources", "JobTread and GoHighLevel integration platform", "about 3 dollars each", and "Summers 2023 and 2024". The en dash
+  in "12–18-year-old" stays, since the number test needs the source's form.
+  Headings keep the `projects.ts` titles (with `↔`), because V4 relies on them (below).
+- **M5 (skipped).** The reviewer called `test_check_sources_never_fetches_in_the_suite` a misleading name, since it
+  runs `fetch` against a mocked `urlopen`. It is the name V3-04's step uses, so it stays.
+- **M6 (FYI, for Michael).** The vendored `Bio.md` carries draft notes and an apprenticeship application answer. They
+  are already public upstream and the pack doesn't use them, but this repo now republishes them.
+
+**Second look (Opus, the fixes' diff).** 0 Critical, 2 Important, 2 Minor, all fixed. The limits test matched
+"15 sessions a day" as "5 sessions a day", so each phrase now needs a non-digit before it (checked RED with "15").
+The symbol set was missing `≈`, `→` and `$`, which `projects.ts` uses (checked RED with "≈ $3"). The other two
+were the "&" in the prose and this note's hit count. The reviewer re-checked the rewording against resume-v4.md:9–26
+and found no change of meaning. "JobTread and GoHighLevel" drops the arrow's two-way sense, and "integration
+platform" keeps it.
+
+**The checks the step names.** Privacy: no phone number in `knowledge/sources/` or the pack
+(`test_the_pack_has_no_phone_number_or_retired_words`, `test_resume_has_no_phone_number`; the reviewer also grepped
+for phone patterns, hostnames and IPs). The only contact data is the public email and the LinkedIn/GitHub/site links.
+The resume wins over the vendored files and SOURCE.md says so: for the harness, the pack follows the resume (~$3,
+189 features in 4 days, October 2026) over `projects.ts` (≈$2.53, 55 passing in one day, Sep – Oct 2026), and the
+positioning follows the resume over `profile.ts`. The word "pack": `STATIC_INSTRUCTIONS` names it only in the rule
+that forbids it, and `test_static_instructions_forbid_the_pack_words` guards both the instructions and the pack.
+Budget: static 662 + pack 2,204 = **2,866** estimated tokens of 3,000 with separators, **margin 134**. The pack is
+**1,181 words** of 1,200 (19 spare). Before the M4 rewording it was 2,846 tokens (margin 154) and 1,166 words.
+
+**Simplification pass.** `tests/test_knowledge.py`: the two number-tracing tests duplicated one token-strip-and-lookup
+expression, which is now `_untraced(text, basis)`. Every `concierge/*.py` is at most 250 lines (`wc -l`: the
+largest is `memory_writer.py`, at 250). V3 added no `concierge/` module, and its one `concierge/` change
+(`prompt.py`) is wording only.
+
+### Claims: `Project: Voice Concierge (this agent)`
+
+Each sentence is supported by the `concierge.md` paragraph with the same words, and that paragraph by:
+
+| # | Sentence (pack) | README.md / docs/spec.md line |
+|---|---|---|
+| 1 | This is me: the voice agent on Michael's site. | README.md:3 |
+| 2 | I talk about Michael's work and remember returning visitors, whether they talk or type. | README.md:3–4 ("across voice and typed text") |
+| 3 | I'm built on LiveKit Agents 1.8, in Python. | README.md:4 |
+| 4 | I run on Michael's home box and connect out to LiveKit Cloud, and my memory is one local SQLite file. | README.md:6–7 |
+| 5 | Each visitor has one thread of memory, and nothing is shared between visitors. | docs/spec.md:81 (B2); docs/spec.md:113 |
+| 6 | I remember a few kinds of fact about a visitor: their name, role, company, interests, what they asked about, and whether they want a follow-up. | README.md:119 (the six slots) |
+| 7 | Each fact is kept with where I learned it, by voice or by text, and when. | README.md:120 (`channel`, `valid_from`); README.md:22 |
+| 8 | I keep a short summary of each visit. | README.md:115 (visit summary at most 3 sentences) |
+| 9 | I take my notes in the background, after a turn, never while I'm answering, unless a visitor asks me to remember or forget something. | README.md:75–80 |
+| 10 | A correction keeps history: the old fact is marked no longer valid instead of being overwritten. | README.md:112 |
+| 11 | A write gate refuses instructions, links and secrets, and I store a name only after the visitor confirms it. | README.md:109 |
+| 12 | I can also take a message for Michael, with an email or phone if the visitor wants. | README.md:26 |
+| 13 | Forget me, on the page, erases everything linked to the visitor in my memory. | README.md:23–24; README.md:195 |
+| 14 | Transcripts LiveKit keeps for Michael are separate and are not erased by it. | README.md:191; README.md:198–201 |
+| 15 | A visitor can also ask me to forget one thing. | README.md:24–25 |
+| 16 | A thread idle for 30 days is deleted. | README.md:121; docs/spec.md:85 (B6) |
+| 17 | I carry a fixed description of Michael's work, at most 1,200 words, which the provider caches, and what I remember about a visitor is at most 1,500 characters. | docs/spec.md:122 (1,200 words); docs/spec.md:132 (cached prefix); README.md:109 (1,500 characters) |
+| 18 | On a long call my small working context is compacted. | README.md:115 (past 24 items or about 4,000 tokens) |
+| 19 | A session ends after 10 minutes at most, and a visitor gets 5 sessions a day. | README.md:189; docs/spec.md:86 (B7) |
+| 20 | The page shows what I remember and what my memory did. | README.md:28–29 and 33–36 (`concierge.memory`, its events) |
+| 21 | I can't chat about general topics, I don't guess numbers, and I can't remember a visitor across browsers. | README.md:18; docs/spec.md:130 ("never guess numbers"); README.md:167 (the id is kept in the browser, so "across browsers" is implied) |
+| 22 | Michael's agent harness built me overnight from a written spec, after the memory design was researched and written down practice by practice. | docs/spec.md:4 (the agent-harness, overnight); README.md:4–5 and 10–12 |
+
+The limits in rows 16, 17 and 19 are also tied to the code by `test_concierge_limits_match_the_code`.
+
+### Claims: numbers in `Experience` and `Project: Agent Harness`
+
+| Section | Number (pack) | Source | Other sources |
+|---|---|---|---|
+| Experience | February 2026 to present (MAXX Potential) | resume-v4.md:9 | experience.ts:14 agrees |
+| Experience | about 8 issues a week | resume-v4.md:11 | resume only |
+| Experience | twice the sprint throughput (2×) | resume-v4.md:12 | experience.ts:17, projects.ts:378 agree |
+| Experience | about 80 percent less bug-filing time | resume-v4.md:12 | experience.ts:17, projects.ts:379 agree |
+| Experience | March 2025 to November 2025 (Builder Clarity) | resume-v4.md:15 | experience.ts:28 agrees |
+| Experience | 3 clients | resume-v4.md:17 | experience.ts:31 agrees |
+| Experience | from about 2 days to about 6 hours | resume-v4.md:17 | experience.ts:31, projects.ts:328 agree |
+| Experience | about 8 hours a week per client | resume-v4.md:18 | experience.ts:32 agrees |
+| Experience | 4 or more sources (4+) | resume-v4.md:18 | experience.ts:33 agrees |
+| Experience | February 2025 (Tahoma Films) | experience.ts:40 | not in the resume |
+| Experience | Summers 2023 & 2024 | experience.ts:50 | not in the resume |
+| Experience | 12–18-year-old | experience.ts:53 | not in the resume |
+| Agent Harness | October 2026 to present | resume-v4.md:22 | projects.ts:171 "Sep – Oct 2026"; the resume wins |
+| Agent Harness | 189 features | resume-v4.md:26 | projects.ts:134 "55 features passing in one day"; the resume wins |
+| Agent Harness | in 4 days | resume-v4.md:26 | projects.ts says one day (Oct 17); the resume wins |
+| Agent Harness | about 3 dollars each (~$3) | resume-v4.md:26 | projects.ts:137 "≈ $2.53"; the resume wins |
+
 ## What V4 can rely on
 
 V4's conversation scripts may name these section headings, which V3-02 fixes: `Positioning and contact`, `About`,

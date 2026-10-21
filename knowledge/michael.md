@@ -25,18 +25,18 @@ Source: resume-v4.md
 Source: experience.ts
 
 - Full-Stack Software Engineer at MAXX Potential, February 2026 to present. He ships React Native, Next.js,
-  edge-function and Postgres features for a contractor estimating app, ~8 issues/week, and turned recurring UI
-  fixes into a knowledge source agents load as procedural memory. He replaced spreadsheet bug tracking with Linear
-  and an agentic bug-fix workflow: 2× sprint throughput and ~80% less bug-filing time, with no new software costs. He
-  designed enterprise Copilot Studio agents, splitting an over-scoped job-description agent into one agent for
-  managers and one for HR, so each holds only its own data.
-- Founding Full-Stack Software Engineer at Builder Clarity, March 2025 to November 2025. He architected a
-  multi-tenant JobTread ↔ GoHighLevel integration platform with managed multi-org OAuth, replacing per-client builds:
-  3 clients, and onboarding cut from ~2 days to ~6 hours. He integrated CRM, VoIP through RingCentral, and internal
-  systems, saving ~8 hrs/week per client, and built ETL normalizing 4+ sources into Postgres. As first engineer he led
-  the move from Zapier to n8n and Pipedream.
+  edge-function and Postgres features for a contractor estimating app, about 8 issues a week, and turned recurring UI
+  fixes into a knowledge source agents load as procedural memory. He replaced spreadsheet bug tracking with Linear and
+  an agentic bug-fix workflow: twice the sprint throughput and about 80 percent less bug-filing time, with no new
+  software costs. He designed enterprise Copilot Studio agents, splitting an over-scoped job-description agent into
+  one agent for managers and one for HR, so each holds only its own data.
+- Founding Full-Stack Software Engineer at Builder Clarity, March 2025 to November 2025. He architected a multi-tenant
+  JobTread and GoHighLevel integration platform with managed multi-org OAuth, replacing per-client builds: 3 clients,
+  and onboarding cut from about 2 days to about 6 hours. He integrated CRM, VoIP through RingCentral, and internal
+  systems, saving about 8 hours a week per client, and built ETL normalizing 4 or more sources into Postgres. As first
+  engineer he led the move from Zapier to n8n and Pipedream.
 - AI Workflow Engineer at Tahoma Films, February 2025: AI image generation workflows and trained LoRAs.
-- Snowboard Coach at High Cascade Snowboard Camp, Summers 2023 & 2024, mentoring 12–18-year-old snowboarders.
+- Snowboard Coach at High Cascade Snowboard Camp, Summers 2023 and 2024, mentoring 12–18-year-old snowboarders.
 
 ## Education
 Source: resume-v4.md
@@ -81,7 +81,7 @@ Personal and open source (https://github.com/mh550/agent-harness), October 2026 
 harness that runs Claude Code agents in isolated git worktrees and takes tests, verification and merges out of the
 agent's hands, merging only verified trees. Each feature gets a fresh context window, rebuilt from state on disk,
 with project rules as procedural memory and run retros as episodic memory. It runs on his home server, steered from
-laptop or phone, and 189 features passed in 4 days at ~$3 each.
+laptop or phone, and 189 features passed in 4 days at about 3 dollars each.
 
 ## Project: Self-hosted music library & DJ crate pipeline
 Source: projects.ts
