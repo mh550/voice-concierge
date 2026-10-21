@@ -323,3 +323,9 @@ def test_no_doc_shows_forget_me_before_a_call() -> None:
         for sentence in re.split(r"(?<=[.!?])\s", text):
             if "forget me" in sentence.lower() and "button" in sentence.lower():
                 assert "during a call" in sentence, (path.name, sentence)
+
+
+def test_live_tier_says_it_runs_on_a_fake_room() -> None:
+    """V5-02 W1: tests/live/test_live.py drives start_session in-process on a FakeRoom; nothing joins LiveKit Cloud."""
+    proves, cannot = {row[0]: row for row in _table_rows(_section("How it's verified"))}["live"][2:4]
+    assert "the worker joins" not in proves and "fake room" in cannot

@@ -52,7 +52,7 @@ visit; nothing existing changes). Older code then refuses that file ("schema ver
 back to V1 code means keeping a copy of the db from before: `cp ~/.local/share/voice-concierge/concierge.db
 ~/.local/share/voice-concierge/concierge.db.v2` with the worker stopped, before the first V2 start. That copy holds
 visitor data "Forget me" and the 30-day purge can't reach: `rm` it once V2 runs fine, and within 30 days in any case.
-Until the V2 worker has started once, the scripts in §12 refuse the old file ("schema version 2; this code reads 3").
+Until the V2 worker has started once, the scripts in §10 and §12 refuse the old file with exit 2: `memory_history.py` says "schema version 2; this code reads 3", `messages.py` and `latency_report.py` say only `not a memory store: <db> (StoreError)`.
 
 ## 4. Voice
 

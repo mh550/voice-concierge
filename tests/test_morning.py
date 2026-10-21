@@ -81,3 +81,11 @@ def test_voice_step_covers_the_link_click_round_trip() -> None:
     body = " ".join(_step(4).split())
     assert "without pressing Leave" in body and "Closing your earlier conversation…" in body
     assert "memory panel fills again" in body
+
+
+def test_old_schema_refusal_names_what_each_script_prints() -> None:
+    """V5-02 W2: only memory_history.py prints the schema versions; messages.py and latency_report.py print the
+    StoreError line (scripts/messages.py, scripts/latency_report.py:65)."""
+    line = next(line for line in _step(3).splitlines() if "refuse the old file" in line)
+    for name in ("memory_history.py", "messages.py", "latency_report.py", "not a memory store"):
+        assert name in line, name

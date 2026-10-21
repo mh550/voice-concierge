@@ -175,7 +175,7 @@ in `tests/live/test_live.py`, all on Michael's box ([`MORNING.md`](MORNING.md)).
 |---|---|---|---|
 | offline | `.harness/check.sh` (no network, no keys; anyone runs it) | The code against fakes: the fake LLM, fake rooms and recorded extractor ops. It includes the two offline eval twins, `scripts/eval_memory.py --offline` and `scripts/eval_conversation.py --offline`, which replay recorded answers. | Anything about a real model, a real voice or a real room. |
 | llm | `pytest -m llm` or `scripts/eval_conversation.py` (Michael's) | The real prompt and LLM, through the text path: the 11 scripts in `evals/conversation/` check what it says, what it refuses and that it uses its tools. | Speech: there is no STT, TTS or room, so mishearing and latency are untested. |
-| live | `pytest -m live` (Michael's) | A real LiveKit room: the worker joins, the page's RPCs and data topics work end to end. | Model quality across many conversations; it runs a few fixed cases. |
+| live | `pytest -m live` (Michael's) | The real session code in text mode, with the real conversation LLM, extractor, merge and summarizer on a temporary store: a returning visitor is greeted by name, nothing the agent said is stored as the visitor's, an injection isn't stored, and after "Forget me" the next visit is a stranger's. | Speech, a real LiveKit room and the page: it runs in-process on a fake room, so the RPCs and topics end to end are checked by hand (MORNING steps 4–6). Model quality across many conversations: it runs four fixed cases. |
 
 ## Failure cases and limits
 
