@@ -13,6 +13,15 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 14:20 · V4-01 · passes
+
+- **Changed:** new `docs/plans/2026-10-21-V4-conversation-evals.md`, which quotes the 1.8.8 text path with file:line: `agent_session.py:855-874` `run()` returns a `RunResult`; `run_result.py:69-95,127-141,185-190,202-216` cover its events and `__await__`. The plan also gives the YAML format, the result model, the 11 §6 scripts with their assertions, and the V4-02 test names. New `concierge/evals/conversation.py` (173 lines) holds `TurnCheck` and `ConversationScript` (`extra="forbid"`), `load_conversation`, `FORBIDDEN_EVERYWHERE`, `reply_failures`, `run_conversation` and `offline_llm` (the twin's FakeLLM). New `tests/test_conversation_runner.py`, 37 tests. Tests 1114 → 1151.
+- **Verified:** RED first (the module was missing), then GREEN. Mutation checks: dropping the tool reading fails 4 tests, dropping the forbidden check fails 4, an off-by-one in `max_sentences` fails 1. A scratch prototype showed the real events of a `remember` turn: `FunctionCallEvent`, `FunctionCallOutputEvent`, then an assistant `ChatMessageEvent`. The visitor's own message is not an event. `ruff check .` clean; check.sh green, 1151.
+- **Opus review:** 0 Critical, 4 Important, 5 Minor; the table is under "## Review of V4-01" in the plan. Fixed RED→GREEN: I1 (an empty or tool-only reply now fails with `reply: empty`), I2 (plurals, `knowledge_pack` and `Sources :` are caught), I3 (a timeout or provider error becomes an `error:` failure and ends the script instead of raising), M2 (the agent is built with `agent_or_memoryless`, as the worker does), M3 (`must_mention` matches whole words), M4 (sentences are counted per line).
+- **Next session (V4-02) must know:** `llm_factory` takes no arguments, so pass `lambda: offline_llm(script)` for the twin. A `fake_tool_call` is `{name, arguments, reply}`: the session calls the LLM a second time after the tool runs. With `memory=None`, `remember` returns "I can't save anything this visit." The runner does not close the LLM, so the script shares one and closes it.
+- **Left for V4-04:** I4 (the runner skips the greeting turn that production sends first) and M5 (`tool_called` still passes when the tool returned an error).
+- **Questions for Michael:** none.
+
 ### 2026-10-21 13:30 · verify V3
 
 | Feature | Step | What you ran or read | What you saw | Holds |
