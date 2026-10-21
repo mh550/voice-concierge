@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -12,6 +13,7 @@ from livekit.agents import llm
 from concierge.config import Settings
 from concierge.session import Started, start_session
 from concierge.store import Store
+from concierge.testing.fake_llm import FakeResponse, FakeToolCall
 
 VISITOR = "3f2b8c1e-9a4d-4c7b-8e21-5d6f7a8b9c0d"
 METADATA = json.dumps({"visitor_id": VISITOR, "channel_hint": "web"})
@@ -44,3 +46,18 @@ async def shutdown(ctx: Any, started: Started, reason: str = "test") -> None:  #
 def stage_llms(**by_stage: llm.LLM) -> Callable[..., llm.LLM]:
     """A `build_llm(stage, settings)` stand-in that gives each stage its own fake; an unexpected stage is a KeyError."""
     return lambda stage, settings=None: by_stage[stage]
+
+
+async def until(cond: Callable[[], bool], timeout_s: float) -> None:
+    """Poll `cond` every 10 ms; fail the test when it isn't true within `timeout_s`."""
+    deadline = time.monotonic() + timeout_s
+    while not cond():
+        assert time.monotonic() < deadline, "condition not met in time"
+        await asyncio.sleep(0.01)
+
+
+def emit_add(slot: str, value: str, turn_id: str) -> FakeResponse:
+    """The extractor's `emit_ops` call that adds one fact."""
+    op = {"op": "ADD", "slot": slot, "value": value, "fact_id": None, "confidence": None, "turn_id": turn_id,
+          "reason": None}
+    return FakeResponse(tool_call=FakeToolCall(name="emit_ops", arguments={"ops": [op]}))

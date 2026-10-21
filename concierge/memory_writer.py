@@ -32,7 +32,7 @@ from concierge.turns import Turn, journal_note, turn_from_message
 logger = logging.getLogger("concierge.memory_writer")
 
 # The final extraction's share of the shutdown (plan C5 "Timing"): with the 5 s summary and a 5 s busy wait it fits
-# session.SHUTDOWN_WORK_S (25), inside the worker's shutdown_process_timeout=30.
+# session_end.SHUTDOWN_WORK_S (25), inside the worker's shutdown_process_timeout=30.
 FLUSH_TIMEOUT_S = 15.0
 
 

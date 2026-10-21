@@ -153,10 +153,16 @@ in `tests/live/test_live.py`, all on Michael's box ([`MORNING.md`](MORNING.md)).
 - **A single box.** If the worker is down, the page shows its offline state. There's no failover, and the SQLite file
   is local to that box.
 - **No lease.** Two tabs open for one visitor run two sessions that can interleave turns. The version fence makes
-  every write land once, but neither agent's prompt has the other's new facts until the next visit.
+  every write land once, but neither agent's prompt has the other's new facts until the next visit. When the
+  visitor's page disconnects (a closed tab, a reload, a link to another page), the agent waits 20 s for a reconnect
+  (D16), then saves its notes (the final extraction, the visit summary, a last `concierge.memory`) and leaves, so
+  the site's token route frees the address within about 30 s (`concierge/departure.py`, `end_session` in
+  `concierge/session_end.py`). A reload that rejoins the same room inside the 20 s carries on the same session. A
+  visitor who is not in the room when the agent starts watching (gone during the connect, or never joined) gets 60 s
+  to join before the agent leaves the same way.
 - **No telephony or SMS.** Neither is built in this 1.8 code. In 2.0's model a `phone:` key on the visitor's thread would attach a call
   or a text to the same memory.
-- **Abuse limits are simple:** a session ends after 10 minutes, a visitor gets 5 sessions a day, and a kill switch
+- **Abuse limits are simple:** a session ends after 10 minutes at most (sooner when the visitor leaves), a visitor gets 5 sessions a day, and a kill switch
   makes the worker decline jobs (`concierge/limits.py`, `concierge/worker.py`, B7).
 - **Agent Insights isn't erased by "Forget me".** What LiveKit keeps is outside this store (see Privacy).
 

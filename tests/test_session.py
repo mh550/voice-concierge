@@ -2,29 +2,41 @@
 session_started / session_ended journaled off the greeting's path. A real AgentSession runs the FakeLLM; the room
 half of session.start is patched out (fake_job_context's room never connects)."""
 
+import asyncio
 import functools
+import json
 import sqlite3
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from jsonschema import Draft202012Validator
+from livekit import rtc
 from livekit.agents import llm
 from livekit.agents.testing import fake_job_context
 
+from concierge import rpc as concierge_rpc
 from concierge import session as concierge_session
 from concierge.config import Settings
+from concierge.contract import FORGET_ME_METHOD, MEMORY_TOPIC, empty_memory_payload
+from concierge.dispatch import parse_dispatch
 from concierge.erasure_hooks import forget_visitor
 from concierge.greeting import INTRODUCTION
 from concierge.knowledge import load_pack
+from concierge.limits import utc_day
 from concierge.memory_writer import FLUSH_TIMEOUT_S
 from concierge.models import AddFact
 from concierge.prompt import MEMORY_HEADER, build_instructions
 from concierge.session import start_session
-from concierge.store import Store
+from concierge.session_end import SHUTDOWN_WORK_S, begin_end, end_session
+from concierge.store import Store, now_ms
 from concierge.store_base import BUSY_TIMEOUT_S
 from concierge.summary import SUMMARY_TIMEOUT_S
 from concierge.testing.fake_llm import FakeLLM, FakeResponse, FakeToolCall
+from concierge.testing.fake_room import FakeRoom
 from concierge.testing.recording_session import RecordingSession
-from concierge.testing.sessions import METADATA, VISIT_SUMMARY, VISITOR, shutdown, stage_llms, start
+from concierge.testing.sessions import METADATA, VISIT_SUMMARY, VISITOR, emit_add, shutdown, stage_llms, start, until
+from concierge.text_input import ChannelTags
 from concierge.worker import server
 
 
@@ -302,7 +314,7 @@ async def test_no_summary_for_a_visit_without_user_turns(
 
 
 def test_shutdown_timeouts_fit_the_process_timeout() -> None:
-    work = concierge_session.SHUTDOWN_WORK_S
+    work = SHUTDOWN_WORK_S
     assert FLUSH_TIMEOUT_S + SUMMARY_TIMEOUT_S + BUSY_TIMEOUT_S <= work < server._shutdown_process_timeout
 
 
@@ -400,3 +412,417 @@ async def test_a_forgotten_value_stays_out_of_the_visit_summary(
         assert s.state(started.preloaded.thread_id).last_visit_summary is None
         rows = s.journal_rows(started.preloaded.thread_id)
     assert [r.payload for r in rows if r.type == "error"] == [{"stage": "summary", "type": "forgotten_value"}]
+
+
+# --- V1: the session ends when the visitor leaves (plan 2026-10-21-V1 "The V1-02 design: one end_session") --------
+
+GRACE_S = 0.1
+
+
+def visitor(identity: str = f"visitor-{VISITOR}") -> SimpleNamespace:
+    """What rtc.Room's participant_disconnected / participant_connected deliver, as far as the watcher reads it."""
+    return SimpleNamespace(identity=identity)
+
+
+class Ending:
+    """ctx.shutdown, recorded with what the page had been sent and what was journaled when it was called."""
+
+    def __init__(self, ctx: Any, room: FakeRoom, db: Store, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN401
+        self.reasons: list[str] = []
+        self.memory_sent: list[int] = []  # how many concierge.memory bodies had gone out at each call
+        self.journaled: list[list[str]] = []
+        self._room, self._db = room, db
+        monkeypatch.setattr(ctx, "shutdown", self)
+
+    def __call__(self, reason: str = "user requested") -> None:
+        self.reasons.append(reason)
+        self.memory_sent.append(len(self._room.local_participant.sent_on(MEMORY_TOPIC)))
+        with Store(self._db.path) as s:
+            thread = s.thread_for(VISITOR)
+            self.journaled.append([r.type for r in s.journal_rows(thread.id)] if thread else [])
+
+
+def seated_room() -> FakeRoom:
+    """A room the visitor has joined (the DepartureWatcher reads `remote_participants` when it starts)."""
+    room = FakeRoom()
+    room.seat(f"visitor-{VISITOR}")
+    return room
+
+
+@pytest.fixture
+def grace(monkeypatch: pytest.MonkeyPatch) -> float:
+    monkeypatch.setattr(concierge_session, "DEPARTURE_GRACE_S", GRACE_S)
+    return GRACE_S
+
+
+async def test_a_visitor_gone_before_the_watch_starts_still_ends_the_session(
+    db: Store, fakes: list[FakeLLM], grace: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The tab closed during ctx.connect() or the preload, or the page never joined (V1-02 review I3).
+    monkeypatch.setattr(concierge_session, "JOIN_GRACE_S", GRACE_S / 2)
+    room = FakeRoom()  # no visitor in it
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        await until(lambda: ending.reasons != [], 5)
+        await shutdown(ctx, started, "visitor left")
+    assert ending.reasons == ["visitor left"]
+    ends = [r for r in rows_of(db) if r.type in ("visitor_left", "session_ended")]
+    assert [r.type for r in ends] == ["visitor_left", "session_ended"]
+    assert ends[0].payload == {"grace_s": GRACE_S / 2}  # the grace it waited: the join grace (review M1)
+
+
+def rows_of(db: Store) -> list[Any]:
+    with Store(db.path) as s:
+        thread = s.thread_for(VISITOR)
+        assert thread is not None
+        return s.journal_rows(thread.id)
+
+
+async def test_an_end_during_the_start_starts_nothing_after_it(
+    db: Store, fakes: list[FakeLLM], grace: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The join grace runs out while session.start is under way (V1-02 "Also for V1-03"): no greeting, no timer, and
+    # session_started is not journaled after session_ended.
+    monkeypatch.setattr(concierge_session, "JOIN_GRACE_S", 0.0)
+    room = FakeRoom()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        await until(lambda: ending.reasons != [], 5)
+        await asyncio.sleep(3 * grace)
+        assert started.greeting is None and started.timer is None
+        await shutdown(ctx, started, "visitor left")
+    assert ending.reasons == ["visitor left"]
+    types = [r.type for r in rows_of(db)]
+    assert "session_started" not in types[types.index("session_ended"):]
+
+
+async def test_visitor_leaving_ends_the_session_after_the_grace(
+    db: Store, fakes: list[FakeLLM], grace: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    room = seated_room()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        room.emit("participant_disconnected", visitor())
+        await asyncio.sleep(grace / 2)
+        assert ending.reasons == []  # still inside the grace
+        await until(lambda: ending.reasons != [], 5)
+        await asyncio.sleep(3 * grace)
+        assert ending.reasons == ["visitor left"]
+        await shutdown(ctx, started, "visitor left")  # what ctx.shutdown sets going: the work is done, it only closes
+    ends = [r for r in rows_of(db) if r.type in ("visitor_left", "session_ended")]
+    assert [r.type for r in ends] == ["visitor_left", "session_ended"]
+    assert ends[0].payload == {"grace_s": grace}
+    assert ends[1].payload["reason"] == "visitor left"
+    assert "visitor_left" in ending.journaled[0] and ending.journaled[0][-1] == "session_ended"  # before the shutdown
+
+
+async def test_visitor_returning_within_the_grace_keeps_the_session(
+    db: Store, fakes: list[FakeLLM], grace: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    room = seated_room()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        room.emit("participant_disconnected", visitor())
+        await asyncio.sleep(grace / 2)
+        room.emit("participant_connected", visitor())  # a reload that rejoins the same room
+        await asyncio.sleep(3 * grace)
+        assert ending.reasons == []
+        assert "visitor_left" not in [r.type for r in rows_of(db)]
+        await shutdown(ctx, started)
+
+
+async def test_another_participant_leaving_changes_nothing(
+    db: Store, fakes: list[FakeLLM], grace: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    room = seated_room()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        room.emit("participant_disconnected", visitor("visitor-someone-else"))
+        await asyncio.sleep(3 * grace)
+        assert ending.reasons == []
+        assert "visitor_left" not in [r.type for r in rows_of(db)]
+        await shutdown(ctx, started)
+
+
+async def test_the_final_memory_is_sent_before_shutdown(
+    db: Store, fakes: list[FakeLLM], summarizer: FakeLLM, grace: float, memory_validator: Draft202012Validator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def build_llm(stage: str, settings: Any = None) -> FakeLLM:  # noqa: ANN401
+        if stage == "summarizer":
+            return summarizer
+        assert started.writer is not None
+        (turn,) = [t for t in started.writer.history if t.role == "user"]
+        return FakeLLM([emit_add("company", "Acme", turn.turn_id)])
+
+    monkeypatch.setattr(concierge_session, "build_llm", build_llm)
+    monkeypatch.setattr(concierge_session, "EXTRACTION_DEBOUNCE_S", 60.0)  # only the final extraction runs
+    room = seated_room()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        await started.session.run(user_input="I work at Acme.")
+        room.emit("participant_disconnected", visitor())
+        await until(lambda: ending.reasons != [], 5)
+        await shutdown(ctx, started, "visitor left")
+    sent = room.local_participant.sent_on(MEMORY_TOPIC)
+    assert ending.memory_sent == [len(sent)] and len(sent) >= 2  # the last one went out before ctx.shutdown
+    final = json.loads(sent[-1])
+    memory_validator.validate(final)
+    assert [f["value"] for f in final["facts"]] == ["Acme"]  # it carries what the final extraction merged
+    assert final["summary"] == VISIT_SUMMARY
+
+
+async def test_end_session_runs_its_work_once(
+    db: Store, fakes: list[FakeLLM], summarizer: FakeLLM, grace: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    room = seated_room()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        assert started.closing is not None
+        await started.session.run(user_input="I work at Acme.")
+        room.emit("participant_disconnected", visitor())
+        await until(lambda: started.closing is not None and started.closing.ending is not None, 5)  # under way
+        await asyncio.gather(end_session(started.closing, "time limit"), end_session(started.closing, "daily cap"))
+        await until(lambda: ending.reasons != [], 5)
+        await shutdown(ctx, started, "visitor left")
+    assert ending.reasons == ["visitor left"]
+    assert len(summarizer.calls) == 1
+    assert [r.payload["reason"] for r in rows_of(db) if r.type == "session_ended"] == ["visitor left"]
+    assert [r.type for r in rows_of(db)].count("visitor_left") == 1
+
+
+async def test_two_ends_starting_in_the_same_tick_run_the_work_once(
+    db: Store, fakes: list[FakeLLM], summarizer: FakeLLM, grace: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    room = seated_room()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        assert started.closing is not None
+        await started.session.run(user_input="I work at Acme.")
+        # The grace runs out, and the timer ends in the same tick (before visitor_left's journal write is back).
+        await asyncio.gather(
+            end_session(started.closing, "visitor left", left_grace_s=grace),
+            end_session(started.closing, "time limit"),
+        )
+        begin_end(started.closing, "daily cap")  # the daily cap's say_and_end after both: adds nothing
+        await until(lambda: ending.reasons != [], 5)
+        await shutdown(ctx, started, "visitor left")
+    assert ending.reasons == ["visitor left"] and len(summarizer.calls) == 1
+    rows = rows_of(db)
+    assert [r.type for r in rows].count("visitor_left") == 1
+    assert [r.payload["reason"] for r in rows if r.type == "session_ended"] == ["visitor left"]
+
+
+async def test_a_forget_me_during_the_closing_send_still_sends_the_empty_memory_last(
+    db: Store, fakes: list[FakeLLM], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review of V1-02, I1: the room is connected while a cap's closing work runs, so the page can still press
+    "Forget me"; its empty concierge.memory must be the last body, not the memory read just before the erase."""
+    thread = db.get_or_create_thread(VISITOR)
+    db.apply_fact_ops(thread.id, [_add("name", "Ada", 1)])
+    room = seated_room()
+    armed: list[Any] = []
+    forgetting: list[asyncio.Task[Any]] = []
+
+    async def read_then_forget(*args: Any) -> Any:  # noqa: ANN401
+        payload = await real(*args)
+        if armed and armed[0].ending is not None and not forgetting:  # the closing send's read
+            call = rtc.RpcInvocationData(request_id="req-1", caller_identity=f"visitor-{VISITOR}", payload="",
+                                         response_timeout=10.0, method=FORGET_ME_METHOD)
+            forgetting.append(asyncio.create_task(room.local_participant.rpc_handlers[FORGET_ME_METHOD](call)))
+        return payload
+
+    async def slow_erase(*args: Any) -> Any:  # noqa: ANN401
+        await asyncio.sleep(0.2)  # the erase outlasts the closing send: the work must still wait for it (V1-03)
+        return await real_erase(*args)
+
+    real, real_erase = concierge_session.current_memory, concierge_rpc.erase_visitor
+    monkeypatch.setattr(concierge_session, "current_memory", read_then_forget)
+    monkeypatch.setattr(concierge_rpc, "erase_visitor", slow_erase)
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        armed.append(started.closing)
+        assert started.closing is not None
+        await end_session(started.closing, "time limit")
+        assert forgetting != []
+        await forgetting[0]
+        await until(lambda: ending.reasons != [], 10)
+        await shutdown(ctx, started, "time limit")
+    assert ending.reasons == ["time limit"]  # forget_me ends through the running end (V1-03 review I2)
+    sent = room.local_participant.sent_on(MEMORY_TOPIC)
+    last, empty = json.loads(sent[-1]), json.loads(empty_memory_payload().model_dump_json())
+    assert {**last, "updated_at": None} == {**empty, "updated_at": None}
+
+
+def late_count(monkeypatch: pytest.MonkeyPatch, during: Any) -> None:  # noqa: ANN401
+    """The daily count misses the preload's deadline (no memory this session), and `during()` runs while start_session
+    waits for it after session.start (the late-count window, V1-03 review I2)."""
+
+    async def slow_count(*args: Any) -> bool:  # noqa: ANN401
+        await asyncio.sleep(0.3)
+        return False
+
+    async def was_capped(counting: Any) -> bool:  # noqa: ANN401
+        await during()
+        return await real(counting)
+
+    real = concierge_session.was_capped
+    monkeypatch.setattr(concierge_session, "PRELOAD_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(concierge_session, "over_daily_cap", slow_count)
+    monkeypatch.setattr(concierge_session, "was_capped", was_capped)
+
+
+async def test_an_end_during_the_late_count_starts_nothing_after_it(
+    db: Store, fakes: list[FakeLLM], grace: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    room = seated_room()
+
+    async def leave() -> None:
+        room.emit("participant_disconnected", visitor())
+        await until(lambda: ending.reasons != [], 5)
+
+    late_count(monkeypatch, leave)
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        assert started.greeting is None and started.timer is None
+        await shutdown(ctx, started, "visitor left")
+    assert ending.reasons == ["visitor left"]
+
+
+async def test_a_forget_me_during_the_late_count_ends_without_a_greeting(
+    db: Store, fakes: list[FakeLLM], grace: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    room = seated_room()
+
+    async def forget() -> None:
+        call = rtc.RpcInvocationData(request_id="req-1", caller_identity=f"visitor-{VISITOR}", payload="",
+                                     response_timeout=10.0, method=FORGET_ME_METHOD)
+        await room.local_participant.rpc_handlers[FORGET_ME_METHOD](call)
+        await asyncio.sleep(0)  # the forget task has started (stop_timer is its first step), not finished
+
+    late_count(monkeypatch, forget)
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        assert started.greeting is None and started.timer is None
+        await until(lambda: ending.reasons != [], 10)
+        await shutdown(ctx, started, "forget_me")
+    assert ending.reasons == ["forget_me"]
+
+
+async def test_a_forget_me_after_a_cap_began_runs_the_work_once(
+    db: Store, fakes: list[FakeLLM], summarizer: FakeLLM, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    room = seated_room()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        assert started.closing is not None
+        await started.session.run(user_input="I work at Acme.")
+        begin_end(started.closing, "time limit")
+        call = rtc.RpcInvocationData(request_id="req-1", caller_identity=f"visitor-{VISITOR}", payload="",
+                                     response_timeout=10.0, method=FORGET_ME_METHOD)
+        await room.local_participant.rpc_handlers[FORGET_ME_METHOD](call)
+        await until(lambda: ending.reasons != [], 10)
+        await asyncio.gather(*started.tasks, return_exceptions=True)
+        await shutdown(ctx, started, "time limit")
+    assert ending.reasons == ["time limit"]
+    with Store(db.path) as s:
+        assert s.thread_for(VISITOR) is None  # erased: no row of the closing work outlives it
+    sent = room.local_participant.sent_on(MEMORY_TOPIC)
+    last, empty = json.loads(sent[-1]), json.loads(empty_memory_payload().model_dump_json())
+    assert {**last, "updated_at": None} == {**empty, "updated_at": None}
+
+
+async def test_the_grace_running_out_during_the_time_up_line_ends_once(
+    db: Store, fakes: list[FakeLLM], grace: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CONCIERGE_SESSION_MAX_S", "1")
+    room = seated_room()
+
+    class Hanging:  # a time-up line that is still playing when the grace runs out
+        async def wait_for_playout(self) -> None:
+            await asyncio.sleep(30)
+
+    def say(text: str, **kwargs: Any) -> Hanging:  # noqa: ANN401
+        room.emit("participant_disconnected", visitor())
+        return Hanging()
+
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        monkeypatch.setattr(started.session, "say", say)
+        await until(lambda: ending.reasons != [], 15)
+        await asyncio.sleep(3 * grace)
+        assert started.timer is not None and started.timer.cancelled()  # its say_and_end never calls end
+        await shutdown(ctx, started, "visitor left")
+    assert ending.reasons == ["visitor left"]
+    assert [r.payload["reason"] for r in rows_of(db) if r.type == "session_ended"] == ["visitor left"]
+
+
+async def test_the_time_limit_ends_through_end_session(
+    db: Store, fakes: list[FakeLLM], memory_validator: Draft202012Validator, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CONCIERGE_SESSION_MAX_S", "1")
+    room = seated_room()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        closed: list[list[str]] = []  # what was journaled when the AgentSession closed
+        started.session.on("close", lambda _: closed.append([r.type for r in rows_of(db)]))
+        before = len(room.local_participant.sent_on(MEMORY_TOPIC))
+        await until(lambda: ending.reasons != [], 15)
+        assert len(closed) == 1 and "session_ended" not in closed[0]  # review I2: no listening during the work
+        await shutdown(ctx, started, "time limit")
+    sent = room.local_participant.sent_on(MEMORY_TOPIC)
+    assert ending.reasons == ["time limit"] and ending.memory_sent == [len(sent)] and len(sent) == before + 1
+    memory_validator.validate(json.loads(sent[-1]))
+    assert ending.journaled[0][-1] == "session_ended"
+
+
+async def test_the_daily_cap_ends_through_end_session(
+    db: Store, fakes: list[FakeLLM], memory_validator: Draft202012Validator, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for _ in range(5):  # five sessions today: this is the sixth
+        db.count_session(VISITOR, utc_day(now_ms()))
+    room = seated_room()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        await until(lambda: ending.reasons != [], 15)
+        await shutdown(ctx, started, "daily cap")
+    sent = room.local_participant.sent_on(MEMORY_TOPIC)
+    assert ending.reasons == ["daily cap"] and ending.memory_sent == [1] and len(sent) == 1
+    memory_validator.validate(json.loads(sent[0]))
+
+
+async def test_on_shutdown_after_a_server_side_close_still_journals_and_closes(
+    db: Store, fakes: list[FakeLLM], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    room = seated_room()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        ending = Ending(ctx, room, db, monkeypatch)
+        started = await start(ctx, db)
+        before = len(room.local_participant.sent_on(MEMORY_TOPIC))
+        await shutdown(ctx, started, "room deleted")  # no end_session first: the room is gone when the work runs
+    assert ending.reasons == []  # on_shutdown doesn't call ctx.shutdown again
+    assert len(room.local_participant.sent_on(MEMORY_TOPIC)) == before  # the final send was dropped
+    assert [r.payload["reason"] for r in rows_of(db) if r.type == "session_ended"] == ["room deleted"]
+    with pytest.raises(sqlite3.ProgrammingError):
+        db.thread_for(VISITOR)
+
+
+async def test_room_options_keep_the_session_through_a_disconnect() -> None:
+    with fake_job_context(job_metadata=METADATA, room=FakeRoom()) as ctx:
+        kwargs = concierge_session.room_start_kwargs(ctx, parse_dispatch(METADATA), Settings(), ChannelTags())
+    assert kwargs["room_options"].close_on_disconnect is False  # RoomIO would close the AgentSession at once

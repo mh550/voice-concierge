@@ -91,7 +91,7 @@ def build_handlers(
     writer: MemoryWriter | None,
     publisher: MemoryPublisher,
     session: Speaker,
-    end: End | None,
+    end: End,
     tasks: set[asyncio.Task[Any]],
     preloading: asyncio.Task[Any] | None = None,
     stop_timer: Callable[[], None] = lambda: None,
