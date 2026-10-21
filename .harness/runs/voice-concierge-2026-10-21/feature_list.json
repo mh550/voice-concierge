@@ -62,7 +62,9 @@
         "docs/decisions.md gains a 'D17 *default*' entry for what §2 leaves open and the plan had to pick (at least: the event line wording per type, how the current visit's episode row is created, and that a failed summary leaves that episode's summary null), with what was rejected and the question for Michael",
         ".harness/check.sh exits 0"
       ],
-      "after": ["V1"],
+      "after": [
+        "V1"
+      ],
       "passes": true
     },
     {
@@ -154,7 +156,9 @@
         "The plan gives the prompt.py changes word for word (the replaced 'Never mention the pack' sentence and the new self-description rule), the policy-check procedure and sources (docs.livekit.io Agents and Cloud terms pages, the Anthropic usage policy; what to record if a page cannot be fetched), the scripts/check_sources.py CLI (`check_sources.py [--fetched DIR] [--sources DIR]`, raw.githubusercontent.com URLs on main via urllib, exit 0 clean / 1 drift / 2 fetch error) and the test names for V3-02..V3-04 including the two fixture trees for the diff logic",
         ".harness/check.sh exits 0"
       ],
-      "after": ["V2"],
+      "after": [
+        "V2"
+      ],
       "passes": true
     },
     {
@@ -185,7 +189,7 @@
         "README.md § Privacy has one sentence saying the concierge describes its own memory design and build on request and that this was checked against the LiveKit and Anthropic terms (pointing to docs/decisions.md D18)",
         ".harness/check.sh exits 0"
       ],
-      "passes": true
+      "passes": false
     },
     {
       "id": "V3-04",
@@ -230,7 +234,9 @@
         "tests/test_conversation_runner.py with FakeLLM: a scripted reply that mentions a required word passes; a reply with 'knowledge pack' fails with a failure naming the forbidden word; a 4-sentence reply fails max_sentences 3; a FakeLLM tool call to `remember` followed by a text reply satisfies tool_called 'remember' and the FunctionCallEvent is seen; a missing tool call fails; ConversationResult.passed is False when any turn fails; the instructions the FakeLLM received start with STATIC_INSTRUCTIONS and contain the pack",
         ".harness/check.sh exits 0"
       ],
-      "after": ["V3"],
+      "after": [
+        "V3"
+      ],
       "passes": false
     },
     {
@@ -290,7 +296,9 @@
         "docs/spec.md's status line at the top gains one sentence pointing to docs/specs/2026-10-21-integrated-concierge.md for V1–V6; nothing else in docs/spec.md changes",
         ".harness/check.sh exits 0"
       ],
-      "after": ["V4"],
+      "after": [
+        "V4"
+      ],
       "passes": false
     },
     {
@@ -320,7 +328,9 @@
         "tests/test_usher.py: allowlist_from_pack on a fixture pack with two Project sections yields exactly the two /projects/ hrefs plus FIXED_ROUTES; show_page('/projects/agent-harness', 'they asked about the harness') publishes one body on concierge.navigate that validates against a new tests/contract/navigate.schema.json and is under 1024 bytes; '/admin' and 'https://evil.test' are refused with a navigate_refused journal row and no publish; two calls 3 s apart (fake clock) publish once; the reply strings are exact; tests/test_critical_path.py still passes (the tool is a visitor-asked path like remember, not a turn handler)",
         ".harness/check.sh exits 0"
       ],
-      "after": ["V3"],
+      "after": [
+        "V3"
+      ],
       "passes": false
     },
     {
@@ -336,7 +346,10 @@
         "`git diff <last V5 commit>..HEAD -- . ':!.harness'` is written to $HARNESS_SCRATCH/review-V6.diff and an Opus reviewer reads it; notes under '## Review' in docs/plans/2026-10-21-V6-usher.md; every Critical and Important finding is fixed RED->GREEN (in particular: an off-list href can never be published, the reason text passes the gate, the rate limit is per session and clock-based); a simplification pass is applied and named; `wc -l` of every concierge/*.py is at most 250; progress.md has a V6 entry",
         ".harness/check.sh exits 0"
       ],
-      "after": ["V6-01", "V4"],
+      "after": [
+        "V6-01",
+        "V4"
+      ],
       "passes": false
     }
   ]
