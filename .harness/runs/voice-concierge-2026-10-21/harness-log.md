@@ -36,3 +36,4 @@
 - 2026-10-21 08:22 · V5-02 · claude-opus-5-5 · passes=true · 31 min · 20/22 passing
 - 2026-10-21 08:22 · merged main into harness/voice-concierge-2026-10-21
 - 2026-10-21 08:25 · V5 verified and tagged run/voice-concierge-2026-10-21/V5
+- 2026-10-21 08:25 · V5 merged into main · https://github.com/mh550/voice-concierge/pull/13
