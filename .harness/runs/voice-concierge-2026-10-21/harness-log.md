@@ -14,3 +14,4 @@
 - 2026-10-21 05:22 · verify V2: V2-05 failed the re-check, back in the queue (one more attempt)
 - 2026-10-21 05:33 · V2-05 · claude-opus-5-5 · passes=true · 10 min · 9/22 passing
 - 2026-10-21 05:37 · V2 verified and tagged run/voice-concierge-2026-10-21/V2
+- 2026-10-21 05:37 · V2 merged into main · https://github.com/mh550/voice-concierge/pull/10
