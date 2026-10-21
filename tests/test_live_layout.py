@@ -64,3 +64,37 @@ def test_live_docstring_says_only_michael_runs_it() -> None:
     doc = ast.get_docstring(module_ast()) or ""
     assert "only Michael runs" in doc.replace("\n", " ")
     assert "pytest -m live" in doc
+
+
+# V4-02: the llm tier, deselected offline like the live one
+
+LLM_TEST = Path(__file__).resolve().parent / "llm" / "test_conversation.py"
+
+
+def test_the_llm_test_is_deselected_offline() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-m", "not live and not llm", "--collect-only", "-q", str(LIVE.parent),
+         str(LLM_TEST.parent)],
+        capture_output=True, text=True, timeout=120, check=False, cwd=LIVE.parents[2],
+    )
+    assert result.returncode == 5, result.stdout + result.stderr  # pytest's "no tests collected"
+    assert "5 deselected" in result.stdout  # the llm test and the 4 live ones
+
+
+def test_the_llm_module_is_marked_llm_and_skipped_without_the_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    spec = importlib.util.spec_from_file_location("llm_layout_probe", LLM_TEST)  # a fresh copy, not pytest's
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    marks = {m.name: m for m in module.pytestmark}
+    assert set(marks) == {"llm", "skipif"}
+    assert marks["skipif"].args == (True,)
+    assert "ANTHROPIC_API_KEY" in marks["skipif"].kwargs["reason"]
+
+
+def test_the_suite_deselects_live_and_llm() -> None:
+    root = LIVE.parents[2]
+    assert '-m "not live and not llm"' in (root / ".harness" / "check.sh").read_text(encoding="utf-8")
+    assert "pytest -m \"not live and not llm\" -q" in (root / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "llm: needs the LLM key; Michael runs these" in (root / "pyproject.toml").read_text(encoding="utf-8")

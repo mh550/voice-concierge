@@ -1,0 +1,8 @@
+name: 02-work-experience
+about: The work-experience question. The answer names an employer from the Experience section.
+turns:
+  - user: Where has Michael worked?
+    must_mention: [MAXX Potential, Builder Clarity]
+    fake_reply: >-
+      He's a full-stack software engineer at MAXX Potential, since February 2026. Before that he was the founding
+      engineer at Builder Clarity, building integrations for contractors.

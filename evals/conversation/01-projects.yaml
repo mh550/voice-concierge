@@ -1,0 +1,8 @@
+name: 01-projects
+about: The projects question. The answer names projects from Michael's projects in the instructions, briefly.
+turns:
+  - user: What has Michael built?
+    must_mention: [Voice Concierge, agent harness, HitList, Paint Estimator, music library, JobTread, Linear]
+    fake_reply: >-
+      Michael built me, the Voice Concierge, and an agent harness that runs coding agents overnight. He also built
+      HitList, an offline-first street-spot scouting app. Want to hear more about one of them?

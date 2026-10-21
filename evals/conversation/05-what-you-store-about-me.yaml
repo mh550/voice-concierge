@@ -1,0 +1,8 @@
+name: 05-what-you-store-about-me
+about: The agent says which kinds of fact it keeps about a visitor.
+turns:
+  - user: What do you store about me?
+    must_mention: [name, role, company]
+    fake_reply: >-
+      Only a few kinds of fact: your name once you confirm it, your role, your company, your interests and whether
+      you'd like a follow-up. I also keep a short summary of each visit.

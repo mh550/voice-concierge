@@ -252,7 +252,7 @@
         "tests/llm/test_conversation.py (new; `pytestmark = [pytest.mark.llm, pytest.mark.skipif(not os.environ.get('ANTHROPIC_API_KEY'), ...)]`) runs scripts/eval_conversation.py's run_all live and asserts exit 0; pyproject.toml markers gain 'llm: needs the LLM key; Michael runs these'; .harness/check.sh runs pytest with -m 'not live and not llm' and CLAUDE.md's suite line says so; tests/test_live_layout.py asserts `pytest -m 'not live and not llm' --collect-only` reports the llm test deselected along with the 4 live ones",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V4-03",

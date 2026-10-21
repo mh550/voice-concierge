@@ -1,0 +1,16 @@
+name: 03-database-experience
+about: >-
+  The DBA question Michael asked. The answer must come from the pack (PostgreSQL and Postgres work, ETL into Postgres)
+  and must say what it does not know: nothing there says he has worked as a database administrator.
+turns:
+  - user: Do you have database experience?
+    must_mention: [PostgreSQL, Postgres]
+    fake_reply: >-
+      Michael has a strong foundation in PostgreSQL. He has shipped Postgres features at MAXX Potential and built ETL
+      that normalizes several sources into Postgres at Builder Clarity.
+  - user: Has he worked as a database administrator?
+    must_mention: [don't know, do not know, ask Michael, ask him, nothing I know, not that I know, not aware, don't have]
+    must_not_mention: [yes he has, "yes, he has"]
+    fake_reply: >-
+      I don't know that he has held a database administrator role. His database work has been as a full-stack
+      engineer, so that's a good one to ask Michael directly.

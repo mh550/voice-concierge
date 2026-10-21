@@ -34,7 +34,10 @@ packages = ["concierge", "concierge.evals", "concierge.testing"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-markers = ["live: needs LiveKit keys; Michael runs these"]
+markers = [
+    "live: needs LiveKit keys; Michael runs these",
+    "llm: needs the LLM key; Michael runs these",
+]
 
 [tool.ruff]
 line-length = 120

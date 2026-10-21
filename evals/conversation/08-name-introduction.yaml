@@ -1,0 +1,6 @@
+name: 08-name-introduction
+about: A name introduction. The agent asks to confirm the name before it counts (B12, the prompt's exact question).
+turns:
+  - user: Hi, I'm Priya.
+    must_mention: [did I get that right]
+    fake_reply: Nice to meet you. Priya, did I get that right?
