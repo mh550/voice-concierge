@@ -299,7 +299,7 @@
       "after": [
         "V4"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V5-02",
@@ -313,7 +313,7 @@
         "progress.md has a V5 entry listing the claims left for Michael to verify live, each with the MORNING step that checks it",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V6-01",

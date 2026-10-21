@@ -20,7 +20,7 @@ live run is Michael's ([`MORNING.md`](MORNING.md)); until then no measured numbe
   visits, preloaded when the visitor joins (`concierge/preload.py`, `concierge/greeting.py`).
 - **Answers typed messages from the same memory.** Typed turns arrive on `lk.chat` in the same session and the same
   thread, and each fact records whether it was learned by voice or text (`concierge/text_input.py`).
-- **Forgets on request.** "Forget me" on the page calls the `concierge.forget_me` RPC, which erases every row linked to
+- **Forgets on request.** "Forget me", a button that appears on the page during a call, calls the `concierge.forget_me` RPC, which erases every row linked to
   the visitor; the next visit is a stranger's (`concierge/rpc.py`). The visitor can also ask it to remember or forget
   one thing.
 - **Takes a message for Michael**, with an optional email or phone (the write gate's one exception), through the
@@ -29,6 +29,13 @@ live run is Michael's ([`MORNING.md`](MORNING.md)); until then no measured numbe
   learned) at session start, after every merge, after a compaction and once more before it leaves, and
   `concierge.metrics` (one row of timings and tokens per turn), as text streams the page draws
   (`concierge/publish.py`, `concierge/metrics.py`).
+- **Leaves when the visitor does.** When the visitor's participant disconnects and doesn't reconnect within a 20 s
+  grace, the agent saves its notes (final extraction, visit summary, a last `concierge.memory`) and leaves, so the
+  room closes and the address frees within about 30 s; a reload inside the grace keeps the session.
+- **Explains itself on request.** Asked how its memory works or how it was built, it answers from `knowledge/sources/concierge.md`
+  instead of guessing, and what it says about its own memory matches what the memory panel shows.
+- **Is tested in three tiers**: offline, llm and live, each proving something the others can't (see
+  [How it's verified](#hows-it-verified)).
 
 The `concierge.memory` body is contract v2 (`"v": 2`): the v1 keys unchanged, plus three kinds of thing the page can
 show. `about_visitor` is what is remembered about the visitor: the valid facts as a profile, and the newest five visits
@@ -168,7 +175,7 @@ in `tests/live/test_live.py`, all on Michael's box ([`MORNING.md`](MORNING.md)).
 |---|---|---|---|
 | offline | `.harness/check.sh` (no network, no keys; anyone runs it) | The code against fakes: the fake LLM, fake rooms and recorded extractor ops. It includes the two offline eval twins, `scripts/eval_memory.py --offline` and `scripts/eval_conversation.py --offline`, which replay recorded answers. | Anything about a real model, a real voice or a real room. |
 | llm | `pytest -m llm` or `scripts/eval_conversation.py` (Michael's) | The real prompt and LLM, through the text path: the 11 scripts in `evals/conversation/` check what it says, what it refuses and that it uses its tools. | Speech: there is no STT, TTS or room, so mishearing and latency are untested. |
-| live | `pytest -m live` (Michael's) | A real LiveKit room: the worker joins, the page's RPCs and data topics work end to end. | Model quality across many conversations; it runs a few fixed cases. |
+| live | `pytest -m live` (Michael's) | The real session code in text mode, with the real conversation LLM, extractor, merge and summarizer on a temporary store: a returning visitor is greeted by name, nothing the agent said is stored as the visitor's, an injection isn't stored, and after "Forget me" the next visit is a stranger's. | Speech, a real LiveKit room and the page: it runs in-process on a fake room, so the RPCs and topics end to end are checked by hand (MORNING steps 4–6). Model quality across many conversations: it runs four fixed cases. |
 
 ## Failure cases and limits
 

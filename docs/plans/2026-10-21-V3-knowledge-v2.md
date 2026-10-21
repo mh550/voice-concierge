@@ -96,7 +96,7 @@ which the pack need not repeat).
 | It can't: chat about general topics, guess numbers, or remember a visitor across browsers (the visitor id is kept in the browser) | README l.16–17, l.166; spec §4.1, l.58 |
 | Michael's agent harness built it overnight from a written spec, after the memory design was researched and written down practice by practice | spec l.4, §4.0 (D6); `docs/background/memory-research.md` |
 
-The file must not contain "knowledge pack" or "specs in, verified milestones out", and nothing about providers'
+The file must not contain "knowledge pack" or the harness tagline the spec (§1 item 2) names, and nothing about providers'
 spend, keys, hostnames or the LiveKit project name beyond "LiveKit Cloud".
 
 ## The pack's new outline (V3-02)
@@ -141,8 +141,8 @@ Rules for the text:
 - Every digit-bearing token, every "at <Company>" name, every `## Project:` name and every URL must appear verbatim
   in `knowledge/sources/` (the existing tests read all of `SOURCE_FILES`, which V3-02 extends to seven files). Write
   `concierge.md` and the pack together so the pack's phrasings ("at LiveKit Cloud", "30 days") are in it verbatim.
-- No run of 7 or more digits anywhere in the pack; outside `Source:` lines, never "knowledge pack" or "specs in,
-  verified milestones out" (case-insensitive). The word "pack" is avoided in the pack's prose altogether.
+- No run of 7 or more digits anywhere in the pack; outside `Source:` lines, never "knowledge pack" or the harness
+  tagline named in spec §1 item 2 (case-insensitive). The word "pack" is avoided in the pack's prose altogether.
 - Spoken-friendly: short sentences, no parenthesised asides the voice would read badly, "about three dollars" is not
   written for "~$3" (the number test needs the source's form; the model says it aloud).
 - `projects.ts` now has its own `voice-concierge` entry; the pack's section about the agent is still built from
@@ -297,7 +297,7 @@ make two decisions answer to one name (and MORNING's questions refer to D18–D2
   `Tahoma Films` and coaching, and the four skill group names, compared case-sensitively as §7 writes them (`Agentic AI`, `Languages & Web`,
   `Data & Integration`, `Infra & Tools`), appear in Skills in that order.
 - `test_the_pack_has_no_phone_number_or_retired_words`: the same two number rules on the pack; outside `Source:` lines no
-  `knowledge pack` and no `specs in, verified milestones out` (case-insensitive).
+  `knowledge pack` and no the harness tagline named in spec §1 item 2 (case-insensitive).
 - Unchanged and still green against the new sources: `test_pack_is_at_most_1200_words`,
   `test_names_are_derived_from_the_pack`, `test_every_name_appears_verbatim_in_the_sources`, `test_pack_has_no_url_absent_from_the_sources`,
   `test_every_number_and_date_in_the_pack_is_in_the_sources`, the `pack_stats` tests,

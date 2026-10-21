@@ -285,7 +285,8 @@ BANNED_PHRASE = "specs in, verified milestones out"
 
 
 def test_the_harness_phrase_is_absent() -> None:
-    files = [README, ROOT / "MORNING.md", *sorted((ROOT / "concierge").rglob("*.py")),
+    files = [README, ROOT / "MORNING.md", *sorted((ROOT / "docs" / "plans").glob("2026-10-21-*.md")),
+             *sorted((ROOT / "concierge").rglob("*.py")),
              *sorted((ROOT / "scripts").rglob("*.py"))]
     for path in files:
         text = path.read_text()
@@ -308,3 +309,23 @@ def test_how_its_verified_names_the_tiers_and_what_exists() -> None:
     pyproject = (ROOT / "pyproject.toml").read_text()
     assert '"live:' in pyproject and '"llm:' in pyproject
     assert (ROOT / "tests" / "llm").is_dir() and (ROOT / "tests" / "live").is_dir()
+
+
+def test_what_it_does_has_the_departure_self_description_and_tiers_bullets() -> None:
+    section = " ".join(_section("What it does").split())
+    for phrase in ("20 s", "about 30 s", "explains itself", "offline, llm and live", "(#hows-it-verified)"):
+        assert phrase.lower() in section.lower(), phrase
+
+
+def test_no_doc_shows_forget_me_before_a_call() -> None:
+    for path in (README, ROOT / "MORNING.md"):
+        text = " ".join(path.read_text().split())
+        for sentence in re.split(r"(?<=[.!?])\s", text):
+            if "forget me" in sentence.lower() and "button" in sentence.lower():
+                assert "during a call" in sentence, (path.name, sentence)
+
+
+def test_live_tier_says_it_runs_on_a_fake_room() -> None:
+    """V5-02 W1: tests/live/test_live.py drives start_session in-process on a FakeRoom; nothing joins LiveKit Cloud."""
+    proves, cannot = {row[0]: row for row in _table_rows(_section("How it's verified"))}["live"][2:4]
+    assert "the worker joins" not in proves and "fake room" in cannot

@@ -13,6 +13,31 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 09:10 · verify V5
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| V5-01 | 1 | Read README § What it does and the mermaid edge; `pytest tests/test_readme.py tests/test_morning.py` | Bullets for departure (20 s, about 30 s), self-description, three tiers linking `#hows-it-verified`; the v2 view by kind (about_visitor, events, about_agent) is the paragraph right under the bullet list, plus the "Shows its memory" bullet, not its own bullet. Edge lists concierge.memory, concierge.metrics, concierge.forget_me, concierge.get_memory; 71 passed | yes (v2 view is a paragraph, not a bullet) |
+| V5-01 | 2 | Read MORNING.md headings, steps 4, 9, 13; `test_fourteen_numbered_steps_in_order`, `test_drift_and_conversation_steps_have_check_and_undo`, `test_voice_step_covers_the_link_click_round_trip` | Steps 1..14 with no gap; 9 and 13 have Check and Undo; step 4 has the click-without-Leave round trip and "Closing your earlier conversation…" at most briefly, panel fills again | yes |
+| V5-01 | 3 | Read `test_the_harness_phrase_is_absent` (globs docs/plans/2026-10-21-*.md), `test_no_doc_shows_forget_me_before_a_call`; grep "forget me" | Phrase test covers plans and passes; every Forget me button sentence says "during a call" | yes |
+| V5-01 | 4 | `git show e7fd3b2 -- docs/spec.md` | One line changed: status line gains "See `docs/specs/2026-10-21-integrated-concierge.md` for V1–V6."; nothing else | yes |
+| V5-01 | 5 | `/home/mh550/projects/agent-harness/lib/check.sh` | green, 1209 tests | yes |
+| V5-02 | 1 | `ls` scratch; read plan `## Review` | `review-V5.diff` exists; plan has `## Review` with 147 claim rows (127 cited, 2 "wrong: fixed", 18 unverifiable offline) | yes |
+| V5-02 | 2 | Read W1/W2 fixes; `test_live_tier_says_it_runs_on_a_fake_room`, `test_old_schema_refusal_names_what_each_script_prints`, Results tests | Both pass; README § Results rule tests pass (all cells `to measure`) | yes |
+| V5-02 | 3 | Read the V5-02 progress entry | Lists claims left for Michael, each with a MORNING step | yes |
+| V5-02 | 4 | check.sh | green, 1209 tests | yes |
+
+### 2026-10-21 08:40 · V5-02 · passes
+- **Changed:** `docs/plans/2026-10-21-V5-docs.md` has `## Review`, a table of 147 claims (README § What it does / Failure cases / Privacy / How it's verified, and each MORNING Check line). 127 cite the line that implements them, 2 were wrong and are fixed, and 18 can only be checked live. **W1:** README's live tier row said a real LiveKit room where the worker joins; the live tests actually run `start_session` in-process on a FakeRoom, so the row now says that. **W2:** MORNING step 3 said the §12 scripts print "schema version 2; this code reads 3"; only `memory_history.py` does, and the line now says so. Tests 1207 → 1209: `test_live_tier_says_it_runs_on_a_fake_room` and `test_old_schema_refusal_names_what_each_script_prints`, both seen failing first.
+- **Verified:** check.sh green, 1209 tests. Diff `fa92ce9..HEAD` (146 lines) is in `$HARNESS_SCRATCH/review-V5.diff`. The Opus reviewer ran the offline evals (11/11 scripts passed; memory recall 20/20, harm 0). I re-opened 3 sampled citations and both wrong claims. README § Results is all `to measure`.
+- **Left for Michael to check live (claim # → MORNING step):** #11 Forget me button appears only during a call → 6; #29/#69 room closes, address frees in about 30 s → 4; #32 what it says about its memory matches the panel → 4; #106 "Closing your earlier conversation…" at most briefly → 4; #99 worker registered, no traceback → 3; #112 panel empties within a second → 6; #59 live recall is the measure → 7 and 8; #131 PII redaction on → 11; #53/#132 visitor id kept in the page's local storage → 12; #62/#145 page shows offline about 10 s after the worker stops → 14; #146 process gone, unit inactive → 14; #78/#87/#88/#89 Agent Insights isn't erased by Forget me, no audio stored, 30-day retention, the page's privacy note → no step checks these directly; step 11 (Cloud observability settings) is the nearest.
+- **Note:** "about 30 s" is the spec's figure, but the code's own bound is 20 s grace plus up to 25 s of closing work before `ctx.shutdown` (`session_end.py:41`). Step 4 should show which is closer.
+- **Proposed changes:** add to MORNING step 11's Check: "the observability page shows transcript retention 30 days and no audio recording", so #78/#87/#88 get a step. Optional: have `messages.py` and `latency_report.py` print StoreError's message, as `memory_history.py` does.
+- **Questions for Michael:** none.
+
+### 2026-10-21 · V5-01 · passes
+README § What it does gains the departure (20 s grace, ~30 s), self-description and three-tiers bullets, and the Forget me button is now described as appearing during a call; MORNING step 4 adds the link-click-without-Leave round trip. docs/spec.md status line points to the integrated spec. Harness-phrase test now also covers docs/plans/2026-10-21-*.md (V3 plan reworded to stop quoting the phrase). Tests 1203 → 1207 (readme +2, morning +2); check.sh green. Mermaid edge and steps 9/13 Check/Undo already met the steps. No questions or proposed changes.
+
 ### 2026-10-21 18:00 · verify V4
 
 | Feature | Step | What you ran or read | What you saw | Holds |

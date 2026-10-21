@@ -65,3 +65,27 @@ def test_env_example_names() -> None:
     for switch in ("CONCIERGE_LLM_PROVIDER", "CONCIERGE_SPEECH", "CONCIERGE_RECORD_AUDIO", "CONCIERGE_ENABLED"):
         assert any(ln.startswith(f"# {switch}=") for ln in lines), switch
     assert all(ln.split("=", 1)[1] == "" for ln in lines if re.match(r"^[A-Z_]+=", ln))
+
+
+def _step(n: int) -> str:
+    return re.split(rf"^## {n}\. ", MORNING, flags=re.M)[1].split("\n## ", 1)[0]
+
+
+def test_drift_and_conversation_steps_have_check_and_undo() -> None:
+    for n, command in ((9, "eval_conversation.py"), (13, "check_sources.py")):
+        body = _step(n)
+        assert command in body and "Check" in body and "Undo" in body, n
+
+
+def test_voice_step_covers_the_link_click_round_trip() -> None:
+    body = " ".join(_step(4).split())
+    assert "without pressing Leave" in body and "Closing your earlier conversation…" in body
+    assert "memory panel fills again" in body
+
+
+def test_old_schema_refusal_names_what_each_script_prints() -> None:
+    """V5-02 W2: only memory_history.py prints the schema versions; messages.py and latency_report.py print the
+    StoreError line (scripts/messages.py, scripts/latency_report.py:65)."""
+    line = next(line for line in _step(3).splitlines() if "refuse the old file" in line)
+    for name in ("memory_history.py", "messages.py", "latency_report.py", "not a memory store"):
+        assert name in line, name
