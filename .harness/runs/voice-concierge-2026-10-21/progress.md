@@ -12,6 +12,46 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+
+### 2026-10-21 12:00 · verify V2
+
+31 steps re-run; all hold (full suite 1091 passed).
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| V2-01 | 1 | read plan lines 1-80 and 'Where each value comes from' | §2 v2 body bullets copied verbatim; per-field sources cover profile, episodes (visit_summaries), events (ring, on_merged, tools), knowledge (pack_stats), instructions, memory_block_chars, working, cache, retention_days=30 | yes |
+| V2-01 | 2 | read plan 'Publish points', 'The size rule', 'The schema', 'visit_summaries migration', 'Store and session'; grep _CHILD_TABLES, SCHEMA_VERSION | 5 publish points; 15 KiB rule + test; optional schema keys, v1 required list; SCHEMA_VERSION=3 / MIGRATIONS[3] like created_at; store_erasure.py:26 has visit_summaries; test names for V2-02..05 | yes |
+| V2-01 | 3 | read docs/decisions.md D17 *default* (l.257-340) | (a) event wording per type, (b) episode row creation, (c) failed summary leaves summary null; has Rejected and Question for Michael | yes |
+| V2-01 | 4 | `.harness/check.sh` | 1091 passed, 4 deselected, exit 0 | yes |
+| V2-02 | 1 | read concierge/contract.py models; `wc -l concierge/*.py` | Episode, MemoryEvent (7-value EventType), AboutVisitor (max 5/12), Knowledge, Working, Cache, AboutAgent, MemoryPayload v/about_visitor/about_agent/retention_days, extra=forbid; no file >250 lines | yes |
+| V2-02 | 2 | read tests/contract/test_contract.py test_a_v1_body_without_v2_keys_validates, test_a_v2_body_from_a_seeded_store_validates, test_an_unknown_event_type_is_rejected | v1 body validates; v2 body from seeded store (3 facts, 2 episodes, 4 events) validates; type 'fact_guessed' rejected by schema and model | yes |
+| V2-02 | 3 | read test_retention_days_matches_the_idle_ttl, test_profile_equals_facts, test_about_agent_is_left_out_when_none_is_given | RETENTION_DAYS=30 vs Settings idle TTL; v=2 and profile==facts; about_agent absent when none given (left out, D19 b, equivalent to 'null' for the page) | yes |
+| V2-02 | 4 | read test_publish.py::test_the_start_memory_is_v2_and_validates, test_rpc.py::test_get_memory_returns_a_v2_body | start send after session.start: v==2, retention_days==30, validates; get_memory v==2 and validates | yes |
+| V2-02 | 5 | `.harness/check.sh` | green, exit 0 | yes |
+| V2-03 | 1 | read test_store.py::test_a_version_2_file_gains_visit_summaries, test_migration_3_alone_creates_visit_summaries; schema.py | v2 file opened by Store has table, user_version 3; columns/UNIQUE per step; MIGRATIONS[3] | yes |
+| V2-03 | 2 | read store.py begin_visit/end_visit/visit_episodes, session.py, summary_step.py | methods exist with specified signatures; start task calls begin_visit with preloaded.visits; summary step calls end_visit with text or None; last_visit_summary path unchanged | yes |
+| V2-03 | 3 | read test_store.py::test_visit_episodes_returns_the_newest_5, test_begin_visit_twice_leaves_one_row; test_session.py::test_the_final_memory_carries_the_ended_episode | 7 visits -> [7,6,5,4,3] newest first with right ended_at/summary; repeat leaves 1 row; start body ended_at/summary None, final summary == VISIT_SUMMARY | yes |
+| V2-03 | 4 | read test_erasure.py::test_forget_me_deletes_the_visit_summaries_and_keeps_another_visitors, test_erasure_wins.py::test_forget_me_during_the_shutdown_leaves_no_visit_summary, test_ttl.py::test_purge_idle_removes_the_visit_summaries | other visitor's rows kept; end_visit raised ThreadMissing and visit_summaries count 0; purge removes rows | yes |
+| V2-03 | 5 | read test_scripts.py::test_memory_history_prints_one_line_per_visit | 2 fact lines then one line per visit (visit, started, ended, summary) | yes |
+| V2-03 | 6 | `.harness/check.sh` | green, exit 0 | yes |
+| V2-04 | 1 | read concierge/events.py and test_events.py::test_the_fixed_lines_read_as_d17, test_every_fixed_line_passes_check_text | EventRing(12), note, items newest first; line wording per step; fallback to value-free PLAIN form if check_text fails or >120 | yes |
+| V2-04 | 2 | read test_critical_path.py::test_no_item_handler_calls_ring_note; session.on_merged, memory_tools do_remember/do_forget | ring fed only from on_merged (note_merge) and the two tools; AST test confirms no item handler path calls it; existing handler-path tests pass in the suite | yes |
+| V2-04 | 3 | read test_events.py::test_15_notes_keep_the_newest_12_newest_first, test_an_instruction_rejection_shows_neither_the_text_nor_a_url, test_a_value_with_a_url_falls_back_to_the_value_free_form, test_every_detail_is_under_121_characters | newest 12 newest first; instruction line has no 'ignore'/'http'/'x.test'; URL value falls back; all <=120 | yes |
+| V2-04 | 4 | read test_session.py::test_a_merged_extraction_shows_fact_added_then_extraction_ran | FakeLLM ADD role engineer; body events[0] fact_added 'Remembered your role: engineer', then extraction_ran | yes |
+| V2-04 | 5 | `.harness/check.sh` | green, exit 0 | yes |
+| V2-05 | 1 | read knowledge.pack_stats and test_knowledge.py::test_pack_stats_* (4 tests) | words, est_tokens, sources_commit (from 'commit `hex`' form), sections ('## ' titles in order) each asserted against the file | yes |
+| V2-05 | 2 | read concierge/memory_view.py AgentView.about_agent; test_critical_path.py::test_the_agent_view_is_not_read_in_an_item_handler | all five reads as specified, collector.last_cached_share None before first metrics; runs on publisher/RPC path, AST test excludes handlers | yes |
+| V2-05 | 3 | read compactor.py on_compacted (l.61,161), session.py:205, test_compaction.py::test_an_applied_compaction_publishes_the_memory | on_compacted=publisher.schedule; sends 1 -> 2 after apply; working.compacted true, compactions==1 | yes |
+| V2-05 | 4 | read test_rpc.py::test_get_memory_equals_the_last_published_body | get_memory body == last topic send minus updated_at | yes |
+| V2-05 | 5 | read test_publish.py::test_the_largest_allowed_body_fits, assert_trimmed_in_order, test_trim_to_fit_drops_the_oldest_profile_fact_first; contract.trim_to_fit | maximal body (5x400 episodes, 12x120 events, 20 facts at caps, 1500 block, 20 titles) <=15 KiB; trim order oldest profile facts, then oldest events, then oldest episodes (v1 facts only as last backstop, key never dropped) matches step | yes |
+| V2-05 | 6 | read README.md l.33-36, 82-92; test_readme.py::test_the_field_table_names_the_v2_keys | paragraph on v2 body by kind; table rows about_visitor, about_agent, retention_days with source modules | yes |
+| V2-05 | 7 | `.harness/check.sh` | green, exit 0 | yes |
+| V2-06 | 1 | `ls` scratch review-V2.diff; read plan '## Review' key table | review-V2.diff exists (223 KB); notes under '## Review' with table of every §2 key, field and test; test_a_sent_v2_body_has_exactly_the_keys_of_spec_section_2 covers no extra key | yes |
+| V2-06 | 2 | read Review findings I1-I3, M4-M6, 'checks the feature names' | I1-I3 fixed with named tests; capping before size check, handler checks (test_critical_path), v1 keys unchanged all addressed. Note: Review I1 text still describes the D19 order (superseded by D20, noted in size-rule section) | yes |
+| V2-06 | 3 | read Review 'Simplification pass'; `wc -l concierge/*.py | awk '$1>250'` | simplification named; no file over 250 (max 250) | yes |
+| V2-06 | 4 | read README l.78-92, decisions D19/D20, plan, progress.md V2-06 entry | README, D19/D20 and plan trim order agree with trim_to_fit; progress V2-06 entry has test counts (972 -> 1089) and 'V3 must know' about about_agent.knowledge | yes |
+| V2-06 | 5 | `.harness/check.sh` | green, exit 0 | yes |
+
 ### 2026-10-21 11:05 · V2-05 · passes
 
 - **Retry after verify V2** (step 4 failed only on trim order). `contract.trim_to_fit` now drops the oldest
