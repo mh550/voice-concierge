@@ -170,7 +170,7 @@
         "A test asserts knowledge/michael.md contains no run of 7 or more digits and, outside the 'Source:' marker lines, none of the strings 'knowledge pack' and 'specs in, verified milestones out'",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V3-03",

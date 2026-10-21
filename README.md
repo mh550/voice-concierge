@@ -13,8 +13,9 @@ live run is Michael's ([`MORNING.md`](MORNING.md)); until then no measured numbe
 
 ## What it does
 
-- **Talks about Michael's work**, from a knowledge pack (`knowledge/michael.md`) built only from the vendored portfolio
-  files in `knowledge/sources/`. It isn't a general chatbot: off-topic requests get a polite one-sentence no.
+- **Talks about Michael's work**, from a knowledge pack (`knowledge/michael.md`) built only from `knowledge/sources/`:
+  the vendored portfolio files, his resume v4 (which wins where they differ) and `concierge.md`, the facts about this
+  agent it gives when asked about itself. It isn't a general chatbot: off-topic requests get a polite one-sentence no.
 - **Greets a returning visitor**, by name once it has confirmed one, and offers to pick up the last topic, from facts it extracted in earlier
   visits, preloaded when the visitor joins (`concierge/preload.py`, `concierge/greeting.py`).
 - **Answers typed messages from the same memory.** Typed turns arrive on `lk.chat` in the same session and the same

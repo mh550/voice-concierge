@@ -13,6 +13,16 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 07:30 · V3-02 · passes
+
+- **Changed:** re-vendored `Bio.md`, `profile.ts`, `experience.ts`, `projects.ts`, `skills.ts` from a scratch clone of `mh550/portfolio_site` at **`b7c974f`** (`main`, 2026-10-20; no fallback needed), each with a `vendored from …@b7c974f <path>` header; new `knowledge/sources/resume-v4.md` (§7, no phone number) and `concierge.md` (basis: README.md, docs/spec.md §4.0); `SOURCE.md` rewritten; `knowledge/michael.md` rebuilt (new positioning, resume v4 bullets, the four skill groups, `## Project: Voice Concierge (this agent)`, refreshed `## Project: Agent Harness`); README "What it does" names the new sources. Tests 1091 → 1101.
+- **Verified:** the 5 vendored files match the clone byte for byte after the header (`tail -n +2 | cmp`); `tests/test_knowledge.py` has 11 new tests (header commit = SOURCE.md commit, no phone number, positioning, self-description, resume roles, retired words, resume = spec §7, concierge.md numbers in README/spec, "Forget me" vs LiveKit's transcripts); full suite green, 1101.
+- **Budget:** pack 1,166 words, 2,185 tokens; static + pack 2,735 now, about 2,833 with V3-03's wording (margin about 167). **Cut** (plan order): `Project: Cherished`, `Project: Mirrored Google Calendars`. Noted under "V3-02 as built" in the V3 plan.
+- **Opus review:** 1 Important (the pack said "Forget me erases everything"; LiveKit Agent Insights transcripts survive it, per README § Privacy) and 8 Minor findings. Fixed: I1, plus M2 (the tools write during a reply), M3 (taking a message), M4, M5, M7 (the self-description says "a visitor", not "you"), M8 (a `_prose()` helper skips only `Source: <file>` lines), M9 (stronger checks). Skipped M6 (`~` number forms): the plan keeps the sources' forms.
+- **Next session (V3-03) must know:** the pack's prose never uses "pack". `test_static_plus_pack_within_budget` has about 167 tokens to spare after the planned wording. V4 can use these section names: `Positioning and contact`, `About`, `Experience`, `Education`, `Skills`, `Project: Voice Concierge (this agent)`, `Project: Agent Harness`, plus 6 more `Project:` sections (no Cherished, no Mirrored Google Calendars).
+- **Proposed change:** step 2's skill-group casing ("Languages & web") differs from §7's "Languages & Web". The pack and the test use §7's casing, as the plan says.
+- No questions for Michael.
+
 ### 2026-10-21 06:00 · V3-01 · passes
 
 - **Plan only:** `docs/plans/2026-10-21-V3-knowledge-v2.md` covers the re-vendoring procedure (clone into scratch, a header line in each of the 5 files, SOURCE.md, a fallback to `81bb0fc`), `resume-v4.md` (§7, no phone number) and `concierge.md` (a fact table, each fact with its README/spec line), the 16-section outline (1,038 body words, about 1,146 with headings; about 2,894 tokens against 3,000) with a cut order, the prompt.py changes word for word, the policy check (3 URLs, all 200 today), the `check_sources.py` CLI (exit codes 0/1/2), and test names for V3-02..V3-04. Tests 1091 → 1091.

@@ -157,6 +157,19 @@ Builder Clarity bullet names RingCentral), (4) About trimmed to 45 words, (5) `P
 Workflow` (the MAXX bullet covers it). The cut sections are named in V3-02's progress entry and under `## Review`.
 The Voice Concierge, Agent Harness, Experience and Skills sections are never cut.
 
+### V3-02 as built
+
+- Sources: the clone's `main` was `b7c974f` (2026-10-20); as V3-01 saw, only `projects.ts` differs from `81bb0fc`.
+  No fallback was needed.
+- Cut, in the order above: (1) `Project: Cherished` and (2) `Project: Mirrored Google Calendars`. The review's fixes
+  (what "Forget me" does not erase, the tools that write during a reply, taking a message for Michael) took the pack
+  to 1,212 words, over the word cap; the two cuts bring it to 1,166.
+- Measured: 1,166 words, 7,645 characters, 2,185 tokens; static + pack 2,735 today and about 2,833 with V3-03's
+  wording (+98), a margin of about 167 under 3,000. The Voice Concierge section is about 340 words, 150 over its
+  budget of 190, paid for by the shorter project sections and the two cuts.
+- The number scan and the retired-word scan skip only `Source: <file>` lines that name a source file (`_prose()`),
+  because `Source: resume-v4.md` carries a digit.
+
 ## The instructions (V3-03)
 
 `concierge/prompt.py` `STATIC_INSTRUCTIONS`, the changed lines only (everything else stays byte for byte):

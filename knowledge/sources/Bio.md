@@ -1,3 +1,4 @@
+<!-- vendored from mh550/portfolio_site@b7c974f Bio.md -->
 **Michael Herron, Full-Stack Software Developer & Automation Engineer**
 
 With a B.S. in Computer Science from Duke University, Michael builds robust, user-centered automations and integrations. He specializes in transforming complex, scattered processes into reliable, intuitive systems designed to serve the user first–rejecting the notion of user error in favor of better, more human-oriented design. Michael designs scalable, multi-tenant architectures, integrating platforms like JobTread, QuickBooks, and GoHighLevel. He has expertise in numerous APIs and packages, with a strong foundation in PostgreSQL and database design. He also develops AI agents, using novel context engineering techniques to deliver next-generation, AI-powered solutions to clients. Outside of work, Michael enjoys snowboarding, skateboarding, and wakeboarding.
