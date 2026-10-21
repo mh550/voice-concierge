@@ -113,4 +113,5 @@ def test_static_instructions_carry_the_name_confirmation_rule() -> None:
     assert '"Did I get that right, <name>?"' in text
     assert "only after they say yes" in text
     assert "Never ask to confirm a name from their earlier visits" in text
-    assert text.index("Names:") < text.index("earlier visits may follow what you know about Michael")  # before the memory paragraph
+    # The names rule comes before the memory paragraph.
+    assert text.index("Names:") < text.index("earlier visits may follow what you know about Michael")

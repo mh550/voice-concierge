@@ -13,6 +13,14 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 10:05 · V3-03 · passes
+
+- **Why a second session:** the 08:40 session built everything, but ruff E501 (a 132-character line in `tests/test_prompt.py:116`, a trailing comment) made `.harness/check.sh` exit 1, so the harness un-passed it. The comment is now on its own line. Tests 1103 → 1103.
+- **Verified each step again myself:** "Never mention the pack" is gone; with the rule's line removed, STATIC_INSTRUCTIONS has no "pack", "knowledge pack" or "source lines"; "Voice Concierge (this agent)", "how you were built" and the heading `What you know about Michael (the only source of facts about him):` are present; `test_static_instructions_forbid_the_pack_words` and `test_static_plus_pack_within_budget` pass; `docs/decisions.md` D21 has the 4 URLs, the date, the clauses and the self-hosted-prompt note; README § Privacy points to D21. `ruff check .` clean; full suite green, 1103.
+- **Next (V3-04):** the drift decision is **D22 *default*** (the step's "D19") and needs a MORNING question. Run `.venv/bin/ruff check .` before finishing: line length is 120.
+- **Question for Michael (still open, from 08:40):** should the greeting say "the AI concierge", or does the portfolio page already label it as an AI agent (LiveKit ToS §2.6.2/§2.6.6, Anthropic AUP disclosure)?
+- **Proposed change:** amend V3-03 steps 3–4 to D21 (D18 was taken by V2).
+
 ### 2026-10-21 08:40 · V3-03 · passes
 
 - **Changed:** `concierge/prompt.py` wording as the V3 plan's table: "Never mention the pack…" is gone; a new rule forbids "pack", "knowledge pack" and "source lines" with a visitor (say "what I know about Michael" or "my notes") and, per the review, naming the source files; a self-description rule points at "Voice Concierge (this agent)"; the heading is `What you know about Michael (the only source of facts about him):`. `docs/decisions.md` **D21** (the step's "D18"; D18–D20 were taken, see the plan's "Decision numbers"); README § Privacy sentence pointing to D21; a MORNING question on D21. Tests 1101 → 1103.
