@@ -16,14 +16,15 @@ COMMANDS = [
     ".venv/bin/python scripts/eval_memory.py",
     ".venv/bin/python scripts/latency_report.py",
     ".venv/bin/python scripts/memory_history.py",
+    ".venv/bin/python scripts/check_sources.py",
     "systemctl --user stop voice-concierge",
     "touch ~/.voice-concierge-off",
 ]
 
 
-def test_twelve_numbered_steps_in_order() -> None:
+def test_thirteen_numbered_steps_in_order() -> None:
     numbers = [int(n) for n in re.findall(r"^## (\d+)\. ", MORNING, re.M)]
-    assert numbers == list(range(1, 13))
+    assert numbers == list(range(1, 14))
 
 
 def test_exact_commands_appear_in_order() -> None:

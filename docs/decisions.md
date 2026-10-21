@@ -446,6 +446,29 @@ agent, the page label or the greeting needs to say so (not built here: outside V
 version effective 2026-11-12 (the page already served it on 2026-10-21); a later version needs a fresh read. All four
 pages were fetched, so nothing is unconfirmed.
 
+## D22 *default*: a drift check, not an automatic pack rebuild (2026-10-21, V3-04; the feature's "D19 *default*")
+
+The feature's step names this "D19 *default*", a number V2 had already used (D18–D20); see the V3 plan's "Decision
+numbers".
+
+**Decision.** `scripts/check_sources.py` downloads the five vendored files from the portfolio repo's `main` (stdlib
+`urllib`, 10 s per file, no key), compares each with `knowledge/sources/` minus its header line, and reports: the
+SOURCE.md commit, then `drifted: <name>` per changed file or `clean: 5 files match main`. Exit 0 clean, 1 drift, 2 a
+fetch failed or a file is missing. It never writes into `knowledge/sources/` or the pack. Michael runs it (MORNING
+step 12); the suite tests it offline against fixture trees (`--fetched`) and never opens a socket.
+
+**Why not rebuild the pack automatically.** `knowledge/michael.md` is prose an LLM writes from the sources, under a
+word budget and the name, number and URL rules `tests/test_knowledge.py` checks. Rebuilding it needs a provider key
+at build time and a human or reviewer pass over facts and tone (V3-02's review found a wrong "Forget me erases
+everything"). So the honest tool reports drift and leaves re-vendoring (the V3 plan's procedure) and the rebuild to a
+reviewed session.
+
+**Rejected.** A CI job that regenerates the pack (a key in CI, no review); a test that fails on drift (network in the
+offline suite, and the suite would go red on a change to the portfolio site that the pack may not need).
+
+**Question for Michael.** Run the drift check weekly from a systemd timer (a unit in `deploy/`, mailing or logging
+the result), or by hand from MORNING only?
+
 ## Health port: loopback only (Michael, 2026-10-20)
 
 **Decision.** The worker's health endpoint (8081 under `start`) binds 127.0.0.1: `AgentServer(host="127.0.0.1")` in

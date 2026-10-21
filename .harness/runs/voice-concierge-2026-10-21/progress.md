@@ -13,6 +13,14 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 11:20 · V3-04 · passes
+
+- **Changed:** new `scripts/check_sources.py` (stdlib `urllib`, 10 s per file, all network in `fetch`; pure `diff_sources(local, fetched)` strips the LF or CRLF header line; prints `sources commit: <hex>`, then `drifted: <name>` lines or `clean: 5 files match main`; exit 0/1/2). MORNING.md gains `## 12. Source drift check` (Stop is now 13) and a D22 question. `tests/test_morning.py`: COMMANDS gains the command, `test_thirteen_numbered_steps_in_order`. `docs/decisions.md` **D22 *default*** (the step's "D19 *default*"; D19 was taken by V2, see the V3 plan's "Decision numbers"). Tests 1103 → 1112.
+- **Verified:** 9 drift tests in `tests/test_scripts.py`: clean exits 0 and drift exits 1 (subprocess, `--fetched` fixture trees); a missing file, a failed fetch, an IncompleteRead and HTTP 203 all exit 2; `diff_sources` strips only the header; `test_check_sources_never_fetches_in_the_suite` (the `urlopen` recorder is never called with `--fetched`, and is called 5× with `RAW` URLs and `timeout=10` without it; `socket.connect` patched to fail; AST: `urlopen` appears only in `fetch`). I ran it by hand on scratch fixtures: `clean` exit 0, `drifted: projects.ts` exit 1. `ruff check .` clean; full suite green, 1112.
+- **Opus review:** 1 Important (an `http.client.HTTPException` escaped `fetch`, so it showed as a traceback with exit 1, which reads as "drift"), 3 Minor. Fixed the Important one plus the untested non-200 branch and the CRLF header. Skipped: a directory where a file should be prints `missing:` (the exit code, 2, is already right).
+- **Question for Michael (D22):** run the drift check weekly from a systemd timer, or by hand from MORNING only?
+- **Proposed change:** amend V3-04 step 4's "D19 *default*" to D22 (as V3-01 proposed).
+
 ### 2026-10-21 10:05 · V3-03 · passes
 
 - **Why a second session:** the 08:40 session built everything, but ruff E501 (a 132-character line in `tests/test_prompt.py:116`, a trailing comment) made `.harness/check.sh` exit 1, so the harness un-passed it. The comment is now on its own line. Tests 1103 → 1103.

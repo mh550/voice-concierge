@@ -204,7 +204,7 @@
         "docs/decisions.md has a 'D19 *default*' entry: a drift check, not an automatic pack rebuild, and why (the pack is prose an LLM writes; rebuilding needs a key and a review)",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V3-05",
