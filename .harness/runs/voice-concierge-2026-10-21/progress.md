@@ -12,6 +12,26 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+### 2026-10-21 02:52 · V1-02 · passes
+
+- **Changed.** `concierge/session_end.py` (98 → 249 lines): `Closing`, `begin_end`, `end_session(closing, reason, *,
+  leave=True)` (one `ending` task outside `tasks`, so racing ends run the work once), `visitor_left`, `shut_down` (the
+  old on_shutdown body; `SHUTDOWN_WORK_S` moved here). `concierge/session.py` (246 → 210): a `DepartureWatcher` right
+  after `ctx.connect()`, both caps end through `begin_end`, `RoomOptions(close_on_disconnect=False)`. README "No lease"
+  bullet. Tests 952 → 963 (`tests/test_session.py` +11; `until`/`emit_add` now in `concierge/testing/sessions.py`).
+- **Verified.** `check.sh` green, 963 tests, 101 s; ruff clean; `test_critical_path.py` unchanged and green. The new
+  tests were RED first (no `end_session`; then three more RED for the review's findings).
+- **Review (Opus, diff in scratch).** No Critical. Fixed test-first: I1 forget_me during a cap's closing send could
+  leave the erased memory last; I2 the AgentSession kept answering after the time-up line (closing now closes it
+  first); visitor_left written outside the one run. Notes in the plan's "V1-02 as built".
+- **V1-03 must know.** Open: I3, a visitor who leaves during `ctx.connect()`/the preload or never joins is never
+  seen to leave (the watcher only subscribes). Fixing it needs a join deadline (60 s?). Also: a departure before
+  `start_session` returns still writes `session_started` after `session_ended`.
+- **Question for Michael.** None new (D16's 20 s question stands).
+- **Proposed changes.** V1-02 step 1 names `publisher.final(current_memory(...))` for the last memory. Built as
+  `publisher.schedule(); await publisher.idle()` instead, so a forget_me racing the closing send still sends the
+  empty memory last (review I1).
+
 ### 2026-10-21 03:10 · V1-01 · passes
 
 - **Changed.** `concierge/departure.py` (88 lines: `DEPARTURE_GRACE_S = 20.0`, `DepartureWatcher` with `start/cancel/

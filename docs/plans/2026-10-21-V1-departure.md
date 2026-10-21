@@ -184,3 +184,32 @@ After V1 merges and the worker is restarted (`scripts/run-worker.sh`, MORNING.md
    on (no new `session_started` row, the log says "the visitor reconnected inside the departure grace"); if it asks
    for a new room, step 2's "Closing your earlier conversation…" applies. Which one happens is the page's half.
 Undo: revert the V1 merge commit and restart the worker; the old behaviour (session runs to the cap) returns.
+
+## V1-02 as built (2026-10-21)
+
+`Closing`, `begin_end`, `end_session`, `visitor_left` and `shut_down` (the old on_shutdown body) are in
+`concierge/session_end.py` (249 lines); `SHUTDOWN_WORK_S` moved there with them; `session.py` went 246 → 210 lines.
+An Opus review of the build diff found no Critical and three Important points; the build changed after it:
+
+- **I1, fixed.** The cap paths run their closing work while the room is connected, so the page can still press
+  "Forget me" then. `publisher.final(...)` for the closing send would close the publisher, and a forget_me landing
+  while that body was built would have its empty `concierge.memory` dropped (the stale memory last). The closing send
+  is now `publisher.schedule(); await publisher.idle()` (built and re-checked under the publisher's lock like every
+  other send), so forget_me's `final` still lands last. `test_a_forget_me_during_the_closing_send_still_sends_the_empty_memory_last`
+  (RED: the page's last body still had the erased fact).
+- **I2, fixed.** After the time-up line the AgentSession kept listening during the closing work, so a visitor could
+  get answers after "I'll say goodbye here", and turns added after the flush would miss the final extraction. With
+  `leave`, the closing run now closes the AgentSession first (`AgentSession.aclose` is idempotent,
+  agent_session.py:1309, and leaves the room and the job up: no `delete_room_on_close`, room_io.py:552).
+  `test_the_time_limit_ends_through_end_session` asserts the session closed before `session_ended` (RED before).
+- **Minor 1, fixed.** `visitor_left` journaled before claiming the closing run, so a cap starting during that write
+  left a `visitor_left` row beside `session_ended` with another reason. The row is now written inside the one run
+  (`_begin(..., left_grace_s=...)`). `test_two_ends_starting_in_the_same_tick_run_the_work_once` (RED before).
+- **Minor 2, fixed.** `test_end_session_runs_its_work_once` waits for `closing.ending` instead of a sleep.
+- **I3, left for V1-03.** `DepartureWatcher.start()` only subscribes: a visitor who closes the tab during
+  `ctx.connect()`/the preload, or who never joins, is never seen to leave, and the session runs to the cap. A fix
+  (start the grace when the visitor isn't in `room.remote_participants`) needs a join deadline that a slow page
+  (a mic prompt before the join?) won't trip, so V1-03 should choose it (a longer join grace, e.g. 60 s).
+- **Also for V1-03:** a departure whose grace runs out before `start_session` returns ends the session, but the
+  timer and `session_started` are still created after it (`shut_down` cancels the timer; only the journal order is
+  off). Unlikely with a 20 s grace.

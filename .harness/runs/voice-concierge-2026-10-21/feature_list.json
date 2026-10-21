@@ -33,7 +33,7 @@
         "README.md § Failure cases and limits: the 'No lease' bullet (or the line about a refreshed page or second tab) now says that when the visitor's page disconnects the agent waits 20 s for a reconnect, then saves its notes and leaves, so the site's token route frees the address within about 30 s; nothing in README.md or MORNING.md still says the session runs on to the cap after the page closes",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V1-03",
