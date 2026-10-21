@@ -12,6 +12,23 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+### 2026-10-21 05:05 · V2-01 · passes
+
+- **Changed.** `docs/plans/2026-10-21-V2-contract-v2.md`: the §2 v2 body word for word, a key-by-key model table, the
+  source of every field, the publish points (compaction is new), the 15 KiB size rule, the schema change, the
+  `visit_summaries` migration (schema v3, one `CREATE TABLE` statement like `MIGRATIONS[2]`), the `_CHILD_TABLES`
+  erasure change, and test names for V2-02..V2-05. `docs/decisions.md` D17 *default*; MORNING.md asks D17. Tests 972 → 972.
+- **Verified.** Each §2 line found verbatim in the plan (script); every fixed event line passes `check_text`;
+  the worst-case body measured at 16,671 bytes (ASCII) > 15,360, so the trimmer stays; `check.sh` green, 972 tests.
+- **Next session must know.** `session_end.py` and `memory_writer.py` are at 250 lines: V2-03 moves `write_summary`
+  to `concierge/summary_step.py`; the ring reaches the tools via `ConciergeAgent(events=)`. `MergeResult` has ids only:
+  V2-04 adds `MergeResult.changes` (slot, value). The `begin_visit` task must be created before the start
+  `publisher.schedule()` (writer executor order). V2-02 has no episodes/ring yet: events come in as `events=`.
+- **Question for Michael.** D17: should "Took notes in the background" show on every run, even with no change? Should
+  an episode carry the rolling summary (default) or a per-visit one?
+- **Proposed changes.** V2-05's size test says episode summaries of 400 characters; stored summaries go to 500
+  (`SUMMARY_CAP`). The plan adds a multibyte test too; the step could say 500.
+
 ### 2026-10-21 04:20 · verify V1
 
 | Feature | Step | What you ran or read | What you saw | Holds |

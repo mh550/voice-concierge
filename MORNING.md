@@ -148,3 +148,6 @@ Each is a default the build took (details in `docs/decisions.md`); say if you wa
 - **D15:** should messages outlive the 30-day idle purge, until you delete them?
 - **D16:** is 20 s the right wait for the visitor to reconnect before the agent leaves (or 10 s, or 30 s)? And is
   60 s right for a visitor who isn't in the room yet when the agent starts watching (V1-03)?
+- **D17:** the memory panel's event lines (contract v2): should "Took notes in the background" show on every run, even
+  with no change (now only when something changed)? And should each past visit carry the rolling summary as it stood
+  then (the default), or should the summarizer also write a per-visit one?

@@ -254,6 +254,58 @@ already, and a long join grace only costs a stray session's address for a minute
 page is slow to join. Rejected: no join check (I3's bug); the 20 s departure grace (a slow join would end a live call).
 Question for Michael: is 60 s right?
 
+## D17 *default*: what contract v2 (§2) leaves open (2026-10-21, V2-01)
+
+**Finding.** Spec 2026-10-21 §2 and §4 fix the v2 keys and types but not the event wording, how the current visit's
+episode row comes to exist, what a failed summary leaves, or how the 15 KiB cap trims the new lists. The plan
+(`docs/plans/2026-10-21-V2-contract-v2.md`) had to pick.
+
+**Choice.**
+- (a) **Event lines** (`concierge/events.py`), slot words `name`, `role`, `company`, `interest`, `follow-up`, and
+  `what you asked about` (which drops "your": "Remembered what you asked about: Rust"):
+
+  | type | line | value-free form |
+  |---|---|---|
+  | `fact_added` | `Remembered your <slot>: <value>` | `Remembered your <slot>` |
+  | `fact_invalidated` | `Updated your <slot>` | (same) |
+  | `fact_deleted` | `Forgot your <slot>` | (same) |
+  | `gate_rejected` | `Didn't store something that looked like <an instruction \| a link \| contact details \| a secret \| code>` | (same; never a value) |
+  | `extraction_ran` | `Took notes in the background (<n> change \| changes>)` | (same) |
+  | `remember` | `Remembered at your request: <slot>` | (same) |
+  | `forget` | `Forgot at your request: <about>` | `Forgot something at your request` |
+
+  Gate reasons in words: `instruction` → an instruction, `url` → a link, `email`/`phone` → contact details, `secret`
+  → a secret, `code` → code. Other rejections (`agent_attributed`, `empty`, `unsafe_chars`, `too_long` and the
+  merge's own rules: grounding, the name rule, an unknown slot) get no line: they are the model's mistakes, not
+  something the visitor said that was refused. A line that `check_text` rejects or that is over 120 characters falls
+  back to the value-free form. Every fixed line above passes `check_text` today (checked in V2-01).
+- (b) **The current visit's episode row** is inserted at session start by the `session_started` background task
+  (`begin_visit`, idempotent), queued on the writer's thread before the start `concierge.memory` read, and completed by
+  `end_visit` after the summary step. `end_visit` only updates: if `begin_visit` failed there is no episode for that
+  visit, and an erased thread raises `ThreadMissing` and re-creates nothing. The visit number is `preloaded.visits`.
+- (c) **A failed summary leaves that episode's `summary` null** (so does a skipped one: no visitor turn, or erased);
+  `ended_at` is still set. An episode's summary is the text the summary step stored at that visit's end, which is the
+  rolling summary (it starts from the previous one, `write_summary`), not a summary of that visit alone.
+- (d) **`extraction_ran` is noted only when the run changed or rejected something** (n = added + invalidated).
+- (e) **Events come from the `MergeResult` and the tools, not by reading the journal back**: same rows, no store read
+  on the event loop. `MergeResult.changes` carries slot and value in memory only; the journal still holds no values (D8).
+- (f) **The trimmer** drops the oldest facts from `facts` and `profile` together (they stay equal), then the oldest
+  events, then the oldest episodes; never a v1 key.
+- (g) **The empty body** (after "Forget me", or a session without memory) is v2: `v: 2`, `about_visitor` with three
+  empty lists, `retention_days: 30`, `about_agent` null. A forget_me also clears the event ring.
+- (h) **`remember` and `forget` publish at once** (the tools call the publisher's `schedule` after noting their
+  events), so the page doesn't wait for the next merge.
+
+**Rejected.** Noting every extraction run (a 10-minute call has ~30 runs, mostly with no change: they would push the
+real lines out of the 12-line ring). Creating the episode row in the summary step only (the start body could not show
+the current visit, and a session that dies before its summary would leave no episode at all). Keeping the last good
+summary in a failed visit's episode (it would describe an earlier visit as this one). A line per non-gate rejection
+(noise the visitor can't act on). Trimming `profile` before `facts` (a v2 page would show less than a v1 page).
+
+**Question for Michael.** Are these lines how you want the page to read? In particular: should "Took notes in the
+background" show on every run (including no change), and should an episode carry the rolling summary or should the
+summarizer write a per-visit one as well?
+
 ## Health port: loopback only (Michael, 2026-10-20)
 
 **Decision.** The worker's health endpoint (8081 under `start`) binds 127.0.0.1: `AgentServer(host="127.0.0.1")` in
