@@ -16,7 +16,7 @@ from typing import Any
 from concierge.fact_ops import value_key
 from concierge.gate import check_value
 from concierge.grounding import is_confirmed_name, shares_a_word
-from concierge.merge_result import MergeResult, Rejection, Skip
+from concierge.merge_result import FactChange, MergeResult, Rejection, Skip
 from concierge.models import SLOTS, AddFact, Fact, FactOp, InvalidateFact, Note, SlotName, Source
 from concierge.ops import AddOp, DeleteOp, Op, UpdateOp
 from concierge.store import Store
@@ -187,8 +187,11 @@ def merge(
     facts' source (B12's rule otherwise)."""
     by_id = {t.turn_id: t for t in turns}
     decisions: list[_Decision] = []
+    stored: dict[int, Fact] = {}  # the valid facts the last attempt decided against: what an invalidation ends
 
     def decide(valid: list[Fact]) -> list[FactOp]:
+        stored.clear()
+        stored.update((f.id, f) for f in valid)
         live = [_Live(slot=f.slot, value=f.value, fact_id=f.id) for f in sorted(valid, key=lambda f: f.id)]
         decision = _Decision(turns=by_id, order=list(turns), known=turn_ids_known, live=live, source=source)
         decision.run(ops)
@@ -214,12 +217,16 @@ def merge(
             targets.extend(op.supersedes)
         elif isinstance(op, InvalidateFact):
             targets.append(op.fact_id)
+    invalidated = [i for i in targets if i not in applied.skipped]
+    changes = [FactChange(kind="invalidated", slot=stored[i].slot, value=stored[i].value) for i in invalidated]
+    changes += [FactChange(kind="added", slot=op.slot, value=op.value) for op in final.out if isinstance(op, AddFact)]
     return MergeResult(
         version=applied.version,
         added=applied.added,
-        invalidated=[i for i in targets if i not in applied.skipped],
+        invalidated=invalidated,
         rejected=final.rejected,
         skipped=sorted(final.skipped, key=lambda s: s.index),
         state=store.state(thread_id),
         extraction_ms=(extraction or {}).get("ms"),
+        changes=changes,
     )

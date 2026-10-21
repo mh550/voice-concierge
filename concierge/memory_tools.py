@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Callable
 
+from concierge import events as lines
+from concierge.events import EventRing
 from concierge.fact_ops import value_key
-from concierge.forget_match import names_any, select, value_requests
+from concierge.forget_match import named_slot, names_any, select, value_requests
 from concierge.grounding import shares_a_word
 from concierge.memory_writer import MemoryWriter
 from concierge.merge import merge
@@ -64,7 +67,12 @@ def source_turn(writer: MemoryWriter, slot: SlotName, value: str) -> Turn | None
     return next((t for t in users if shares_a_word(value, visible_text(t))), latest)
 
 
-async def do_remember(writer: MemoryWriter | None, fact: str) -> str:
+async def do_remember(
+    writer: MemoryWriter | None, fact: str, *, events: EventRing | None = None,
+    on_changed: Callable[[], None] | None = None,
+) -> str:
+    """Remember `fact`; a change is noted on `events` (what it replaced, then `remember`) and `on_changed` runs (the
+    session's publisher.schedule, D17 (h))."""
     if writer is None or writer.erased:
         return CANT_SAVE
     slot, value = parse_fact(fact)
@@ -85,7 +93,16 @@ async def do_remember(writer: MemoryWriter | None, fact: str) -> str:
         return STORE_FAILED
     if result.rejected:
         return CANT_REMEMBER
-    return ALREADY_KNOWN if result.skipped else REMEMBERED
+    if result.skipped:
+        return ALREADY_KNOWN
+    if events is not None:
+        for change in result.changes:
+            if change.kind == "invalidated":
+                events.note("fact_invalidated", lines.fact_invalidated(change.slot))
+        events.note("remember", lines.remember(slot))
+    if on_changed is not None:
+        on_changed()
+    return REMEMBERED
 
 
 def _forget(writer: MemoryWriter, about: str, asked_at: int) -> tuple[list[Fact], bool]:
@@ -120,7 +137,12 @@ def _forget(writer: MemoryWriter, about: str, asked_at: int) -> tuple[list[Fact]
     return gone, True
 
 
-async def do_forget(writer: MemoryWriter | None, about: str) -> str:
+async def do_forget(
+    writer: MemoryWriter | None, about: str, *, events: EventRing | None = None,
+    on_changed: Callable[[], None] | None = None,
+) -> str:
+    """Forget `about`; one `fact_deleted` per slot and a `forget` line are noted, which names the slot `about` names
+    ("where I work": company) and never the visitor's words, which can hold a value ("Acme"; D17 (l))."""
     if writer is None or writer.erased:
         return CANT_SAVE
     asked_at = writer.note_forget(about)  # first: a run filtering its ops after this sees it, even with nothing stored
@@ -132,4 +154,13 @@ async def do_forget(writer: MemoryWriter | None, about: str) -> str:
     except _FAILURES as exc:
         logger.warning("forget failed (%s)", type(exc).__name__)
         return STORE_FAILED
-    return FORGOTTEN if gone or cleared else NOTHING_TO_FORGET
+    if not gone and not cleared:
+        return NOTHING_TO_FORGET
+    if events is not None:  # the older lines that show a deleted value lose it in every body (events.shown)
+        for slot in dict.fromkeys(f.slot for f in gone):
+            events.note("fact_deleted", lines.fact_deleted(slot))
+        slot = named_slot(about)
+        events.note("forget", lines.forgot_slot(slot) if slot is not None else lines.PLAIN["forget"])
+    if on_changed is not None:
+        on_changed()
+    return FORGOTTEN

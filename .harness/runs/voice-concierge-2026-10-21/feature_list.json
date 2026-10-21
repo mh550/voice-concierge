@@ -109,7 +109,7 @@
         "tests/test_session.py: after one merged extraction in the `fakes` fixture (an extractor FakeLLM scripted to ADD role: engineer), the next concierge.memory body has about_visitor.events[0].type == 'fact_added' with detail 'Remembered your role: engineer' and an 'extraction_ran' event after it",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V2-05",

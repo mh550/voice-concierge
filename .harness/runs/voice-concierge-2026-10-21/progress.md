@@ -12,6 +12,28 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+### 2026-10-21 07:40 · V2-04 · passes
+
+- **Changed.** New `concierge/events.py` (`EventRing`, `Line`, `shown`, the D17 (a) line builders, `PLAIN`
+  value-free forms). `MergeResult.changes` (`FactChange`: invalidated, then added, with slot and value; in memory
+  only). The session makes the ring with the writer (`Started.events`) and registers `ring.clear` as an erase hook.
+  `on_merged` notes the merge. The tools get the ring and `publisher.schedule` through
+  `agent_or_memoryless(events=, on_changed=)`. `rpc.memory_with_events` builds each body on the writer's thread.
+  Tests 1002 → 1032.
+- **Verified.** `check.sh` green, 1032 tests. `test_a_merged_extraction_shows_fact_added_then_extraction_ran`
+  passes. `test_no_item_handler_calls_ring_note` fails when a `note_merge` call is put into `note_item`. Making `shown`
+  ignore the store fails 4 tests, and passing `events=None` to the agent fails the tool-wiring test.
+  Opus review (diff in scratch): 1 Important (a racing forget, or another tab's, could send a forgotten value in an
+  event line), fixed by checking each value line against the store on the writer's thread. The 5 Minor findings are fixed.
+  Notes are in the plan's "Events (V2-04)".
+- **Next session must know.** V2-05's one callable must keep `memory_with_events` (snapshot `ring.lines()` on the
+  loop, `shown` on the writer thread), or forgotten values leak. `session.py` is at 242 lines and `memory_writer.py`
+  at 250. Fakes for `current_memory`/`writer.call` must take `**kwargs`.
+- **Question for Michael.** D17 (l): the forget line names the slot ("Forgot at your request: company"), or reads
+  "Forgot something at your request" for "forget Acme". §2 has "<about>", the visitor's own words, which can hold
+  the value. OK?
+- **Proposed changes.** V2-04 step 1's forget wording: "<about>" → "<the slot about names>" (D17 (l)).
+
 ### 2026-10-21 06:50 · V2-03 · passes
 
 - **Changed.** `visit_summaries` (schema v3, `MIGRATIONS[3]`), `Store.begin_visit` / `end_visit` / `visit_episodes` /

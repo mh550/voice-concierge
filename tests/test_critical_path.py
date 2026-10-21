@@ -217,3 +217,34 @@ async def test_a_message_for_michael_is_written_off_the_event_loop(tmp_path: Pat
     finally:
         await writer.aclose()
         await asyncio.to_thread(guarded.close)
+
+
+# The event ring (V2-04) is fed by the writer's background run (on_merged) and the two tools, never a turn handler.
+RING_WORK = {"note", "note_merge", "EventRing"}
+
+
+def _own_called_names(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    """`_called_names` of `fn`'s own body, leaving out the functions defined inside it."""
+    nested = [n for n in ast.walk(fn) if n is not fn and isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)]
+    inner = set().union(*(_called_names(n) for n in nested)) if nested else set()
+    return _called_names(fn) - inner
+
+
+def test_no_item_handler_calls_ring_note() -> None:
+    paths = [(ROOT / "concierge" / "memory_writer.py", HANDLER_PATH),
+             (ROOT / "concierge" / "compactor.py", COMPACTOR_HANDLER_PATH),
+             (ROOT / "concierge" / "metrics.py", COLLECTOR_HANDLER_PATH)]
+    for path, names in paths:  # every conversation_item_added handler session.py registers, and what it runs
+        functions = _functions(path)
+        for name in names:
+            assert not _called_names(functions[name]) & RING_WORK, f"{path.name}:{name} calls the ring"
+    writer = _functions(ROOT / "concierge" / "memory_writer.py")
+    callers = sorted(n for n, fn in writer.items() if "_on_merged" in {
+        c.func.attr for c in ast.walk(fn) if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)})
+    assert callers == ["_run_once"]  # on_merged runs after the background merge, never on the handler path
+    session = _functions(ROOT / "concierge" / "session.py")
+    assert "note_merge" in _called_names(session["on_merged"])
+    noting = sorted(n for n, fn in session.items() if _own_called_names(fn) & {"note", "note_merge"})
+    assert noting == ["on_merged"]
+    tools = _functions(ROOT / "concierge" / "memory_tools.py")
+    assert {"note"} <= _called_names(tools["do_remember"]) and {"note"} <= _called_names(tools["do_forget"])

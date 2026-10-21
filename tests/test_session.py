@@ -18,7 +18,7 @@ from livekit.agents.testing import fake_job_context
 from concierge import rpc as concierge_rpc
 from concierge import session as concierge_session
 from concierge.config import Settings
-from concierge.contract import FORGET_ME_METHOD, MEMORY_TOPIC, empty_memory_payload
+from concierge.contract import FORGET_ME_METHOD, GET_MEMORY_METHOD, MEMORY_TOPIC, empty_memory_payload
 from concierge.dispatch import parse_dispatch
 from concierge.erasure_hooks import forget_visitor
 from concierge.greeting import INTRODUCTION
@@ -632,8 +632,8 @@ async def test_a_forget_me_during_the_closing_send_still_sends_the_empty_memory_
     armed: list[Any] = []
     forgetting: list[asyncio.Task[Any]] = []
 
-    async def read_then_forget(*args: Any) -> Any:  # noqa: ANN401
-        payload = await real(*args)
+    async def read_then_forget(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        payload = await real(*args, **kwargs)
         if armed and armed[0].ending is not None and not forgetting:  # the closing send's read
             call = rtc.RpcInvocationData(request_id="req-1", caller_identity=f"visitor-{VISITOR}", payload="",
                                          response_timeout=10.0, method=FORGET_ME_METHOD)
@@ -895,3 +895,71 @@ async def test_a_returning_visitor_sees_the_previous_episode_under_the_current_o
     current, previous = body["about_visitor"]["episodes"]
     assert (current["visit"], current["ended_at"], current["summary"]) == (2, None, None)
     assert (previous["visit"], previous["summary"]) == (1, VISIT_SUMMARY)
+
+
+# --- V2-04: this session's memory events (plan 2026-10-21-V2 "Events (V2-04)") -----------------------------------
+
+
+async def test_a_merged_extraction_shows_fact_added_then_extraction_ran(
+    db: Store, fakes: list[FakeLLM], summarizer: FakeLLM, memory_validator: Draft202012Validator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def build_llm(stage: str, settings: Any = None) -> FakeLLM:  # noqa: ANN401
+        if stage == "summarizer":
+            return summarizer
+        assert started.writer is not None
+        (turn,) = [t for t in started.writer.history if t.role == "user"]
+        return FakeLLM([emit_add("role", "engineer", turn.turn_id)])
+
+    monkeypatch.setattr(concierge_session, "build_llm", build_llm)
+    monkeypatch.setattr(concierge_session, "EXTRACTION_DEBOUNCE_S", 0.05)
+    room = seated_room()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        started = await start(ctx, db)
+        (opening,) = [json.loads(b) for b in room.local_participant.sent_on(MEMORY_TOPIC)]
+        await started.session.run(user_input="I'm an engineer.")
+        await until(lambda: len(room.local_participant.sent_on(MEMORY_TOPIC)) >= 2, 5)
+        body = json.loads(room.local_participant.sent_on(MEMORY_TOPIC)[1])  # the send after the merge
+        await shutdown(ctx, started)
+    assert opening["about_visitor"]["events"] == []
+    memory_validator.validate(body)
+    events = body["about_visitor"]["events"]
+    assert (events[0]["type"], events[0]["detail"]) == ("fact_added", "Remembered your role: engineer")
+    assert [e["type"] for e in events] == ["fact_added", "extraction_ran"]
+    assert events[1]["detail"] == "Took notes in the background (1 change)"
+
+
+async def test_get_memory_carries_the_events_and_forget_me_clears_them(
+    db: Store, fakes: list[FakeLLM], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    room = seated_room()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        started = await start(ctx, db)
+        assert started.writer is not None and started.events is not None
+        started.events.note("remember", "Remembered at your request: company")
+        call = rtc.RpcInvocationData(request_id="req-1", caller_identity=f"visitor-{VISITOR}", payload="",
+                                     response_timeout=10.0, method=GET_MEMORY_METHOD)
+        reply = await room.local_participant.rpc_handlers[GET_MEMORY_METHOD](call)
+        assert [e["detail"] for e in json.loads(reply)["about_visitor"]["events"]] == [
+            "Remembered at your request: company"]
+        await forget_visitor(started.writer, VISITOR)
+        assert started.events.items() == []  # "Forget me" empties the ring with the rest of the pending work
+        await shutdown(ctx, started)
+
+
+async def test_the_remember_tool_notes_its_line_and_sends_at_once(db: Store, fakes: list[FakeLLM]) -> None:
+    room = seated_room()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        started = await start(ctx, db)
+        assert started.publisher is not None
+        await started.session.run(user_input="Remember that I work at Acme.")
+        await started.publisher.idle()
+        before = len(room.local_participant.sent_on(MEMORY_TOPIC))
+        agent = started.session.current_agent
+        assert await agent.remember("company: Acme") == "Got it, I'll remember that."  # type: ignore[attr-defined]
+        await started.publisher.idle()
+        sent = room.local_participant.sent_on(MEMORY_TOPIC)
+        await shutdown(ctx, started)
+    assert len(sent) == before + 1  # D17 (h): the tool's own send, not the next merge's
+    (first, *_) = json.loads(sent[-1])["about_visitor"]["events"]
+    assert (first["type"], first["detail"]) == ("remember", "Remembered at your request: company")

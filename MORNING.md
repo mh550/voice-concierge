@@ -160,3 +160,6 @@ Each is a default the build took (details in `docs/decisions.md`); say if you wa
   then (the default), or should the summarizer also write a per-visit one?
   And (D17 (i)): a v2 key with no value is sent as `null` (the default, and the page's schema must accept it), not
   left out. Is that fine for the page?
+  And (D17 (l)): the forget line names the slot ("Forgot at your request: company"), or reads "Forgot something at
+  your request" for "forget Acme", and earlier lines lose a forgotten value, rather than §2's literal
+  "Forgot at your request: <the visitor's words>". OK?

@@ -297,7 +297,7 @@ async def test_get_memory_failure_is_an_rpc_error_without_the_message(
 ) -> None:
     """Review M5: rtc logs a handler's exception with its message (participant.py:629-634); ours carries the type."""
 
-    async def broken(*args: Any) -> Any:
+    async def broken(*args: Any, **kwargs: Any) -> Any:
         raise ValueError("Zephyrine")
 
     assert rig.writer is not None

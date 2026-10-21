@@ -26,6 +26,15 @@ class Skip(BaseModel):
     reason: Literal["duplicate", "replaced_in_batch"]
 
 
+class FactChange(BaseModel):
+    """A fact this merge added or invalidated, with its value, for this session's event ring (V2-04). In memory only:
+    the journal still never holds a value (D8)."""
+
+    kind: Literal["added", "invalidated"]
+    slot: SlotName
+    value: str
+
+
 class MergeResult(BaseModel):
     version: int
     added: list[int]
@@ -34,3 +43,4 @@ class MergeResult(BaseModel):
     skipped: list[Skip]
     state: VisitorState
     extraction_ms: float | None = None  # the batch's extraction_ran `ms` (None: no extraction); C6's metrics
+    changes: list[FactChange] = []  # the invalidated facts, then the added ones, in op order

@@ -306,6 +306,15 @@ episode row comes to exist, what a failed summary leaves, or how the 15 KiB cap 
 - (k) **An episode left open stays open** (V2-03): a worker killed before `end_visit` (crash, SIGKILL, the 25 s closing
   deadline) leaves that visit's `ended_at` null, so a later body can show two visits with no end. Nothing closes it
   after the fact: a later session can't tell a dead session from another tab's live one without a lease.
+- (l) **A forgotten value leaves the event lines too** (V2-04): the ring shows values ("Remembered your company:
+  Acme"), and each such line keeps its value; every body checks it against the thread's fact history on the writer's
+  thread (`events.shown`, `rpc.memory_with_events`), so a value deleted by `forget`, here or in another tab's session,
+  goes out as the value-free form ("Remembered your company"), even in a send whose lines were read before the forget
+  ran (review I1). The `forget` line names the slot the request names, never the visitor's words, which can hold a
+  value ("forget where I work" → "Forgot at your request: company"; "forget I work in IT" would echo "IT"); a request
+  that names a value ("forget Acme") gets "Forgot something at your request". `remember` notes nothing when nothing changed ("I already have that", or refused), and
+  `fact_invalidated` lines for what it replaced, then `remember`. Every type has a value-free form (`PLAIN` in
+  `concierge/events.py`), the last guard when a caller's line fails `check_text` or the 120-character cap.
 
 **Rejected.** Noting every extraction run (a 10-minute call has ~30 runs, mostly with no change: they would push the
 real lines out of the 12-line ring). Creating the episode row in the summary step only (the start body could not show
@@ -313,7 +322,10 @@ the current visit, and a session that dies before its summary would leave no epi
 summary in a failed visit's episode (it would describe an earlier visit as this one). A line per non-gate rejection
 (noise the visitor can't act on). Trimming `profile` before `facts` (a v2 page would show less than a v1 page). Dropping null keys with `exclude_none`
 (it would drop v1's `summary: null` too, which the schema requires) or keeping the schema non-null (a body re-dumped
-from a parsed v1 one would fail it).
+from a parsed v1 one would fail it). For (l): echoing `about` as §2's wording has it (the page would show the value the visitor
+just asked to forget, for the rest of the session), rewriting the ring on the event loop after the forget (a send
+already building would still carry the value, and another session's forget is never seen), and dropping the older
+lines instead (the count of what happened this session would change under the visitor).
 
 **Question for Michael.** Are these lines how you want the page to read? In particular: should "Took notes in the
 background" show on every run (including no change), and should an episode carry the rolling summary or should the
