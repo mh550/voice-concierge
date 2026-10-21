@@ -80,9 +80,9 @@ and `forget` tools (`concierge/memory_tools.py`) and `leave_message_for_michael`
 
 **The v2 keys of `concierge.memory`.** Every key is optional, so a v1 page reads a v2 body; a v2 key with nothing to
 report (`about_agent` after "Forget me") is left out, never sent as null. One callable builds the body for the topic
-and for `concierge.get_memory` (`concierge/memory_view.py`); over the size cap the oldest events go first, then the
-oldest episodes, then the `profile` copy of the facts, and the v1 `facts` last, so a v1 page gets the facts a v1 agent
-would send (`concierge/contract.py`). An event line never quotes a value that reads as a link or an order to the agent.
+and for `concierge.get_memory` (`concierge/memory_view.py`); over the size cap the oldest `profile` facts go first
+(a copy of `facts`, which keeps them all), then the oldest events, then the oldest episodes, so a v1 page gets the
+facts a v1 agent would send (`concierge/contract.py`). An event line never quotes a value that reads as a link or an order to the agent.
 
 | Key | What it holds | Source module |
 |---|---|---|

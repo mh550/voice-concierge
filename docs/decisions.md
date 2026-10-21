@@ -361,7 +361,8 @@ rather see the session's cumulative cached share?
 `docs/plans/2026-10-21-V2-contract-v2.md`) found three Important gaps against spec 2026-10-21 §2 and §4.
 
 **Decision.**
-- (a) **The trimmer keeps the v1 facts** (replaces D17 (f)). Over 15 KiB, `contract.trim_to_fit` drops the oldest
+- (a) **The trimmer keeps the v1 facts** (replaces D17 (f); *order changed by D20: `profile` goes first*).
+  Over 15 KiB, `contract.trim_to_fit` drops the oldest
   events, then the oldest episodes, then the oldest `profile` items, and the oldest v1 `facts` only after all of
   those, one item at a time, re-measured. §4 says "keep the v1 keys populated as before" and "the events and episodes
   are capped so a full body fits"; D17 (f) dropped v1 facts first, so the largest ASCII body lost facts a v1 agent
@@ -387,6 +388,32 @@ also guards the memory block, and changing what is stored belongs in its own fea
 **Question for Michael.** (a): with more than 15 KiB, should a v2 page see a short `profile` (as now), or should
 both lists stay equal and the v1 facts pay for it? (c): should the write gate refuse these values too, so they are
 never stored, and not only never shown?
+
+## D20 *default*: the trim order the V2-05 step names (2026-10-21, V2-05 retry)
+
+**Finding.** The V2 verify failed V2-05 on one step: "the trimmer drops the oldest facts first, then the oldest
+events, then the oldest episodes, never a v1 key". D17 (f) read "facts" as both lists (so v1 `facts` lost items, a
+v1 key's content); D19 (a) kept the v1 facts but put `profile` after the events and episodes. The only reading that
+holds every clause of the step and §4's "keep the v1 keys populated as before" is that the facts it drops first are
+the `about_visitor.profile` facts (§2: "the valid typed-slot facts, same shape as v1 facts").
+
+**Decision.** Over 15 KiB, `contract.trim_to_fit` drops the oldest `profile` facts first, then the oldest events,
+then the oldest episodes, one item at a time, re-measured. `profile` is a copy of `facts`, so a v2 page that finds
+`profile` shorter than `facts` loses nothing: every fact is still in `facts`. The largest allowed body (V2-05's) now
+loses only the 2 oldest `profile` facts (15,738 → 15,238 bytes) and keeps all 12 events and 5 episodes; the 4-byte
+ones lose all of `profile`, then events, then the oldest episodes, and keep all 20 v1 facts. v1's own backstop stays
+last: a body still over after all three (only possible with more facts than the merge keeps, the C6 80-fact test, or
+an `about_agent` past its caps) drops its oldest v1 `facts`, as a v1 agent did. Tests:
+`test_the_largest_allowed_body_fits`, `test_a_multibyte_body_trims_profile_then_events_then_episodes`,
+`test_a_multibyte_body_drops_only_the_oldest_episodes_it_must`, `test_trim_to_fit_drops_the_oldest_profile_fact_first`
+(each checks the order and that one item put back goes over).
+
+**Rejected.** D19 (a)'s order (the events and the episodes are the only copy of what they say; `profile` is a second
+copy of `facts`), and D17 (f)'s (a v1 page would lose facts a v1 agent sends). Dropping the v1 backstop (the 80-fact
+body would then fail to send at all).
+
+**Question for Michael.** A v2 page should read `facts` when `profile` is shorter (only in a body over 15 KiB). Fine,
+or should `profile` and `facts` always match and the events pay for it?
 
 ## Health port: loopback only (Michael, 2026-10-20)
 

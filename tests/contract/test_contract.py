@@ -208,7 +208,7 @@ def test_build_memory_payload_drops_the_oldest_facts_to_fit(
     store: Store, clock: FakeClock, visitor_id: str, memory_validator: Draft202012Validator, ch: str
 ) -> None:
     """Multi-byte values over the 15 KiB cap: the body fits in bytes, the newest facts stay, the oldest go. `profile`
-    goes before any v1 fact (V2 review I1, D19)."""
+    goes before any v1 fact (D20: v1's own backstop, past `profile`, events and episodes)."""
     tid = store.get_or_create_thread(visitor_id).id
     for n in range(80):  # more than the merge would keep; the store takes them, so the cap is the backstop
         store.add_fact(tid, _add("asked_about", f"{n:02d}" + ch * 58, n))

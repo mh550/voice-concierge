@@ -165,9 +165,12 @@ Each is a default the build took (details in `docs/decisions.md`); say if you wa
   "Forgot at your request: <the visitor's words>". OK?
 - **D18:** the memory panel's cache share is the last turn that had LLM metrics (it keeps its value through a turn
   with none). OK, or should it be the session's cumulative share?
-- **D19:** the V2 review's three fixes. (a) Over 15 KiB, the body drops events, then episodes, then the v2
-  `profile` copy, and the v1 `facts` last, so a v1 page keeps every fact; a v2 page may see `profile` shorter than
-  `facts` in such a body. OK? (b) A v2 key with nothing to report (`about_agent` after "Forget me") is left out
+- **D19:** the V2 review's three fixes. (a) Over 15 KiB, the v1 `facts` keep every fact (the order is now D20's,
+  below). (b) A v2 key with nothing to report (`about_agent` after "Forget me") is left out
   rather than sent as null: tell the portfolio run if its page expects null. (c) An event line never quotes a value
   that reads as a link or an order ("Node.js" shows as "Remembered your interest"). Should the write gate refuse
   such values too, so they are never stored?
+- **D20** (replaces D19 (a)'s order): over 15 KiB the body drops the oldest v2 `profile` facts first (a copy of
+  `facts`), then events, then episodes; the v1 `facts` stay (v1's own oldest-fact backstop runs only past all three,
+  which an allowed body never reaches). A v2 page should read `facts` when `profile` is
+  shorter. OK, or should both lists always match and the events pay for it?

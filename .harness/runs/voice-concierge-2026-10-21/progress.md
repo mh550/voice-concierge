@@ -12,6 +12,20 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+### 2026-10-21 11:05 · V2-05 · passes
+
+- **Retry after verify V2** (step 4 failed only on trim order). `contract.trim_to_fit` now drops the oldest
+  `about_visitor.profile` facts first, then the oldest events, then the oldest episodes; v1's own oldest-`facts`
+  backstop stays last, so allowed bodies never reach it (C6's 80-fact test still does). D20 *default* in `docs/decisions.md` replaces
+  D19 (a)'s order. "Facts" in the step is read as `profile` (§2: same shape as v1 facts), the only reading that also
+  holds "never a v1 key" and §4. README, plan, MORNING updated. Tests 1089 → 1091.
+- **Verified.** Largest allowed body 15,738 → 15,238 B: 18/20 profile, 12 events, 5 episodes, 20 facts. With 4-byte
+  values, profile and events go first, then the oldest episodes (2 or 4 left). With 4-byte events only: 0 < events kept < 12, 5 episodes. Each
+  test puts one item back and checks it goes over. Mutation (newest events first) is caught. Opus review: 3 Important
+  (ruff E501, no test pinned the event order, stale README), all fixed. `check.sh` green, 1091 tests.
+- **Question for Michael (D20).** Over 15 KiB a v2 page can see `profile` shorter than `facts`, and should read
+  `facts` then. OK, or should both always match and the events pay?
+
 ### 2026-10-21 10:30 · verify V2
 
 | Feature | Step | What you ran or read | What you saw | Holds |

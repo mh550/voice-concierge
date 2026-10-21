@@ -125,7 +125,7 @@
         "README.md § What it does has one paragraph on the v2 body (what the page can show by kind: what is remembered about the visitor, this session's memory events, what the agent carries about itself) and § Architecture has a field table of the v2 keys (one row per top-level key with its source module); tests/test_readme.py checks the table names about_visitor, about_agent and retention_days",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V2-06",

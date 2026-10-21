@@ -316,14 +316,38 @@ def maximal_about_agent(ch: str = "x") -> AboutAgent:
     )
 
 
-def v1_facts(payload: MemoryPayload) -> list[Any]:
-    """The facts a v1 agent would send for the same store: the body without its v2 keys, trimmed to the cap."""
-    v1 = payload.model_copy(update={"v": None, "about_visitor": None, "about_agent": None, "retention_days": None})
-    return trim_to_fit(v1, MAX_BODY_BYTES).facts
+def assert_trimmed_in_order(payload: MemoryPayload, uncapped: MemoryPayload) -> tuple[int, int, int]:
+    """The size rule (V2-05 step 4, D20): the oldest `profile` facts go first, then the oldest events, then the
+    oldest episodes, each only once the list before it is empty, and only as many as it must (one more item back
+    goes over). No v1 key changes, so `facts` keeps every fact a v1 agent sends. Returns the kept counts."""
+    about, full = payload.about_visitor, uncapped.about_visitor
+    assert about is not None and full is not None
+    assert body_bytes(payload) <= MAX_BODY_BYTES
+    for key in (*V1_KEYS, "v", "about_agent", "retention_days"):
+        if key != "updated_at":
+            assert getattr(payload, key) == getattr(uncapped, key), key
+    profile, events, episodes = about.profile, about.events, about.episodes
+    assert profile == (full.profile[-len(profile):] if profile else [])  # oldest first: the newest stay
+    assert events == full.events[: len(events)] and episodes == full.episodes[: len(episodes)]  # newest first
+    if len(events) < len(full.events):
+        assert profile == []
+    if len(episodes) < len(full.episodes):
+        assert events == []
+    all_events, all_episodes = len(events) == len(full.events), len(episodes) == len(full.episodes)
+    for dropped, put_back in (  # the last drop: the lists after it were still whole
+        (len(profile) < len(full.profile) and all_events and all_episodes,
+         {"profile": full.profile[-len(profile) - 1:]}),
+        (not all_events and all_episodes, {"events": full.events[: len(events) + 1]}),
+        (not all_episodes, {"episodes": full.episodes[: len(episodes) + 1]}),
+    ):
+        if dropped:
+            probe = payload.model_copy(update={"about_visitor": about.model_copy(update=put_back)})
+            assert body_bytes(probe) > MAX_BODY_BYTES, put_back.keys()  # it dropped only what it had to
+    return len(profile), len(events), len(episodes)
 
 
 def test_the_largest_allowed_body_fits(store: Store, clock: Any, memory_validator: Draft202012Validator) -> None:  # noqa: ANN401
-    """V2 review I1: the oldest events go first, and a v1 page still gets every fact."""
+    """Only the oldest `profile` facts go: every event and episode stays, and `facts` keeps all 20 (D20)."""
     tid = maximal_store(store, clock)
     events, agent = maximal_events(), maximal_about_agent()
     uncapped = build_memory_payload(store, tid, max_bytes=None, about_agent=agent, events=events)
@@ -331,48 +355,48 @@ def test_the_largest_allowed_body_fits(store: Store, clock: Any, memory_validato
     payload = build_memory_payload(store, tid, about_agent=agent, events=events)
     assert body_bytes(payload) <= 15 * 1024
     memory_validator.validate(json.loads(payload.model_dump_json()))
-    assert payload.about_visitor is not None and uncapped.about_visitor is not None
-    assert payload.facts == uncapped.facts == v1_facts(uncapped) and len(payload.facts) == 20
-    assert payload.about_visitor.profile == payload.facts and len(payload.about_visitor.episodes) == 5
-    kept = payload.about_visitor.events
-    assert 0 < len(kept) < 12 and kept == events[: len(kept)]  # the oldest events went, only those it had to
-    for key in ("visitor", "summary", "v", "about_agent", "retention_days"):
-        assert getattr(payload, key) == getattr(uncapped, key), key
+    profile, kept_events, episodes = assert_trimmed_in_order(payload, uncapped)
+    assert len(payload.facts) == 20 and 0 < profile < 20 and (kept_events, episodes) == (12, 5)
 
 
 @pytest.mark.parametrize("ch", ["🙂", "𝄞"])
-def test_a_multibyte_body_trims_events_then_episodes_then_profile(store: Store, clock: Any, ch: str) -> None:  # noqa: ANN401
-    """4-byte characters: every event goes, then the episodes, oldest first, then the oldest of profile; the v1 facts
-    stay as a v1 agent would send them (V2 review I1, D19)."""
+def test_a_multibyte_body_trims_profile_then_events_then_episodes(store: Store, clock: Any, ch: str) -> None:  # noqa: ANN401
+    """4-byte characters: every `profile` fact goes, then every event, then the oldest episodes; the v1 facts all
+    stay."""
     tid = maximal_store(store, clock, ch)
     events, agent = maximal_events(ch), maximal_about_agent()  # the section titles are the pack's own
     uncapped = build_memory_payload(store, tid, max_bytes=None, about_agent=agent, events=events)
     payload = build_memory_payload(store, tid, about_agent=agent, events=events)
-    assert body_bytes(payload) <= MAX_BODY_BYTES
-    about, full = payload.about_visitor, uncapped.about_visitor
-    assert about is not None and full is not None
-    assert payload.facts == uncapped.facts == v1_facts(uncapped) and len(payload.facts) == 20
-    assert about.events == [] and about.episodes == []
-    assert 0 < len(about.profile) < 20 and about.profile == full.profile[-len(about.profile):]  # the newest kept
-    probe = payload.model_copy(update={"about_visitor": about.model_copy(
-        update={"profile": full.profile[-len(about.profile) - 1:]})})
-    assert body_bytes(probe) > MAX_BODY_BYTES  # it dropped only what it had to
+    profile, kept_events, episodes = assert_trimmed_in_order(payload, uncapped)
+    assert len(payload.facts) == 20 and (profile, kept_events) == (0, 0) and 0 < episodes < 5
+
+
+def test_4_byte_events_drop_only_the_oldest_events_it_must(store: Store, clock: Any) -> None:  # noqa: ANN401
+    """Every `profile` fact goes, then the oldest events, as few as fit; every episode and v1 fact stays."""
+    tid = maximal_store(store, clock)
+    events, agent = maximal_events("🙂"), maximal_about_agent()
+    uncapped = build_memory_payload(store, tid, max_bytes=None, about_agent=agent, events=events)
+    payload = build_memory_payload(store, tid, about_agent=agent, events=events)
+    profile, kept_events, episodes = assert_trimmed_in_order(payload, uncapped)
+    assert len(payload.facts) == 20 and profile == 0 and 0 < kept_events < 12 and episodes == 5
+    assert payload.about_visitor is not None
+    assert [e.detail[:2] for e in payload.about_visitor.events] == [f"{n:02d}" for n in range(kept_events)]
 
 
 def test_a_multibyte_body_drops_only_the_oldest_episodes_it_must(store: Store, clock: Any) -> None:  # noqa: ANN401
-    tid = maximal_store(store, clock, episode_ch="🙂")
+    tid = maximal_store(store, clock, summary_ch="🙂", episode_ch="🙂")  # a 1,600-byte v1 summary
     events, agent = maximal_events("🙂"), maximal_about_agent()
-    full = build_memory_payload(store, tid, max_bytes=None, about_agent=agent, events=events).about_visitor
+    uncapped = build_memory_payload(store, tid, max_bytes=None, about_agent=agent, events=events)
     payload = build_memory_payload(store, tid, about_agent=agent, events=events)
-    assert payload.about_visitor is not None and full is not None and len(payload.facts) == 20
-    kept = payload.about_visitor.episodes
-    assert payload.about_visitor.events == [] and payload.about_visitor.profile == payload.facts
-    assert 0 < len(kept) < 5 and kept == full.episodes[: len(kept)]  # newest first: the oldest went
-    assert [e.visit for e in kept] == list(range(5, 5 - len(kept), -1))
+    profile, kept_events, episodes = assert_trimmed_in_order(payload, uncapped)
+    assert len(payload.facts) == 20 and (profile, kept_events) == (0, 0) and 0 < episodes < 5
+    assert payload.about_visitor is not None
+    assert [e.visit for e in payload.about_visitor.episodes] == list(range(5, 5 - episodes, -1))
 
 
 def test_the_trimmer_never_drops_a_v1_key(store: Store, clock: Any) -> None:  # noqa: ANN401
-    """A body that can't fit (the about_agent alone is over): every fact, event and episode goes, no key does."""
+    """A body that can't fit (the about_agent alone is over): every profile fact, event and episode goes, then v1's
+    own backstop takes the facts; no key goes, and the send then fails as too large."""
     tid = maximal_store(store, clock)
     huge = maximal_about_agent().model_copy(update={"knowledge": Knowledge(
         words=1, est_tokens=1, sources_commit="abc1234", sections=["y" * 100] * 200)})
@@ -382,5 +406,17 @@ def test_the_trimmer_never_drops_a_v1_key(store: Store, clock: Any) -> None:  # 
     assert list(dumped) == list(full)  # every key is still there
     for key in ("visitor", "summary", "v", "about_agent", "retention_days"):
         assert dumped[key] == full[key], key
-    assert dumped["facts"] == [] and dumped["about_visitor"] == {"profile": [], "episodes": [], "events": []}
-    assert all(key in dumped for key in V1_KEYS)
+    assert dumped["facts"] == [] and len(full["facts"]) == 20
+    assert dumped["about_visitor"] == {"profile": [], "episodes": [], "events": []}
+    assert body_bytes(payload) > MAX_BODY_BYTES
+
+
+def test_trim_to_fit_drops_the_oldest_profile_fact_first(store: Store, clock: Any) -> None:  # noqa: ANN401
+    """A cap one byte under the body: exactly the oldest `profile` fact goes, nothing else."""
+    tid = maximal_store(store, clock)
+    full = build_memory_payload(store, tid, max_bytes=None, about_agent=maximal_about_agent(), events=maximal_events())
+    trimmed = trim_to_fit(full, body_bytes(full) - 1)
+    assert trimmed.about_visitor is not None and full.about_visitor is not None
+    assert trimmed.about_visitor.profile == full.about_visitor.profile[1:]
+    assert trimmed.about_visitor.events == full.about_visitor.events
+    assert trimmed.about_visitor.episodes == full.about_visitor.episodes and trimmed.facts == full.facts

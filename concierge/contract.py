@@ -189,8 +189,8 @@ def build_memory_payload(
     oldest first by (created_at, id), repeated as `about_visitor.profile`; the newest 5 visits as `episodes` (V2-03,
     read right after the view on the same thread: an erase in between leaves none); `events` (newest first, the ring)
     keeps its newest 12; `about_agent` stays null when none is given. Over `max_bytes`, `trim_to_fit` drops the oldest
-    events, then episodes, then `profile` items, then facts. An erased thread gives `empty_memory_payload()`.
-    Blocks on the store: call it on the writer's thread or in a thread."""
+    `profile` facts, then events, then episodes (and v1's oldest facts only past those). An erased thread gives
+    `empty_memory_payload()`. Blocks on the store: call it on the writer's thread or in a thread."""
     try:
         thread, snapshot, now = store.memory_view(thread_id)
     except ThreadMissing:
@@ -214,13 +214,14 @@ def build_memory_payload(
 
 
 def trim_to_fit(payload: MemoryPayload, max_bytes: int) -> MemoryPayload:
-    """The size rule (D19, V2 review I1): drop the oldest events, then the oldest episodes (both lists are newest
-    first), then the oldest of `profile`, and only then the oldest v1 `facts`, until the JSON body fits; so a v1 page
-    gets the facts a v1 agent would send. Never a v1 key, `v`, `about_agent` or `retention_days`: a body that still
-    doesn't fit is returned as it is, and its send fails as too large. One item at a time, re-measured: the lists are
-    short (12, 5, 20, 20)."""
+    """The size rule (V2-05, D20): drop the oldest `profile` facts first (a copy of `facts`, so a page loses nothing
+    it can't read there), then the oldest events, then the oldest episodes (both lists are newest first), until the
+    JSON body fits. Never a v1 key, `v`, `about_agent` or `retention_days`; the largest allowed body keeps every v1
+    fact. Only a body still over after all three (more facts than the merge keeps, as in v1) loses its oldest v1
+    `facts`, v1's own rule; one that can't fit is returned as it is, and its send fails as too large. One item at a
+    time, re-measured: the lists are short (20, 12, 5, 20)."""
     about = payload.about_visitor or AboutVisitor(profile=[], episodes=[], events=[])
-    events, episodes, profile = list(about.events), list(about.episodes), list(about.profile)
+    profile, events, episodes = list(about.profile), list(about.events), list(about.episodes)
     facts = list(payload.facts)
 
     def built() -> MemoryPayload:
@@ -229,7 +230,7 @@ def trim_to_fit(payload: MemoryPayload, max_bytes: int) -> MemoryPayload:
         return payload.model_copy(update={"facts": list(facts), "about_visitor": kept})
 
     trimmed = payload
-    for items, oldest in ((events, -1), (episodes, -1), (profile, 0), (facts, 0)):
+    for items, oldest in ((profile, 0), (events, -1), (episodes, -1), (facts, 0)):
         while items and body_bytes(trimmed) > max_bytes:
             items.pop(oldest)
             trimmed = built()
