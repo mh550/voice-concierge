@@ -12,6 +12,29 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+### 2026-10-21 03:45 · V1-03 · passes
+
+- **V1 as a whole.** Tests 940 before V1 → 972 after (V1-01 +12, V1-02 +11, V1-03 +9). Design fact: every end runs
+  its closing work once, while the room is still connected, and sends the final `concierge.memory` before
+  `ctx.shutdown(reason)`, because the job disconnects the room before its shutdown callbacks run
+  (job_proc_lazy_main.py:477-497). The ends are the departure, both caps and forget_me. A server-side close runs the
+  same work in `on_shutdown`, with no final send.
+- **Changed (V1-03).** Opus review of `$HARNESS_SCRATCH/review-V1.diff` (1362 lines): no Critical, 3 Important, 6
+  Minor, all fixed test-first. Notes are under "## Review" in `docs/plans/2026-10-21-V1-departure.md`.
+  - I1: `JOIN_GRACE_S = 60.0` for a visitor not in `room.remote_participants` when the watch starts.
+  - I2: forget_me ends through `begin_end`, and `start_session` checks `closing.stopped` after `session.start` and
+    after the late count: no greeting, timer or cap line after an end.
+  - I3: the closing waits for a forget_me in flight before it leaves.
+  - Simplification: `enforce_daily_cap` and the `end=None` paths removed; `visitor_left` folded into
+    `end_session(..., left_grace_s=)`.
+- **Verified.** `check.sh` green, 972 tests, 102 s; ruff clean; the V1 test files 3x in a row green. Every
+  `concierge/*.py` is ≤ 250 lines (`session_end.py` 250, `session.py` 219).
+- **Next session must know.** `FakeRoom.emit` now keeps `remote_participants`. A session test whose visitor should be
+  present uses `seated_room()`: an empty room starts the 60 s join grace, which `shutdown` cancels.
+- **Question for Michael.** D16, extended: is 60 s right for a visitor not yet in the room when the watch starts (as
+  well as the 20 s departure grace)?
+- **Proposed changes.** None.
+
 ### 2026-10-21 02:52 · V1-02 · passes
 
 - **Changed.** `concierge/session_end.py` (98 → 249 lines): `Closing`, `begin_end`, `end_session(closing, reason, *,

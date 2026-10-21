@@ -48,7 +48,7 @@
         ".harness/runs/voice-concierge-2026-10-21/progress.md has a V1 entry that states the test count before and after V1 and the design fact that the final concierge.memory is sent before ctx.shutdown",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V2-01",

@@ -140,6 +140,7 @@ class Closing:
     watcher: DepartureWatcher | None = None
     summarizers: list[llm.LLM] = field(default_factory=list)
     ending: asyncio.Task[None] | None = None  # the one run of the closing work; never one of `tasks`
+    stopped: bool = False  # an end began ("Forget me" included): start_session starts nothing more
 
     def build_summarizer(self) -> llm.LLM:
         self.summarizers.append(self.make_summarizer())
@@ -147,6 +148,7 @@ class Closing:
 
     def stop(self) -> None:
         """No other end starts: the cap timer and the departure watch are cancelled (idempotent; "Forget me" too)."""
+        self.stopped = True
         if self.timer is not None:  # a sleeping 10-minute task would hold the shutdown up
             self.timer.cancel()
         if self.watcher is not None:
@@ -155,6 +157,7 @@ class Closing:
 
 def _begin(closing: Closing, reason: str, leave: bool, left_grace_s: float | None = None) -> asyncio.Task[None]:
     if closing.ending is None:  # outside `closing.tasks`: the work's gather never waits for itself
+        closing.stop()  # now, not when the task first runs: start_session sees it at once
         closing.ending = asyncio.create_task(_close(closing, reason, leave, left_grace_s), name="end_session")
     return closing.ending
 
@@ -164,14 +167,16 @@ def begin_end(closing: Closing, reason: str) -> None:
     _begin(closing, reason, leave=True)
 
 
-async def end_session(closing: Closing, reason: str, *, leave: bool = True) -> None:
+async def end_session(
+    closing: Closing, reason: str, *, leave: bool = True, left_grace_s: float | None = None
+) -> None:
     """Run the closing work, then (with `leave`) `ctx.shutdown(reason)`. Once per session: a later call (the cap and
-    the departure racing, or on_shutdown after either) waits for the first one's run and adds nothing."""
-    await asyncio.shield(_begin(closing, reason, leave))
+    the departure racing, or on_shutdown after either) waits for the first one's run and adds nothing. With
+    `left_grace_s` (the DepartureWatcher's on_left), `visitor_left` (no values, D8) is journaled first in the run."""
+    await asyncio.shield(_begin(closing, reason, leave, left_grace_s))
 
 
 async def _close(closing: Closing, reason: str, leave: bool, left_grace_s: float | None) -> None:
-    closing.stop()
     try:
         async with asyncio.timeout(SHUTDOWN_WORK_S):
             if left_grace_s is not None:  # in the one run: no other end can follow the row with its own reason
@@ -181,6 +186,8 @@ async def _close(closing: Closing, reason: str, leave: bool, left_grace_s: float
                 # final extraction (V1-02 review I2). The room and the job stay up (agent_session.py:1309, room_io:552).
                 await closing.session.aclose()
             await _work(closing, reason)
+            # A "Forget me" begun during the work sends its empty memory before ctx.shutdown closes the room (V1-03).
+            await asyncio.gather(*closing.tasks, return_exceptions=True)
     except TimeoutError:
         logger.warning("the shutdown work missed its %.0f s deadline; the rest was skipped", SHUTDOWN_WORK_S)
     except Exception as exc:  # by type only; the session still leaves
@@ -218,12 +225,6 @@ async def _journal(closing: Closing, kind: JournalType, payload: dict[str, Any])
     """A closing row: only with a thread; on the writer's thread, after a cancelled run's last store call (M7)."""
     if closing.store is not None and closing.preloaded is not None:
         await journal_row(closing.store, closing.preloaded.thread_id, closing.session_id, kind, payload, closing.writer)
-
-
-async def visitor_left(closing: Closing, grace_s: float) -> None:
-    """The DepartureWatcher's `on_left`: end the session with `visitor_left` (no values, D8) journaled first in the
-    closing run, unless another end started it already."""
-    await asyncio.shield(_begin(closing, "visitor left", leave=True, left_grace_s=grace_s))
 
 
 async def shut_down(closing: Closing, reason: str) -> None:

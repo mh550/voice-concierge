@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from concierge.departure import DEPARTURE_GRACE_S, DepartureWatcher
+from concierge.departure import DEPARTURE_GRACE_S, JOIN_GRACE_S, DepartureWatcher
 from concierge.testing.fake_room import FakeRoom
 
 VISITOR = "visitor-3f2b8c1e"
@@ -29,8 +29,10 @@ class Calls:
 
 
 @pytest.fixture
-async def room() -> FakeRoom:  # async: rtc.Room takes the running loop
-    return FakeRoom()
+async def room() -> FakeRoom:  # async: rtc.Room takes the running loop; the visitor is in it, as after a join
+    room = FakeRoom()
+    room.seat(VISITOR)
+    return room
 
 
 @pytest.fixture
@@ -47,6 +49,57 @@ async def watcher(room: FakeRoom, calls: Calls) -> DepartureWatcher:
 
 def test_the_default_grace_is_twenty_seconds() -> None:
     assert DEPARTURE_GRACE_S == 20.0
+    assert JOIN_GRACE_S == 60.0
+
+
+async def test_a_visitor_already_in_the_room_starts_no_grace(watcher: DepartureWatcher) -> None:
+    assert not watcher.pending
+
+
+async def test_a_visitor_absent_at_start_gets_the_join_grace_then_on_left(calls: Calls) -> None:
+    # Gone during ctx.connect() or the preload (the disconnect came before start()), or never joined (V1-02 I3).
+    room = FakeRoom()
+    w = DepartureWatcher(room, VISITOR, calls.on_left, grace_s=60.0, join_grace_s=GRACE_S)
+    w.start()
+    assert w.pending
+    await asyncio.sleep(GRACE_S * 3)
+    assert calls.n == 1
+    assert not w.pending
+    assert w.waited_s == GRACE_S  # what visitor_left journals: the grace that ran out
+
+
+async def test_waited_s_is_the_departure_grace_after_a_departure(
+    room: FakeRoom, calls: Calls, watcher: DepartureWatcher
+) -> None:
+    assert watcher.waited_s is None
+    room.emit("participant_disconnected", Participant(VISITOR))
+    await asyncio.sleep(GRACE_S * 3)
+    assert calls.n == 1 and watcher.waited_s == GRACE_S
+
+
+async def test_the_fake_room_tracks_who_is_in_it(room: FakeRoom, calls: Calls) -> None:
+    # As rtc.Room does (room.py:769, :773): a visitor gone before a watch starts is not listed (review M5).
+    room.emit("participant_disconnected", Participant(VISITOR))
+    assert VISITOR not in room.remote_participants
+    w = DepartureWatcher(room, VISITOR, calls.on_left, grace_s=60.0, join_grace_s=GRACE_S)
+    w.start()
+    assert w.pending
+    room.emit("participant_connected", Participant(VISITOR))
+    assert VISITOR in room.remote_participants and not w.pending
+
+
+async def test_a_visitor_joining_inside_the_join_grace_cancels_it(calls: Calls) -> None:
+    room = FakeRoom()
+    w = DepartureWatcher(room, VISITOR, calls.on_left, grace_s=GRACE_S, join_grace_s=GRACE_S)
+    w.start()
+    room.emit("participant_connected", Participant(VISITOR))
+    assert not w.pending
+    await asyncio.sleep(GRACE_S * 3)
+    assert calls.n == 0
+    room.emit("participant_disconnected", Participant(VISITOR))  # then a departure starts the usual grace
+    assert w.pending
+    await asyncio.sleep(GRACE_S * 3)
+    assert calls.n == 1
 
 
 async def test_the_visitor_leaving_calls_on_left_once_after_the_grace(

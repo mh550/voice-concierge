@@ -146,4 +146,5 @@ Each is a default the build took (details in `docs/decisions.md`); say if you wa
 - **D13:** does the page expect fact `id` as a number and timestamps as ISO-8601 `…Z` strings?
 - **D14:** should a message for you allow links in its text (the gate refuses them now, and "act as …")?
 - **D15:** should messages outlive the 30-day idle purge, until you delete them?
-- **D16:** is 20 s the right wait for the visitor to reconnect before the agent leaves (or 10 s, or 30 s)?
+- **D16:** is 20 s the right wait for the visitor to reconnect before the agent leaves (or 10 s, or 30 s)? And is
+  60 s right for a visitor who isn't in the room yet when the agent starts watching (V1-03)?

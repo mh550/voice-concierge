@@ -213,3 +213,93 @@ An Opus review of the build diff found no Critical and three Important points; t
 - **Also for V1-03:** a departure whose grace runs out before `start_session` returns ends the session, but the
   timer and `session_started` are still created after it (`shut_down` cancels the timer; only the journal order is
   off). Unlikely with a 20 s grace.
+
+## Review
+
+V1-03 (2026-10-21). An Opus reviewer read the milestone diff (`git diff 21905a7..HEAD -- . ':!.harness'`, 1362
+lines) from `$HARNESS_SCRATCH/review-V1.diff` and returned findings only. Each fix below was RED first. The new or
+changed test failed for the reason given before the code changed.
+
+### Critical
+
+None. The closing work runs once: `_begin` (`concierge/session_end.py`) creates `closing.ending` one time, and every
+other entry waits on that task. forget_me leaks nothing:
+- the extraction is skipped once erased (`memory_writer.py:196`);
+- `write_summary`, and `session_ended`, are skipped once erased;
+- a closing row on an erased thread is `ThreadMissing` and is only logged;
+- `publisher.final` closes the publisher before it takes the lock, so the empty body is the last one.
+
+A second `ctx.shutdown` is a no-op (`job_proc_lazy_main.py:297-303`).
+
+### Important
+
+**I1: a visitor gone before the watch starts was never seen to leave** (V1-02's open I3). This covers a visitor who
+left during `ctx.connect()` or the preload, and one who never joined. `concierge/departure.py:start()` now checks
+`room.remote_participants` (rtc/room.py:249). If the visitor isn't in it, the watcher starts `JOIN_GRACE_S = 60.0`.
+A `participant_connected` with the same identity cancels that grace (D16, extended).
+- RED: `tests/test_departure.py::test_a_visitor_absent_at_start_gets_the_join_grace_then_on_left` and
+  `::test_a_visitor_joining_inside_the_join_grace_cancels_it` (ImportError: no `JOIN_GRACE_S`).
+- RED: `tests/test_session.py::test_a_visitor_gone_before_the_watch_starts_still_ends_the_session` (no shutdown).
+- The reviewer thought 60 s was probably longer than needed, since the room exists only once the page has
+  connected. It was kept as the safe side, and the question went to Michael.
+
+**I2: start_session went on after an end began.** An end that began during `session.start` or the late daily count
+(up to 5 s) still produced a greeting. If the closing had already closed the AgentSession, `generate_reply` raised
+"AgentSession isn't running" and the entrypoint failed. It also still started the timer and journaled
+`session_started` after `session_ended`. A forget_me during the late count had the agent greet the visitor after
+"I've forgotten everything about you", because forget_me ended through a bare `ctx.shutdown` and never marked the
+session as ending.
+- Fix part 1: forget_me now ends through `begin_end` (`end=end` in `serve_rpcs`), the last end path outside
+  `end_session`. A forget_me during a running closing therefore no longer calls `ctx.shutdown("forget_me")` in the
+  middle of that work.
+- Fix part 2: `Closing.stop()` sets `stopped`. `_begin` calls it at once, and so does forget_me (`stop_timer`).
+  `start_session` checks `closing.stopped` after `session.start`, before the late count's cap line and before the
+  greeting.
+- RED: `test_an_end_during_the_start_starts_nothing_after_it` (a greeting handle).
+- RED: `test_an_end_during_the_late_count_starts_nothing_after_it` (`RuntimeError: AgentSession isn't running`).
+- RED: `test_a_forget_me_during_the_late_count_ends_without_a_greeting` (a greeting).
+- RED: `test_a_forget_me_after_a_cap_began_runs_the_work_once` (`['forget_me', 'time limit']`).
+- Changed: `test_a_forget_me_during_the_closing_send_still_sends_the_empty_memory_last` now expects the one end,
+  `"time limit"`.
+
+**I3, found while fixing I2: forget_me during a cap's closing could still lose its empty memory.** The race goes:
+1. The closing send reads the stale memory while forget_me is still erasing.
+2. `publisher.idle()` returns, and `ctx.shutdown` runs.
+3. `publisher.aclose()` drops forget_me's `final`.
+
+Before V1-03 the test waited for forget_me's own `ctx.shutdown`, which hid this; production never waited. Now
+`_close` awaits the session's tracked tasks once more before it leaves, and forget_me is one of them.
+- RED: `test_a_forget_me_during_the_closing_send_still_sends_the_empty_memory_last`, with the erase slowed by 0.2 s
+  (the last body still had `Ada`; before the slowdown it failed about 1 run in 10).
+
+### Minor (all fixed)
+
+- **M1.** `visitor_left` journaled `grace_s: 20` after the 60 s join grace. The watcher now records `waited_s`, and
+  `on_left` passes it on. `test_waited_s_is_the_departure_grace_after_a_departure`, plus the payload assert in the
+  gone-before test (RED: `{'grace_s': 0.1}`).
+- **M2.** Dead `_EVENTS` in `departure.py`, removed.
+- **M3.** Dead code in `limits.py`:
+  - `enforce_daily_cap` was used only by its test. Removed, with `test_enforce_daily_cap_says_the_line_and_ends_on_the_sixth`.
+  - The `end is None` branch of `say_and_end` and the `end=None` default of `start_session_timer` and
+    `build_handlers` were reachable only from tests. `end` is now required, and `test_session_timer_without_end_closes_the_session`
+    and `Speaker.aclose` are gone.
+- **M4.** The `visitor_left` wrapper was folded into `end_session(..., left_grace_s=)`. Slimming `Started`, which
+  duplicates fields of `Closing`, was not done: it is optional churn, and the tests read `started.timer`.
+- **M5.** `FakeRoom.emit` now keeps `remote_participants` as `rtc.Room` does (room.py:769, :773), and `FakeRoom.seat`
+  puts a visitor in the room. `test_the_fake_room_tracks_who_is_in_it`. The V1 session tests use `seated_room()`.
+- **M6.** `session_started` is journaled on the writer's store thread, in order with the writer's rows.
+
+### Checked, clean
+
+- Every `room.on` / `session.on` handler is a plain def that only schedules or cancels work (`EventEmitter.on`
+  refuses coroutines, rtc/event_emitter.py:172-178).
+- The departure grace running out while the time-up line plays ends once, with "visitor left": the timer is
+  cancelled and its `say_and_end` never calls `end`. New test `test_the_grace_running_out_during_the_time_up_line_ends_once`
+  (GREEN on arrival; it covers a gap and needed no fix).
+
+### Simplification pass
+
+- The end paths now all go through `end_session`: the departure, both caps, forget_me and `on_shutdown`.
+- Dead code removed: `enforce_daily_cap`, the `end=None` paths, `Speaker.aclose`, `_EVENTS`, the `visitor_left`
+  wrapper.
+- `wc -l concierge/*.py`: every module is at most 250 lines (`session_end.py` 250, `session.py` 219).

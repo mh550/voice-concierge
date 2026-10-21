@@ -17,6 +17,7 @@ import functools
 import logging
 import time
 import uuid
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -28,7 +29,7 @@ from concierge.agent import ConciergeAgent, agent_or_memoryless
 from concierge.compactor import Compactor
 from concierge.config import Settings, build_llm, build_stt, build_tts, recording_options
 from concierge.contract import METRICS_TOPIC
-from concierge.departure import DEPARTURE_GRACE_S, DepartureWatcher
+from concierge.departure import DEPARTURE_GRACE_S, JOIN_GRACE_S, DepartureWatcher
 from concierge.dispatch import DispatchInfo, parse_dispatch
 from concierge.erasure_hooks import add_erase_hook
 from concierge.greeting import greeting_instructions
@@ -47,7 +48,7 @@ from concierge.metrics import TurnMetricsCollector
 from concierge.preload import Preloaded, preload, preload_or_none
 from concierge.publish import MemoryPublisher, publish
 from concierge.rpc import current_memory, serve_rpcs
-from concierge.session_end import Closing, begin_end, journal_row, shut_down, visitor_left
+from concierge.session_end import Closing, begin_end, end_session, journal_row, shut_down
 from concierge.store import Store
 from concierge.tasks import track
 from concierge.text_input import ChannelTags, make_text_input_cb
@@ -135,22 +136,26 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
     _, preloaded = await asyncio.gather(ctx.connect(), preload_or_none(preloading, PRELOAD_TIMEOUT_S))
     closing.preloaded = preloaded
     # V1: the visitor's page leaving ends the session once the grace (D16) runs out; the capped session too.
-    left = functools.partial(visitor_left, closing, DEPARTURE_GRACE_S)
-    closing.watcher = DepartureWatcher(ctx.room, f"visitor-{info.visitor_id}", left, DEPARTURE_GRACE_S)
-    closing.watcher.start()
+    def left() -> Awaitable[None]:  # visitor_left carries the grace that ran out (the join grace or the departure's)
+        return end_session(closing, "visitor left", left_grace_s=watcher.waited_s)
+
+    watcher = closing.watcher = DepartureWatcher(
+        ctx.room, f"visitor-{info.visitor_id}", left, DEPARTURE_GRACE_S, JOIN_GRACE_S
+    )
+    watcher.start()
     # The count is done unless the preload missed its deadline (the preload waits for it). A late count is awaited
     # after session.start instead, so RoomIO's lk.chat and pre-connect audio handlers aren't held up (D9, review I3).
     late_count = counting if counting is not None and not counting.done() else None
     capped = late_count is None and await was_capped(counting)
 
-    end = functools.partial(begin_end, closing)  # the caps' end: the closing work, then ctx.shutdown
+    end = functools.partial(begin_end, closing)  # every end but a departure: the closing work, then ctx.shutdown
     session = closing.session = build_session(ctx, settings)
     channels = ChannelTags()
     # What concierge.memory and get_memory carry now: on the writer's thread, in order with its writes.
     publisher = closing.publisher = MemoryPublisher(ctx.room, lambda: current_memory(store, writer, info.visitor_id))
     rpcs = functools.partial(  # after connect: local_participant exists
         serve_rpcs, ctx.room, visitor_id=info.visitor_id, store=store, publisher=publisher, session=session,
-        end=ctx.shutdown, tasks=tasks, preloading=preloading, stop_timer=closing.stop,  # "Forget me": no cap line
+        end=end, tasks=tasks, preloading=preloading, stop_timer=closing.stop,  # "Forget me": no cap line, one end
     )
     if capped:  # memoryless, no greeting; the RPCs still answer (a capped visitor can still press "Forget me")
         rpcs(writer=None)
@@ -192,12 +197,15 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
         session.llm.on("metrics_collected", collector.on_llm_metrics)
     rpcs(writer=writer)
     await session.start(agent=agent, **room_start_kwargs(ctx, info, settings, channels))
-    if writer is not None and writer.erased:  # "Forget me" during start: it says goodbye and ends (review A-M1)
-        return Started(session, None, session_id, None, tasks, writer, compactor, publisher, collector, closing=closing)
-    if late_count is not None and await was_capped(late_count):  # no memory was loaded: the preload waits for it
+    # An end that began during the start ("Forget me" says goodbye and ends, review A-M1; the visitor gone, V1-03) or
+    # during the late count runs alone: no cap line, no greeting, no timer, no session_started after session_ended.
+    if not closing.stopped and late_count is not None and await was_capped(late_count):  # the preload waits for it
         if preloading is not None:
             preloading.cancel()  # a count that timed out may still come back under the cap: no preload then
-        track(tasks, say_and_end(session, DAILY_CAP_LINE, end, "daily cap"), log=logger)
+        if not closing.stopped:
+            track(tasks, say_and_end(session, DAILY_CAP_LINE, end, "daily cap"), log=logger)
+        return Started(session, None, session_id, None, tasks, writer, compactor, publisher, collector, closing=closing)
+    if closing.stopped:
         return Started(session, None, session_id, None, tasks, writer, compactor, publisher, collector, closing=closing)
     greeting = session.generate_reply(instructions=greeting_instructions(preloaded))
     publisher.schedule()  # after the greeting is queued: the read waits behind the writer's thread, not the reply
@@ -205,6 +213,7 @@ async def start_session(ctx: JobContext, store: Store | None, settings: Settings
 
     if store is not None and preloaded is not None:
         started = {"visits": preloaded.visits, "preload_ms": preloaded.ms, "returning": preloaded.block is not None}
-        track(tasks, journal_row(store, preloaded.thread_id, session_id, "session_started", started), log=logger)
+        track(tasks, journal_row(store, preloaded.thread_id, session_id, "session_started", started, writer),
+              log=logger)
     return Started(session, preloaded, session_id, greeting, tasks, writer, compactor, publisher, collector, timer,
                    closing)

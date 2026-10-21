@@ -12,6 +12,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any
 
 from livekit import rtc
@@ -70,3 +71,16 @@ class FakeRoom(rtc.Room):
     @property
     def local_participant(self) -> FakeLocalParticipant:  # type: ignore[override]
         return self._fake_participant
+
+    def emit(self, event: str, *args: Any) -> None:  # noqa: ANN401
+        """As rtc.Room keeps `remote_participants` before it emits (room.py:769, :773); only `.identity` is read."""
+        if event == "participant_connected":
+            self._remote_participants[args[0].identity] = args[0]
+        elif event == "participant_disconnected":
+            self._remote_participants.pop(args[0].identity, None)
+        super().emit(event, *args)
+
+    def seat(self, identity: str) -> None:
+        """A remote participant already in the room, as `remote_participants` (rtc/room.py:249) has it after a join;
+        only its `.identity` is read."""
+        self._remote_participants[identity] = SimpleNamespace(identity=identity)  # type: ignore[assignment]

@@ -243,6 +243,17 @@ within about 30 s, inside the page's 60 s retry window (spec §2). Reversible: o
 **Question for Michael.** Is 20 s right? 10 s frees the address sooner but a slow reload then starts a new session;
 30 s is safer for reloads but the page's "Closing your earlier conversation…" wait grows to about 40 s.
 
+**Extended in V1-03 (review I1): the join grace.** The watcher only hears events, so a visitor who left during
+`ctx.connect()` or the preload (rtc.Room removes them from `remote_participants` before it emits, rtc/room.py:773), or
+who never joined, was never seen to leave and the session ran to the 10-minute cap. Now, when the watch starts and
+`visitor-<visitor_id>` is not in `room.remote_participants` (rtc/room.py:249), it starts `JOIN_GRACE_S = 60.0`
+(`concierge/departure.py`); a `participant_connected` with that identity cancels it, and when it runs out the session
+ends as after a departure (`visitor_left` carries the grace that ran out). 60 s, not 20 s: the room is created by the
+page's own connect (spec.md §6: the token route's `RoomConfiguration` dispatch), so the visitor is almost always there
+already, and a long join grace only costs a stray session's address for a minute; a short one could end a session whose
+page is slow to join. Rejected: no join check (I3's bug); the 20 s departure grace (a slow join would end a live call).
+Question for Michael: is 60 s right?
+
 ## Health port: loopback only (Michael, 2026-10-20)
 
 **Decision.** The worker's health endpoint (8081 under `start`) binds 127.0.0.1: `AgentServer(host="127.0.0.1")` in

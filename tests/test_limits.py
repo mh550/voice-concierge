@@ -17,7 +17,6 @@ from concierge.contract import FORGET_ME_METHOD, GET_MEMORY_METHOD
 from concierge.limits import (
     DAILY_CAP_LINE,
     TIME_UP_LINE,
-    enforce_daily_cap,
     over_daily_cap,
     say_and_end,
     start_session_timer,
@@ -44,12 +43,6 @@ async def test_session_timer_says_one_line_and_ends() -> None:
     assert [text for text, _ in session.said] == [TIME_UP_LINE]
     assert ended == ["time limit"]
     await timer
-
-
-async def test_session_timer_without_end_closes_the_session() -> None:
-    session = FakeSpeakingSession()
-    await start_session_timer(session, 0.05)
-    assert session.closed == 1
 
 
 async def test_session_timer_is_cancelled_before_it_fires() -> None:
@@ -124,19 +117,6 @@ async def test_sixth_session_of_the_day_is_capped_and_the_fifth_is_not(store: St
     results = [await over_daily_cap(store, visitor_id, 5, day=DAY) for _ in range(6)]
     assert results == [False] * 5 + [True]
     assert not await over_daily_cap(store, visitor_id, 5, day="2026-10-21")  # a new UTC day starts over
-
-
-async def test_enforce_daily_cap_says_the_line_and_ends_on_the_sixth(store: Store, visitor_id: str) -> None:
-    for _ in range(5):
-        session = FakeSpeakingSession()
-        ended: list[str] = []
-        assert not await enforce_daily_cap(store, visitor_id, session, 5, ended.append, day=DAY)
-        assert session.said == [] and ended == []
-    session = FakeSpeakingSession()
-    ended = []
-    assert await enforce_daily_cap(store, visitor_id, session, 5, ended.append, day=DAY)
-    assert [text for text, _ in session.said] == [DAILY_CAP_LINE]
-    assert ended == ["daily cap"]
 
 
 async def test_daily_count_survives_forget_me(store: Store, visitor_id: str) -> None:
