@@ -17,7 +17,7 @@
         ".harness/check.sh exits 0"
       ],
       "after": [],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V1-02",

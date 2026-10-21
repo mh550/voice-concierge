@@ -12,6 +12,25 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+### 2026-10-21 03:10 · V1-01 · passes
+
+- **Changed.** `concierge/departure.py` (88 lines: `DEPARTURE_GRACE_S = 20.0`, `DepartureWatcher` with `start/cancel/
+  pending`; `on_left` runs in its own task once the grace ends, so `cancel()` from inside it doesn't cut it short);
+  `JournalType` + `"visitor_left"`; `docs/plans/2026-10-21-V1-departure.md`; D16 in `docs/decisions.md` and its
+  question in MORNING.md (`test_questions_cover_every_default` asks for one per default). Tests 940 → 952
+  (`tests/test_departure.py` 11, `test_journal_takes_a_visitor_left_row`; `test_journal_type_literal_matches_spec_list` updated).
+- **Verified.** `check.sh` green, 952 tests, 95 s; departure tests RED (no module) → GREEN; ruff clean.
+- **V1-02 must know (new finding, plan (d)).** RoomIO closes the AgentSession itself when the linked participant
+  disconnects `CLIENT_INITIATED` (`voice/room_io/room_io.py:457-488`, `RoomOptions.close_on_disconnect=True` by
+  default, `room_io/types.py:267`). An unmounting page is exactly that, so with no change a reconnect inside the grace
+  finds a closed session. V1-02 must set `close_on_disconnect=False` in `room_start_kwargs`. The `fakes` fixture
+  patches `room_start_kwargs` to `{}`, so only a direct test of it catches this. The plan names it
+  (`test_room_options_keep_the_session_through_a_disconnect`). The plan's `Closing`/`begin_end`/`end_session(..., leave=)`
+  design keeps the closing task out of `tasks`, so its `gather(*tasks)` never waits for itself.
+- **Question for Michael.** D16: is 20 s right (10 s frees the address sooner; 30 s is kinder to a slow reload)?
+- **Proposed changes.** V1-02 step 2 should also require `RoomOptions(close_on_disconnect=False)` (plan (d));
+  without it the grace can't keep a session alive in production.
+
 ### 2026-10-21 02:30 · initializer
 
 **Scope.** `docs/specs/2026-10-21-integrated-concierge.md` (read it with `docs/spec.md`, the design it adds to), in

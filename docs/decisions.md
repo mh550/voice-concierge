@@ -224,6 +224,25 @@ says to read them within 30 days.
 
 **Question for Michael.** Should messages outlive the 30-day purge (say, until you delete them)?
 
+## D16 *default*: the departure grace is 20 s (2026-10-21, V1-01)
+
+**Finding.** Spec 2026-10-21 §1.1: the page's component unmounts on a client-side route change and disconnects the
+visitor, but nothing in the agent reacted, so the session ran on to its 10-minute cap and the site's token route kept
+answering 429 `visitor` for that address.
+
+**Choice.** When the visitor's participant (`visitor-<visitor_id>`) disconnects, wait `DEPARTURE_GRACE_S = 20.0`
+(`concierge/departure.py`) for a `participant_connected` with the same identity; if none comes, journal
+`visitor_left` and end the session (V1-02: `end_session("visitor left")`). Why a grace at all: a page reload, or a
+client-side route change that remounts the page, reconnects with the same identity a few seconds later, and should
+find the same session, not start a second one. 20 s covers a slow reload on a phone and still frees the address
+within about 30 s, inside the page's 60 s retry window (spec §2). Reversible: one constant.
+
+**Rejected.** Ending at once on the disconnect: every reload or remount would end the session and start a new one
+(a new visit, a second summary). Waiting for the 10-minute cap (today's behaviour): the cause of §1.1.
+
+**Question for Michael.** Is 20 s right? 10 s frees the address sooner but a slow reload then starts a new session;
+30 s is safer for reloads but the page's "Closing your earlier conversation…" wait grows to about 40 s.
+
 ## Health port: loopback only (Michael, 2026-10-20)
 
 **Decision.** The worker's health endpoint (8081 under `start`) binds 127.0.0.1: `AgentServer(host="127.0.0.1")` in

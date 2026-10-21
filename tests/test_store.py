@@ -140,6 +140,14 @@ def test_journal_bumps_the_version(store, visitor_id) -> None:
     assert store.version(thread.id) == 2
 
 
+def test_journal_takes_a_visitor_left_row(store, visitor_id) -> None:
+    # V1: the session journals visitor_left when the departure grace runs out (D16), with no values (D8).
+    thread = store.get_or_create_thread(visitor_id)
+    store.journal(thread.id, "s", "visitor_left", {"grace_s": 20.0})
+    rows = store.journal_rows(thread.id)
+    assert [(r.type, r.payload) for r in rows] == [("visitor_left", {"grace_s": 20.0})]
+
+
 def test_journal_rejects_an_unknown_type(store, visitor_id) -> None:
     thread = store.get_or_create_thread(visitor_id)
     with pytest.raises(ValidationError):
