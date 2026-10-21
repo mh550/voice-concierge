@@ -17,10 +17,11 @@ from typing import Any
 
 import yaml
 from livekit.agents import AgentSession, llm
-from livekit.agents.voice.run_result import ChatMessageEvent, FunctionCallEvent, RunEvent
+from livekit.agents.voice.run_result import ChatMessageEvent, FunctionCallEvent, FunctionCallOutputEvent, RunEvent
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from concierge.agent import agent_or_memoryless
+from concierge.greeting import greeting_instructions
 from concierge.knowledge import load_pack
 from concierge.summary import sentences
 from concierge.testing.fake_llm import FakeLLM, FakeResponse, FakeToolCall
@@ -29,6 +30,8 @@ from concierge.testing.fake_llm import FakeLLM, FakeResponse, FakeToolCall
 FORBIDDEN_EVERYWHERE = ("pack", "knowledge pack", "source:")
 
 _FAKE_TOOL_CALL_KEYS = {"name", "arguments", "reply"}
+# The twin's answer to the greeting the runner asks for first, as the worker does for a new visitor.
+FAKE_GREETING = "Hi, I'm the concierge on Michael Herron's site. What would you like to know about his work?"
 
 
 class _Strict(BaseModel):
@@ -94,12 +97,17 @@ def _normal(text: str) -> str:
 def _contains(text: str, phrase: str) -> bool:
     """Case-insensitive, as whole words with an optional plural ("pack" is in "packs", not in "package" or
     "backpack"); a space in the phrase also matches "_" or "-", and trailing punctuation may follow a space
-    ("source:" is in "Sources :", not in "sources in")."""
+    ("source:" is in "Sources :", not in "sources in"). An edge that is not a letter or digit needs no word boundary
+    ("sorted(" is in "return sorted(x)", ".sort(" in "lst.sort()")."""
     needle = _normal(phrase).strip()
     core = needle.rstrip(":;,.!?")
     words = r"[\s_-]+".join(re.escape(w) for w in core.split())
-    tail = r"\s*" + re.escape(needle[len(core):]) if len(core) < len(needle) else r"(?![^\W_])"
-    return re.search(rf"(?<![^\W_]){words}s?{tail}", _normal(text)) is not None
+    head = r"(?<![^\W_])" if core[:1].isalnum() else ""
+    if len(core) < len(needle):
+        tail = r"s?\s*" + re.escape(needle[len(core):])
+    else:
+        tail = r"s?(?![^\W_])" if core[-1:].isalnum() else ""
+    return re.search(rf"{head}{words}{tail}", _normal(text)) is not None
 
 
 def _sentence_count(reply: str) -> int:
@@ -107,8 +115,11 @@ def _sentence_count(reply: str) -> int:
     return sum(len(sentences(" ".join(line.split()))) for line in reply.splitlines() if line.strip())
 
 
-def reply_failures(turn: TurnCheck, reply: str, tools_called: Sequence[str]) -> list[str]:
-    """Every assertion the turn's reply or tool calls break, as the report's "failing assertion" text."""
+def reply_failures(
+    turn: TurnCheck, reply: str, tools_called: Sequence[str], tool_errors: Sequence[str] = (),
+) -> list[str]:
+    """Every assertion the turn's reply or tool calls break, as the report's "failing assertion" text. A tool that
+    returned an error (bad arguments, an exception) fails the turn, so `tool_called` can't pass on a broken call."""
     failures: list[str] = []
     if not any(ch.isalnum() for ch in reply):  # a turn that says nothing (only tool calls) never passes
         failures.append("reply: empty")
@@ -120,49 +131,65 @@ def reply_failures(turn: TurnCheck, reply: str, tools_called: Sequence[str]) -> 
         failures.append(f"max_sentences: {n} > {turn.max_sentences}")
     if turn.tool_called is not None and turn.tool_called not in tools_called:
         failures.append(f"tool_called: {turn.tool_called!r} not called (called: {', '.join(tools_called) or 'none'})")
+    failures += [f"tool error: {name!r}" for name in tool_errors]
     return failures
 
 
-def _read(events: Sequence[RunEvent]) -> tuple[str, list[str]]:
-    """(the reply, the tools called) from one run's events. The visitor's own message is not among them."""
+def _read(events: Sequence[RunEvent]) -> tuple[str, list[str], list[str]]:
+    """(the reply, the tools called, the tools that returned an error) from one run's events. The visitor's own
+    message is not among them."""
     texts = [e.item.text_content or "" for e in events
              if isinstance(e, ChatMessageEvent) and e.item.role == "assistant"]
     tools = [e.item.name for e in events if isinstance(e, FunctionCallEvent)]
-    return " ".join(t.strip() for t in texts if t.strip()), tools
+    errors = [e.item.name for e in events if isinstance(e, FunctionCallOutputEvent) and e.item.is_error]
+    return " ".join(t.strip() for t in texts if t.strip()), tools, errors
+
+
+def _what(exc: BaseException) -> str:
+    return f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
 
 
 async def run_conversation(
-    script: ConversationScript, llm_factory: Callable[[], llm.LLM], *, pack: str = load_pack(),
+    script: ConversationScript, llm_factory: Callable[[], llm.LLM], *, pack: str | None = None,
     memory_block: str | None = None, turn_timeout_s: float = 60.0,
 ) -> ConversationResult:
     """Run every turn through a new session with the production agent, built as the worker builds it (a rejected
-    memory block means no memory; memory=None: the tools save nothing and no Store is opened), and check each reply.
-    The caller owns the LLM the factory returns and closes it."""
+    memory block means no memory; memory=None: the tools save nothing and no Store is opened). It greets first, as
+    the worker does, so the first turn answers a greeting; then it checks each reply. The pack defaults to
+    load_pack(), read per run as the worker reads it per session. The caller owns the factory's LLM and closes it."""
     session = AgentSession(llm=llm_factory())
     results: list[TurnResult] = []
     try:
-        await session.start(agent_or_memoryless(pack, memory_block))  # no room: the text path only
+        await session.start(agent_or_memoryless(load_pack() if pack is None else pack, memory_block))  # no room
+        try:  # awaiting a SpeechHandle never raises: a failed greeting is in exception()
+            greeting = await asyncio.wait_for(session.generate_reply(instructions=greeting_instructions(None)),
+                                              turn_timeout_s)
+            if (exc := greeting.exception()) is not None:
+                raise exc
+        except Exception as exc:
+            results.append(TurnResult(turn=1, reply="", tools_called=[], failures=[f"error: greeting: {_what(exc)}"]))
+            return ConversationResult(name=script.name, turns=results, passed=False)
         for index, turn in enumerate(script.turns, start=1):
             try:
                 run = await asyncio.wait_for(session.run(user_input=turn.user), turn_timeout_s)
             except Exception as exc:  # a timeout, a provider error or a refusal: this turn fails, and the run is
                 # still pending (a next run would be nested), so the script ends here; aclose() fails the run
-                what = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
                 rest = "; the rest did not run" if index < len(script.turns) else ""
-                failure = f"error: {what} (turn {index} of {len(script.turns)}{rest})"
+                failure = f"error: {_what(exc)} (turn {index} of {len(script.turns)}{rest})"
                 results.append(TurnResult(turn=index, reply="", tools_called=[], failures=[failure]))
                 break
-            reply, tools = _read(run.events)
+            reply, tools, errors = _read(run.events)
             results.append(TurnResult(turn=index, reply=reply, tools_called=tools,
-                                      failures=reply_failures(turn, reply, tools)))
+                                      failures=reply_failures(turn, reply, tools, errors)))
     finally:
         await session.aclose()
     return ConversationResult(name=script.name, turns=results, passed=all(not t.failures for t in results))
 
 
 def offline_llm(script: ConversationScript) -> FakeLLM:
-    """The twin's LLM: per turn, its fake_reply as text, or its fake_tool_call and then the reply after the tool."""
-    responses: list[FakeResponse] = []
+    """The twin's LLM: the greeting, then per turn its fake_reply as text, or its fake_tool_call and then the reply
+    after the tool."""
+    responses = [FakeResponse(text=FAKE_GREETING)]
     for turn in script.turns:
         if turn.fake_tool_call is None:
             responses.append(FakeResponse(text=turn.fake_reply))

@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from concierge.evals.conversation import ConversationResult, load_conversation, offline_llm, run_conversation
+from concierge.evals.conversation import (
+    ConversationResult,
+    load_conversation,
+    offline_llm,
+    reply_failures,
+    run_conversation,
+)
 
 EVALS = Path(__file__).resolve().parent.parent / "evals" / "conversation"
 PATHS = sorted(EVALS.glob("*.yaml"))
@@ -94,3 +100,18 @@ async def test_the_remember_script_calls_remember() -> None:
     result = await run_offline(EVALS / "09-remember-request.yaml")
     assert result.turns[0].tools_called == ["remember"]
     assert result.turns[0].reply  # the spoken reply after the tool ran
+
+
+# --- review V4-04: assertions that encode the §6 requirement, not any reply ----------------------------------------
+
+
+@pytest.mark.parametrize(("stem", "reply"), [
+    ("01-projects", "His work is linear and it integrates with JobTread."),
+    ("04-how-memory-works", "I remember things."),
+    ("06-how-were-you-built", "I was built at home."),
+    ("07-off-topic", "Sure, Michael would write: return sorted(items)"),
+    ("03-database-experience", "Yes, Michael is an Oracle and MySQL database administrator with PostgreSQL too."),
+])
+def test_a_generic_or_wrong_reply_fails_the_script(stem: str, reply: str) -> None:
+    turn = load_conversation(EVALS / f"{stem}.yaml").turns[0]
+    assert reply_failures(turn, reply, []), f"{stem} passes a reply it should fail: {reply!r}"

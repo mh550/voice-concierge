@@ -281,7 +281,7 @@
         "progress.md has a V4 entry with the test counts and the exact llm-tier command for Michael",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V5-01",

@@ -13,6 +13,16 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 16:45 · V4-04 · passes
+
+- **Changed:** The review is under `## Review` in `docs/plans/2026-10-21-V4-conversation-evals.md`: the five named checks, the table of the 11 §6 scripts and their assertions, and the findings. Opus found 0 Critical, 2 Important and 7 Minor. Fixed RED→GREEN: **I1**, an errored tool call (`FunctionCallOutputEvent.is_error`) now fails with `tool error: '<name>'`, so `tool_called` can't pass on a broken call. **I2**, `_contains` now matches `sorted(` and `.sort(` inside code; 07's code check could never fire before. **M1**, "B.S." and the other degrees no longer end a sentence. **M2**, the runner sends the production greeting before turn 1, and `offline_llm` replays `FAKE_GREETING`. **M3/M4**, the weak any-of words are gone from 01, 04 and 06, and 03 rejects made-up MySQL, Oracle, MongoDB or SQL Server claims. **M7**, the pack is read per run. New autouse `_no_network` in `tests/conftest.py`: any non-loopback connect raises in an offline test. Tests 1181 → 1203.
+- **Verified:** check.sh green, 1203 tests. `eval_conversation.py --offline` gives 11/11 scripts passed. Mutations: dropping the tool-error line fails 1 test; restoring the old lookbehind fails 2. Before the guard was made permanent, the whole suite passed under it. With dummy keys in the environment, `-m "not live and not llm"` still deselects 5. `wc -l`: every concierge/*.py and concierge/evals/*.py is ≤250 (max `memory_writer.py` 250; `conversation.py` 200).
+- **Simplification:** `_what(exc)` is shared by the runner's two error paths. `main()` in eval_memory.py and eval_conversation.py is left as it is: sharing it would need a new shared module, which the step rules out.
+- **Left:** M5 (11 can't assert "no number guessed" with whole-word matching). M6 (the llm module skips without `ANTHROPIC_API_KEY` even under openrouter, as V4-02's step fixes).
+- **llm tier for Michael** (staged): `.venv/bin/python scripts/eval_conversation.py --offline`, then `( set -a; . ~/.config/voice-concierge/env; set +a; .venv/bin/python scripts/eval_conversation.py --case 01-projects )`, then `( set -a; . ~/.config/voice-concierge/env; set +a; .venv/bin/python scripts/eval_conversation.py )`. Pass: the total row says `11/11 scripts passed`, exit 0. Undo: none (no room, no store).
+- **Next session:** each runner test's FakeLLM needs a greeting reply first (`_fake([...])` in test_conversation_runner.py), and `fake.calls[0]` is now the greeting call.
+- **Questions for Michael:** none.
+
 ### 2026-10-21 16:00 · V4-03 · passes
 
 - **Changed:** `MORNING.md` gains `## 9. Conversation evals` (exact command, Check, Undo) after the memory eval; later steps renumber to 14 and the cross-references (§12, steps 12 and 13) follow. `README.md` gains `## How it's verified`, one table of the offline, llm and live tiers (proves / cannot prove), before "Failure cases and limits". `tests/test_morning.py` (COMMANDS, 14 steps) and `tests/test_readme.py` (SECTIONS, `test_how_its_verified_names_the_tiers_and_what_exists`, `test_the_harness_phrase_is_absent`). Tests 1179 → 1181.

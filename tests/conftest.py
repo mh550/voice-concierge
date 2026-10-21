@@ -1,4 +1,5 @@
 import json
+import socket
 import sqlite3
 import uuid
 from collections.abc import Iterator
@@ -37,6 +38,25 @@ def _temp_db_path(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     ~/.voice-concierge-off (the kill switch) decline a test's job."""
     monkeypatch.setenv("CONCIERGE_DB_PATH", str(tmp_path / "concierge-db" / "concierge.db"))
     monkeypatch.setenv("CONCIERGE_OFF_FILE", str(tmp_path / "voice-concierge-off"))
+
+
+_LOOPBACK = ("127.0.0.1", "::1", "localhost")
+
+
+@pytest.fixture(autouse=True)
+def _no_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The offline suite never reaches the network, with or without keys in the environment: a connect to anything
+    but loopback raises. The live and llm tiers (Michael's, deselected by check.sh) are exempt."""
+    if request.node.get_closest_marker("live") or request.node.get_closest_marker("llm"):
+        return
+    real = socket.socket.connect
+
+    def connect(sock: socket.socket, address: Any) -> None:
+        if sock.family in (socket.AF_INET, socket.AF_INET6) and address[0] not in _LOOPBACK:
+            raise RuntimeError(f"the offline suite reached for the network: {address!r}")
+        real(sock, address)
+
+    monkeypatch.setattr(socket.socket, "connect", connect)
 
 
 @pytest.fixture

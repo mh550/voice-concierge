@@ -2,7 +2,7 @@ name: 06-how-were-you-built
 about: The agent explains how it was built on request (self-description, V3-03).
 turns:
   - user: How were you built?
-    must_mention: [LiveKit, home]
+    must_mention: [LiveKit, home box]
     fake_reply: >-
       I'm built on LiveKit Agents in Python, and I run on Michael's home box, connecting out to LiveKit Cloud.
       Michael's agent harness built me from a written spec.

@@ -2,7 +2,10 @@
 test or passes `-m live`."""
 
 import ast
+import asyncio
 import importlib.util
+import os
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -98,3 +101,28 @@ def test_the_suite_deselects_live_and_llm() -> None:
     assert '-m "not live and not llm"' in (root / ".harness" / "check.sh").read_text(encoding="utf-8")
     assert "pytest -m \"not live and not llm\" -q" in (root / "CLAUDE.md").read_text(encoding="utf-8")
     assert "llm: needs the LLM key; Michael runs these" in (root / "pyproject.toml").read_text(encoding="utf-8")
+
+
+# --- review V4-04: the offline suite can't reach the network, keys or not -----------------------------------------
+
+
+def test_the_llm_and_live_tests_are_deselected_even_with_the_keys_set() -> None:
+    env = {**os.environ, "ANTHROPIC_API_KEY": "sk-not-a-key", "OPENROUTER_API_KEY": "not-a-key",
+           "LIVEKIT_URL": "wss://example.invalid", "LIVEKIT_API_KEY": "x", "LIVEKIT_API_SECRET": "x"}
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-m", "not live and not llm", "--collect-only", "-q", str(LIVE.parent),
+         str(LLM_TEST.parent)],
+        capture_output=True, text=True, timeout=120, check=False, cwd=LIVE.parents[2], env=env,
+    )
+    assert result.returncode == 5, result.stdout + result.stderr
+    assert "5 deselected" in result.stdout
+
+
+def test_an_offline_test_cannot_open_a_network_connection() -> None:
+    with pytest.raises(RuntimeError, match="offline suite"):
+        socket.create_connection(("192.0.2.1", 443), timeout=1)  # TEST-NET-1: never routable anyway
+
+
+async def test_an_offline_test_cannot_open_an_async_network_connection() -> None:
+    with pytest.raises(RuntimeError, match="offline suite"):
+        await asyncio.wait_for(asyncio.open_connection("192.0.2.1", 443), 1)

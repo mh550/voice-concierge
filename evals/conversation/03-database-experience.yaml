@@ -5,6 +5,7 @@ about: >-
 turns:
   - user: Do you have database experience?
     must_mention: [PostgreSQL, Postgres]
+    must_not_mention: [MySQL, Oracle, MongoDB, SQL Server]  # nothing in the pack: a made-up claim
     fake_reply: >-
       Michael has a strong foundation in PostgreSQL. He has shipped Postgres features at MAXX Potential and built ETL
       that normalizes several sources into Postgres at Builder Clarity.
