@@ -12,6 +12,25 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 `status: run | pause | stop`; answers go under `## Answers`. Every session reads it at startup.
 
 ---
+### 2026-10-21 05:45 · V2-02 · passes
+
+- **Changed.** `concierge/contract.py` (200 lines): `Episode`, `MemoryEvent`/`EventType`, `AboutVisitor` (≤5 episodes,
+  ≤12 events), `Knowledge`, `Working`, `Cache`, `AboutAgent` (all `extra="forbid"`); `MemoryPayload` gains `v`,
+  `about_visitor`, `about_agent`, `retention_days` after the v1 keys; `RETENTION_DAYS=30`, `MAX_EPISODES`, `MAX_EVENTS`.
+  `build_memory_payload(..., about_agent=, events=)` fills v=2, profile == facts, the newest 12 events; the fact
+  trimmer drops from `facts` and `profile` together. `empty_memory_payload()` is v2 (D17 (g)). Schema has the v2 keys.
+  Tests 972 → 986 (contract +11, publish +1, rpc +1, plus one review test).
+- **Verified.** Every schema object has `additionalProperties: false` (script); `required` is still the v1 four;
+  `test_a_v2_body_from_a_seeded_store_validates` (3 facts, 2 visits, 4 events), `test_an_unknown_event_type_is_rejected`,
+  `test_the_start_memory_is_v2_and_validates`, `test_get_memory_returns_a_v2_body`; `check.sh` green, 986 tests.
+  An Opus review (diff in scratch) found 1 Important and 4 Minor issues, all fixed test-first.
+- **Next session must know.** A top-level v2 key at its default dumps as `null`; the schema accepts null for all four
+  (D17 (i), new). `events=` takes any iterable (a `deque` works). Episodes are `[]` until V2-03, which extends
+  `seeded_v2` in `tests/contract/test_contract.py` with 2 `visit_summaries` rows. Event and episode trimming is still V2-05:
+  a body pushed over 15 KiB by events or `about_agent` alone raises `PayloadTooLarge` and the send is dropped.
+- **Question for Michael.** D17 (i): is `null` for a missing v2 key OK for the page, or should we omit the key? The
+  page run's schema has to accept null for `v`, `about_visitor`, `about_agent` and `retention_days` as well.
+
 ### 2026-10-21 05:05 · V2-01 · passes
 
 - **Changed.** `docs/plans/2026-10-21-V2-contract-v2.md`: the §2 v2 body word for word, a key-by-key model table, the

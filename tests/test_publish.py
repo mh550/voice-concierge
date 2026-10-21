@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from concierge import session as concierge_session
 from concierge.contract import MAX_BODY_BYTES, MEMORY_TOPIC, METRICS_TOPIC, MemoryPayload, empty_memory_payload
+from concierge.models import AddFact
 from concierge.publish import MemoryPublisher, PayloadTooLarge, publish
 from concierge.store import Store
 from concierge.testing.fake_llm import FakeLLM, FakeResponse, FakeToolCall
@@ -163,6 +164,23 @@ async def test_session_start_publishes_memory_once(
         before = len(room.local_participant.sent)
         await shutdown(ctx, started)
     assert len(room.local_participant.sent) == before  # nothing at shutdown: the room is gone by then (plan C6)
+
+
+async def test_the_start_memory_is_v2_and_validates(
+    db: Store, fakes: list[FakeLLM], memory_validator: Draft202012Validator
+) -> None:
+    tid = db.get_or_create_thread(VISITOR).id  # a returning visitor, so the profile has something to repeat
+    db.add_fact(tid, AddFact(slot="company", value="Acme", source="user_said", channel="voice", turn_id="t1"))
+    room = FakeRoom()
+    with fake_job_context(job_metadata=METADATA, room=room) as ctx:
+        started = await start(ctx, db)
+        (sent,) = room.local_participant.sent_on(MEMORY_TOPIC)
+        body = json.loads(sent)
+        memory_validator.validate(body)
+        assert body["v"] == 2 and body["retention_days"] == 30
+        assert [f["value"] for f in body["about_visitor"]["profile"]] == ["Acme"]
+        assert body["about_visitor"]["profile"] == body["facts"]
+        await shutdown(ctx, started)
 
 
 async def test_a_session_without_memory_publishes_the_empty_payload(

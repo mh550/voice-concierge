@@ -3,11 +3,19 @@
 The topic and RPC method names, the 15 KiB body cap and the two topic payloads. Nothing else in `concierge/` spells
 these names. Field types §6 leaves open are D13 *default*: fact `id` is the integer `facts.id`, times are ISO-8601 UTC
 strings with milliseconds and a `Z`, and every `concierge.metrics` key is always present (`null` when unreported).
+
+Contract v2 (spec 2026-10-21 §2, plan `docs/plans/2026-10-21-V2-contract-v2.md`) adds the optional keys `v`,
+`about_visitor`, `about_agent` and `retention_days` after the v1 ones: a v1 page reads a v2 body and a v2 page reads a
+v1 body. Inside a v2 object every key is required; a v2 key left at the model's default dumps as null, which the
+schema reads as "not reported" (D17 (i)).
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import UTC, datetime
+from itertools import islice
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,6 +27,13 @@ METRICS_TOPIC = "concierge.metrics"
 FORGET_ME_METHOD = "concierge.forget_me"
 GET_MEMORY_METHOD = "concierge.get_memory"
 MAX_BODY_BYTES = 15 * 1024  # §6 "at most 15 KiB", counted in UTF-8 bytes (LiveKit's RPC payload limit too)
+RETENTION_DAYS = 30  # §2 "retention_days": 30, the B6 idle TTL (Settings.idle_ttl_days; a test keeps them equal)
+MAX_EPISODES = 5  # §2: newest first, at most 5
+MAX_EVENTS = 12  # §2: this session only, newest first, at most 12
+
+EventType = Literal[
+    "fact_added", "fact_invalidated", "fact_deleted", "gate_rejected", "extraction_ran", "remember", "forget"
+]
 
 MetricsPayload = TurnMetrics  # one model, so the anonymous table and the topic can't drift
 
@@ -42,8 +57,71 @@ class FactView(BaseModel):
     confidence: float = Field(ge=0, le=1)
 
 
+class Episode(BaseModel):
+    """One visit; the current one has `ended_at` and `summary` null until the session ends (D17 (b), (c))."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    visit: int
+    started_at: str
+    ended_at: str | None
+    summary: str | None
+
+
+class MemoryEvent(BaseModel):
+    """One line of this session's memory work: a short plain sentence, no instruction text, no URL (D17 (a))."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ts: str
+    type: EventType
+    detail: str = Field(max_length=120)
+
+
+class AboutVisitor(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    profile: list[FactView]  # the valid facts: the same list as `facts`
+    episodes: list[Episode] = Field(max_length=MAX_EPISODES)
+    events: list[MemoryEvent] = Field(max_length=MAX_EVENTS)
+
+
+class Knowledge(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    words: int = Field(ge=0)
+    est_tokens: int = Field(ge=0)
+    sources_commit: str
+    sections: list[str]
+
+
+class Working(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: int = Field(ge=0)
+    est_tokens: int = Field(ge=0)
+    compacted: bool
+    compactions: int = Field(ge=0)
+
+
+class Cache(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cached_share: float | None = Field(ge=0, le=1)
+
+
+class AboutAgent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    knowledge: Knowledge
+    instructions_est_tokens: int = Field(ge=0)
+    memory_block_chars: int | None = Field(ge=0)
+    working: Working
+    cache: Cache
+
+
 class MemoryPayload(BaseModel):
-    """`concierge.memory`, and the `concierge.get_memory` response."""
+    """`concierge.memory`, and the `concierge.get_memory` response: the v1 keys, then the optional v2 ones."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -51,6 +129,10 @@ class MemoryPayload(BaseModel):
     facts: list[FactView]
     summary: str | None
     updated_at: str
+    v: Literal[2] | None = None
+    about_visitor: AboutVisitor | None = None
+    about_agent: AboutAgent | None = None
+    retention_days: int | None = Field(default=None, ge=1)
 
 
 def iso_utc(ms: int) -> str:
@@ -66,35 +148,53 @@ def _fact_view(fact: Fact) -> FactView:
 
 
 def empty_memory_payload() -> MemoryPayload:
-    """Nobody: after "Forget me", and for a session without memory."""
-    return MemoryPayload(visitor=VisitorView(name=None, visits=0), facts=[], summary=None, updated_at=iso_utc(now_ms()))
+    """Nobody: after "Forget me", and for a session without memory. A v2 body with nothing in it (D17 (g))."""
+    return MemoryPayload(
+        visitor=VisitorView(name=None, visits=0), facts=[], summary=None, updated_at=iso_utc(now_ms()), v=2,
+        about_visitor=AboutVisitor(profile=[], episodes=[], events=[]), retention_days=RETENTION_DAYS,
+    )
 
 
 def body_bytes(payload: BaseModel) -> int:
     return len(payload.model_dump_json().encode())
 
 
-def build_memory_payload(store: Store, thread_id: str, *, max_bytes: int | None = MAX_BODY_BYTES) -> MemoryPayload:
+def build_memory_payload(
+    store: Store,
+    thread_id: str,
+    *,
+    max_bytes: int | None = MAX_BODY_BYTES,
+    about_agent: AboutAgent | None = None,
+    events: Iterable[MemoryEvent] = (),
+) -> MemoryPayload:
     """The thread's memory as the page shows it: the valid facts only (superseded and invalidated ones are history),
-    oldest first by (created_at, id). Over `max_bytes` the oldest facts are dropped until the JSON body fits. An erased
-    thread gives `empty_memory_payload()`. Blocks on the store: call it on the writer's thread or in a thread."""
+    oldest first by (created_at, id), repeated as `about_visitor.profile`; `events` (newest first, the session's ring)
+    keeps its newest 12; `about_agent` stays null when none is given. Over `max_bytes` the oldest facts are dropped,
+    from `facts` and `profile` together, until the JSON body fits. An erased thread gives `empty_memory_payload()`.
+    Blocks on the store: call it on the writer's thread or in a thread."""
     try:
         thread, snapshot, now = store.memory_view(thread_id)
     except ThreadMissing:
         return empty_memory_payload()
-    facts = sorted(snapshot.facts, key=lambda f: (f.created_at, f.id))
+    facts = [_fact_view(f) for f in sorted(snapshot.facts, key=lambda f: (f.created_at, f.id))]
+    about = AboutVisitor(profile=facts, episodes=[], events=list(islice(events, MAX_EVENTS)))
     payload = MemoryPayload(
         visitor=VisitorView(name=snapshot.state.name, visits=thread.visits),
-        facts=[_fact_view(f) for f in facts],
+        facts=facts,
         summary=snapshot.state.last_visit_summary,
         updated_at=iso_utc(now),
+        v=2,
+        about_visitor=about,
+        about_agent=about_agent,
+        retention_days=RETENTION_DAYS,
     )
     if max_bytes is None or body_bytes(payload) <= max_bytes:
         return payload
-    # One pass instead of a re-dump per dropped fact: each fact costs its JSON plus a comma.
+    # One pass instead of a re-dump per dropped fact: each fact costs its JSON plus a comma, twice (facts, profile).
     excess = body_bytes(payload) - max_bytes
     drop = 0
-    while excess > 0 and drop < len(payload.facts):
-        excess -= len(payload.facts[drop].model_dump_json().encode()) + 1
+    while excess > 0 and drop < len(facts):
+        excess -= 2 * (len(facts[drop].model_dump_json().encode()) + 1)
         drop += 1
-    return payload.model_copy(update={"facts": payload.facts[drop:]})
+    kept = facts[drop:]
+    return payload.model_copy(update={"facts": kept, "about_visitor": about.model_copy(update={"profile": list(kept)})})

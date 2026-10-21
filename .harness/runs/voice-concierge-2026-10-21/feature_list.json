@@ -78,7 +78,7 @@
         "tests/test_publish.py asserts that the concierge.memory sent after session.start in the `fakes` fixture carries v == 2 and validates against the schema, and tests/test_rpc.py asserts concierge.get_memory returns a body with v == 2",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V2-03",

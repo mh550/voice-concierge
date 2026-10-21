@@ -295,12 +295,18 @@ episode row comes to exist, what a failed summary leaves, or how the 15 KiB cap 
   empty lists, `retention_days: 30`, `about_agent` null. A forget_me also clears the event ring.
 - (h) **`remember` and `forget` publish at once** (the tools call the publisher's `schedule` after noting their
   events), so the page doesn't wait for the next merge.
+- (i) **A top-level v2 key may be null** (V2-02): `v`, `about_visitor`, `about_agent` and `retention_days` default to
+  `None` on `MemoryPayload`, pydantic dumps that as `null`, and `memory.schema.json` accepts `null` for each, which a
+  page reads like a missing key: "not reported". Our builders always fill `v`, `about_visitor` and `retention_days`;
+  only `about_agent` is null in practice (no agent view yet, or a body built outside a session).
 
 **Rejected.** Noting every extraction run (a 10-minute call has ~30 runs, mostly with no change: they would push the
 real lines out of the 12-line ring). Creating the episode row in the summary step only (the start body could not show
 the current visit, and a session that dies before its summary would leave no episode at all). Keeping the last good
 summary in a failed visit's episode (it would describe an earlier visit as this one). A line per non-gate rejection
-(noise the visitor can't act on). Trimming `profile` before `facts` (a v2 page would show less than a v1 page).
+(noise the visitor can't act on). Trimming `profile` before `facts` (a v2 page would show less than a v1 page). Dropping null keys with `exclude_none`
+(it would drop v1's `summary: null` too, which the schema requires) or keeping the schema non-null (a body re-dumped
+from a parsed v1 one would fail it).
 
 **Question for Michael.** Are these lines how you want the page to read? In particular: should "Took notes in the
 background" show on every run (including no change), and should an episode carry the rolling summary or should the

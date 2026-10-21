@@ -151,3 +151,5 @@ Each is a default the build took (details in `docs/decisions.md`); say if you wa
 - **D17:** the memory panel's event lines (contract v2): should "Took notes in the background" show on every run, even
   with no change (now only when something changed)? And should each past visit carry the rolling summary as it stood
   then (the default), or should the summarizer also write a per-visit one?
+  And (D17 (i)): a v2 key with no value is sent as `null` (the default, and the page's schema must accept it), not
+  left out. Is that fine for the page?

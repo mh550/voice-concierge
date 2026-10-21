@@ -149,6 +149,14 @@ async def test_get_memory_returns_the_topic_json(rig: Rig, store: Store) -> None
     await rig.aclose()
 
 
+async def test_get_memory_returns_a_v2_body(rig: Rig) -> None:
+    body = json.loads(await rig.rpc[GET_MEMORY_METHOD](invocation(GET_MEMORY_METHOD)))
+    validator("memory.schema.json").validate(body)
+    assert body["v"] == 2 and body["retention_days"] == 30
+    assert [f["value"] for f in body["about_visitor"]["profile"]] == ["Ada", "Acme"]
+    await rig.aclose()
+
+
 async def test_get_memory_without_a_writer_reads_the_store(store: Store) -> None:
     rig = Rig(store, with_writer=False)  # the preload missed its deadline, or the daily cap
     body = json.loads(await rig.rpc[GET_MEMORY_METHOD](invocation(GET_MEMORY_METHOD)))
