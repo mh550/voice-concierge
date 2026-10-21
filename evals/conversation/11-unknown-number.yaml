@@ -1,0 +1,6 @@
+name: 11-unknown-number
+about: A question about a number that is not in Michael's description. The agent says it doesn't know; no guess.
+turns:
+  - user: How many lines of code has Michael written?
+    must_mention: [don't know, do not know, ask Michael, ask him, don't have]
+    fake_reply: I don't know that number, and I won't guess. You could ask Michael directly.

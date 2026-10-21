@@ -13,6 +13,65 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 18:00 · verify V4
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| V4-01 | 1 | read the plan; compared its quotes to `.venv/.../voice/agent_session.py:855-874`, `run_result.py:185-190` | file:line quotes match the installed 1.8.8 source; yaml format, result model, 11-script table and V4-02 test names are listed | yes |
+| V4-01 | 2 | read `concierge/evals/conversation.py` | TurnCheck/ConversationScript/TurnResult/ConversationResult extra=forbid; exactly-one-fake validator; stem check; FORBIDDEN_EVERYWHERE = ('pack','knowledge pack','source:') | yes |
+| V4-01 | 3 | read `run_conversation` | AgentSession(llm=factory()), `agent_or_memoryless(pack, memory_block)`, start with no room, `session.run(user_input=)`, events read, checks applied, aclose in finally; no Store (pack read per run, greeting first: a later review change) | yes |
+| V4-01 | 4 | `pytest tests/test_conversation_runner.py` (in a 205-test run) | all pass; tests for pass, 'knowledge pack' fail, 4 sentences, remember tool call, missing call, passed False, STATIC_INSTRUCTIONS/pack | yes |
+| V4-01 | 5 | `.harness/check.sh` | green, 1203 tests, ruff clean | yes |
+| V4-02 | 1 | `ls evals/conversation`; read 03, 08, 09, 10, 11 | exactly the 11 required stems; every turn has fake_reply or fake_tool_call; 03 has PostgreSQL and about says what it doesn't know; 08/09/10/11 as specified | yes |
+| V4-02 | 2 | `scripts/eval_conversation.py --offline`, `--case 09-remember-request`, run without key | offline: markdown table, 11/11 passed, exit 0; --case works; no key: "ANTHROPIC_API_KEY not set", exit 2; tests/test_scripts.py passes | yes |
+| V4-02 | 3 | `pytest tests/test_conversation_evals_offline.py` | parametrized per file, pass; fixtures for 'knowledge pack' and 4 sentences fail; remember detected | yes |
+| V4-02 | 4 | read `tests/llm/test_conversation.py`, `pyproject.toml`, `check.sh`, `tests/test_live_layout.py`; `--collect-only` | llm + skipif marks; marker registered; check.sh uses `-m "not live and not llm"`; "5 deselected" asserted and observed (1203/1208) | yes |
+| V4-02 | 5 | `.harness/check.sh` | green | yes |
+| V4-03 | 1 | read MORNING.md §9, tests/test_morning.py | step 9 after memory eval, exact command, Check, Undo; 14 steps and COMMANDS test pass | yes |
+| V4-03 | 2 | read README "How it's verified" and `tests/test_readme.py` | offline/llm/live table before "Failure cases and limits"; SECTIONS updated; named scripts/markers exist | yes |
+| V4-03 | 3 | grep for phrase; read `test_the_harness_phrase_is_absent` | phrase absent from README, MORNING, docstrings; test holds constant and passes | yes |
+| V4-03 | 4 | `.harness/check.sh` | green | yes |
+| V4-04 | 1 | `wc -l` of `$HARNESS_SCRATCH/review-V4.diff`; read plan `## Review` | diff 1558 lines exists; five checks, 11-script assertion table and findings present | yes |
+| V4-04 | 2 | read Review findings and `_read`/`reply_failures`; ran tests | I1/I2 fixed with named tests passing; five checks evidenced; llm test deselected with keys set (test passes) | yes |
+| V4-04 | 3 | read simplification notes; `wc -l concierge/*.py concierge/evals/*.py` | `_what` shared and eval_memory sharing declined with reason; no file over 250 | yes |
+| V4-04 | 4 | read progress.md V4-04 entry | test counts 1181 -> 1203 and exact staged llm commands present | yes |
+| V4-04 | 5 | `.harness/check.sh` | green | yes |
+
+### 2026-10-21 16:45 · V4-04 · passes
+
+- **Changed:** The review is under `## Review` in `docs/plans/2026-10-21-V4-conversation-evals.md`: the five named checks, the table of the 11 §6 scripts and their assertions, and the findings. Opus found 0 Critical, 2 Important and 7 Minor. Fixed RED→GREEN: **I1**, an errored tool call (`FunctionCallOutputEvent.is_error`) now fails with `tool error: '<name>'`, so `tool_called` can't pass on a broken call. **I2**, `_contains` now matches `sorted(` and `.sort(` inside code; 07's code check could never fire before. **M1**, "B.S." and the other degrees no longer end a sentence. **M2**, the runner sends the production greeting before turn 1, and `offline_llm` replays `FAKE_GREETING`. **M3/M4**, the weak any-of words are gone from 01, 04 and 06, and 03 rejects made-up MySQL, Oracle, MongoDB or SQL Server claims. **M7**, the pack is read per run. New autouse `_no_network` in `tests/conftest.py`: any non-loopback connect raises in an offline test. Tests 1181 → 1203.
+- **Verified:** check.sh green, 1203 tests. `eval_conversation.py --offline` gives 11/11 scripts passed. Mutations: dropping the tool-error line fails 1 test; restoring the old lookbehind fails 2. Before the guard was made permanent, the whole suite passed under it. With dummy keys in the environment, `-m "not live and not llm"` still deselects 5. `wc -l`: every concierge/*.py and concierge/evals/*.py is ≤250 (max `memory_writer.py` 250; `conversation.py` 200).
+- **Simplification:** `_what(exc)` is shared by the runner's two error paths. `main()` in eval_memory.py and eval_conversation.py is left as it is: sharing it would need a new shared module, which the step rules out.
+- **Left:** M5 (11 can't assert "no number guessed" with whole-word matching). M6 (the llm module skips without `ANTHROPIC_API_KEY` even under openrouter, as V4-02's step fixes).
+- **llm tier for Michael** (staged): `.venv/bin/python scripts/eval_conversation.py --offline`, then `( set -a; . ~/.config/voice-concierge/env; set +a; .venv/bin/python scripts/eval_conversation.py --case 01-projects )`, then `( set -a; . ~/.config/voice-concierge/env; set +a; .venv/bin/python scripts/eval_conversation.py )`. Pass: the total row says `11/11 scripts passed`, exit 0. Undo: none (no room, no store).
+- **Next session:** each runner test's FakeLLM needs a greeting reply first (`_fake([...])` in test_conversation_runner.py), and `fake.calls[0]` is now the greeting call.
+- **Questions for Michael:** none.
+
+### 2026-10-21 16:00 · V4-03 · passes
+
+- **Changed:** `MORNING.md` gains `## 9. Conversation evals` (exact command, Check, Undo) after the memory eval; later steps renumber to 14 and the cross-references (§12, steps 12 and 13) follow. `README.md` gains `## How it's verified`, one table of the offline, llm and live tiers (proves / cannot prove), before "Failure cases and limits". `tests/test_morning.py` (COMMANDS, 14 steps) and `tests/test_readme.py` (SECTIONS, `test_how_its_verified_names_the_tiers_and_what_exists`, `test_the_harness_phrase_is_absent`). Tests 1179 → 1181.
+- **Verified:** check.sh green, 1181 tests. The phrase "specs in, verified milestones out" was already absent from README, MORNING and all docstrings; the test holds it as a constant.
+- **Next session:** MORNING step numbers moved (latency is 10, PII 11, history 12, drift 13, stop 14).
+- **Questions for Michael:** none.
+
+### 2026-10-21 15:10 · V4-02 · passes
+
+- **Changed:** new `evals/conversation/` holds the 11 required scripts, 12 turns; `03-database-experience` has a second turn asking about DBA work, which must say it doesn't know. New `scripts/eval_conversation.py` takes `[--offline] [--case NAME]... [--dir DIR]` and prints `| script | turn | result | failing assertion | reply |` plus a total row, `<k>/<m> scripts passed`. It exits 0, 1 or 2 like `eval_memory.py`. New `tests/test_conversation_evals_offline.py`, 18 tests. 7 new `eval_conversation` tests in `tests/test_scripts.py`. New `tests/llm/test_conversation.py` (marked `llm`). `pyproject.toml` registers the `llm` marker, and `.harness/check.sh` and `CLAUDE.md` now say `-m "not live and not llm"`. 3 new tests in `tests/test_live_layout.py`. The plan has "V4-02 as built" and "Review of V4-02". Tests 1151 → 1179.
+- **Verified:** RED first each time: the scripts and the script file were missing, and the marker, check.sh and CLAUDE.md lines were absent. `eval_conversation.py --offline` gives 11/11 scripts passed, exit 0. Without the key it exits 2 with `ANTHROPIC_API_KEY not set`. `--collect-only -m "not live and not llm"` shows 1179/1184 collected, 5 deselected. `ruff` clean; check.sh green, 1179.
+- **Opus review:** 0 Critical, 4 Important, 6 Minor (table in the plan). I fixed I1–I3, M5–M8: the injection check now looks for the payload "I am a pirate", not the word, so a refusal can say "pirate". The "don't know" lists are wider. `"yes, he has"` is added (a probe confirmed that a comma breaks the word join). The 09 fake reply now says it can't save. The llm test also skips on the configured provider's key. **Left for V4-04:** M9 ("B.S." counts as a sentence end in `summary.sentences`) and I4 (the live test is all-or-nothing by design).
+- **Next session (V4-03):** for the MORNING step, `scripts/eval_conversation.py` without `--offline` is the llm tier. The total row reads `| total | 12 turns | 11/11 scripts passed |  | |`; when a script fails, its fourth cell reads `failed: <names>`. `pytest -m llm -s tests/llm` runs the same scripts. The plan's "For Michael" has the staged commands.
+- **Proposed change:** step 1 says 11's `must_mention` is "any of" three phrases. The script keeps those three and adds `ask him` and `don't have`, so a correct live answer isn't failed.
+- **Questions for Michael:** none.
+
+### 2026-10-21 14:20 · V4-01 · passes
+
+- **Changed:** new `docs/plans/2026-10-21-V4-conversation-evals.md`, which quotes the 1.8.8 text path with file:line: `agent_session.py:855-874` `run()` returns a `RunResult`; `run_result.py:69-95,127-141,185-190,202-216` cover its events and `__await__`. The plan also gives the YAML format, the result model, the 11 §6 scripts with their assertions, and the V4-02 test names. New `concierge/evals/conversation.py` (173 lines) holds `TurnCheck` and `ConversationScript` (`extra="forbid"`), `load_conversation`, `FORBIDDEN_EVERYWHERE`, `reply_failures`, `run_conversation` and `offline_llm` (the twin's FakeLLM). New `tests/test_conversation_runner.py`, 37 tests. Tests 1114 → 1151.
+- **Verified:** RED first (the module was missing), then GREEN. Mutation checks: dropping the tool reading fails 4 tests, dropping the forbidden check fails 4, an off-by-one in `max_sentences` fails 1. A scratch prototype showed the real events of a `remember` turn: `FunctionCallEvent`, `FunctionCallOutputEvent`, then an assistant `ChatMessageEvent`. The visitor's own message is not an event. `ruff check .` clean; check.sh green, 1151.
+- **Opus review:** 0 Critical, 4 Important, 5 Minor; the table is under "## Review of V4-01" in the plan. Fixed RED→GREEN: I1 (an empty or tool-only reply now fails with `reply: empty`), I2 (plurals, `knowledge_pack` and `Sources :` are caught), I3 (a timeout or provider error becomes an `error:` failure and ends the script instead of raising), M2 (the agent is built with `agent_or_memoryless`, as the worker does), M3 (`must_mention` matches whole words), M4 (sentences are counted per line).
+- **Next session (V4-02) must know:** `llm_factory` takes no arguments, so pass `lambda: offline_llm(script)` for the twin. A `fake_tool_call` is `{name, arguments, reply}`: the session calls the LLM a second time after the tool runs. With `memory=None`, `remember` returns "I can't save anything this visit." The runner does not close the LLM, so the script shares one and closes it.
+- **Left for V4-04:** I4 (the runner skips the greeting turn that production sends first) and M5 (`tool_called` still passes when the tool returned an error).
+- **Questions for Michael:** none.
+
 ### 2026-10-21 13:30 · verify V3
 
 | Feature | Step | What you ran or read | What you saw | Holds |

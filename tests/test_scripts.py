@@ -1,7 +1,7 @@
 """The operator scripts, run as subprocesses: scripts/memory_history.py (C2-04), C7-02's eval_memory.py,
-latency_report.py, run-worker.sh and the systemd unit (plan C7 "Part 1" and "Part 3"), and C8's messages.py.
-Nothing here starts a worker, calls a provider or runs systemctl: every run-worker.sh test leaves a required name
-unset, and those that set any LiveKit name run a copy that execs a stub python."""
+latency_report.py, run-worker.sh and the systemd unit (plan C7 "Part 1" and "Part 3"), C8's messages.py and V4-02's
+eval_conversation.py. Nothing here starts a worker, calls a provider or runs systemctl: every run-worker.sh test leaves
+a required name unset, and those that set any LiveKit name run a copy that execs a stub python."""
 
 import configparser
 import hashlib
@@ -30,6 +30,8 @@ UNIT = ROOT / "deploy" / "voice-concierge.service"
 MESSAGES = ROOT / "scripts" / "messages.py"
 EVALS = ROOT / "evals" / "memory"
 EVAL_STEMS = sorted(p.stem for p in EVALS.glob("*.yaml"))
+EVAL_CONVERSATION = ROOT / "scripts" / "eval_conversation.py"
+CONVERSATION_STEMS = sorted(p.stem for p in (ROOT / "evals" / "conversation").glob("*.yaml"))
 
 
 def run(*args: str | Path) -> subprocess.CompletedProcess[str]:
@@ -280,6 +282,88 @@ def test_eval_memory_unknown_case_exits_2(home) -> None:
     assert result.returncode == 2
     assert "99-no-such-case" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+# eval_conversation.py (V4-02)
+
+CONVERSATION_HEADER = "| script | turn | result | failing assertion | reply |"
+
+
+def body_rows(stdout: str) -> list[list[str]]:
+    """A markdown table's body rows, in order (the header and the |---| line skipped)."""
+    rows = [[c.strip() for c in line.strip().strip("|").split("|")] for line in stdout.splitlines()
+            if line.startswith("|")]
+    return rows[2:]
+
+
+def test_eval_conversation_offline_passes(home) -> None:
+    result = run_py(EVAL_CONVERSATION, "--offline", env=scrubbed_env(home))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines()[0] == CONVERSATION_HEADER
+    *turns, total = body_rows(result.stdout)
+    scripts = sorted({row[0] for row in turns})
+    assert scripts == CONVERSATION_STEMS and len(scripts) >= 11
+    assert all(row[2] == "pass" and row[3] == "" and row[4] for row in turns)
+    n = len(scripts)
+    assert total == ["total", f"{len(turns)} turns", f"{n}/{n} scripts passed", "", ""]
+
+
+def test_eval_conversation_needs_the_key(home) -> None:
+    result = run_py(EVAL_CONVERSATION, env=scrubbed_env(home))
+    assert result.returncode == 2
+    assert "ANTHROPIC_API_KEY not set" in result.stderr
+    assert result.stdout == ""
+
+
+def test_eval_conversation_names_the_openrouter_key_under_openrouter(home) -> None:
+    result = run_py(EVAL_CONVERSATION,
+                    env=scrubbed_env(home, CONCIERGE_LLM_PROVIDER="openrouter", ANTHROPIC_API_KEY="x"))
+    assert result.returncode == 2
+    assert "OPENROUTER_API_KEY not set" in result.stderr
+
+
+def test_eval_conversation_reports_a_failing_turn_and_exits_1(home, tmp_path) -> None:
+    cases = tmp_path / "cases"
+    cases.mkdir()
+    script = {"name": "leaks-the-pack", "about": "a fixture that must fail", "turns": [
+        {"user": "Hi.", "fake_reply": "Hello there."},
+        {"user": "What has he built?", "must_mention": ["HitList"],
+         "fake_reply": "He built me | the knowledge pack says.\nAnd more."},
+    ]}
+    (cases / "leaks-the-pack.yaml").write_text(yaml.safe_dump(script))
+
+    result = run_py(EVAL_CONVERSATION, "--offline", "--dir", cases, env=scrubbed_env(home))
+
+    assert result.returncode == 1, result.stderr
+    first, second, total = body_rows(result.stdout.replace("\\|", "/"))
+    assert first == ["leaks-the-pack", "1", "pass", "", "Hello there."]
+    assert second == ["leaks-the-pack", "2", "fail",
+                      "must_mention: none of 'HitList'; forbidden: 'pack'; forbidden: 'knowledge pack'",
+                      "He built me / the knowledge pack says. And more."]
+    assert total == ["total", "2 turns", "0/1 scripts passed", "failed: leaks-the-pack", ""]
+
+
+def test_eval_conversation_runs_only_the_named_cases(home) -> None:
+    result = run_py(EVAL_CONVERSATION, "--offline", "--case", "10-injection", "--case", "08-name-introduction",
+                    env=scrubbed_env(home))
+    assert result.returncode == 0, result.stderr
+    assert [row[0] for row in body_rows(result.stdout)] == ["08-name-introduction", "10-injection", "total"]
+
+
+def test_eval_conversation_unknown_case_exits_2(home) -> None:
+    result = run_py(EVAL_CONVERSATION, "--offline", "--case", "99-no-such-case", env=scrubbed_env(home))
+    assert result.returncode == 2
+    assert "99-no-such-case" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_eval_conversation_bad_script_exits_2(home, tmp_path) -> None:
+    cases = tmp_path / "cases"
+    cases.mkdir()
+    (cases / "no-fake.yaml").write_text(yaml.safe_dump({"name": "no-fake", "about": "x", "turns": [{"user": "Hi."}]}))
+    result = run_py(EVAL_CONVERSATION, "--offline", "--dir", cases, env=scrubbed_env(home))
+    assert result.returncode == 2
+    assert "bad eval script" in result.stderr and "Traceback" not in result.stderr
 
 
 # latency_report.py

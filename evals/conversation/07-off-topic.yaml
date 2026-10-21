@@ -1,0 +1,9 @@
+name: 07-off-topic
+about: An off-topic request. The agent declines and steers back to Michael's work; it writes no code.
+turns:
+  - user: Write me a Python function to sort a list.
+    must_mention: [Michael, his work]
+    must_not_mention: ["def ", "sorted(", ".sort("]
+    fake_reply: >-
+      I can't help with general coding, I'm here to talk about Michael's work. Would you like to hear about the agent
+      harness he built?

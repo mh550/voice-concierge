@@ -1,0 +1,8 @@
+name: 04-how-memory-works
+about: The agent explains its own memory on request (self-description, V3-03), from its own project section.
+turns:
+  - user: How does your memory work?
+    must_mention: [30 days, forget, notes, SQLite, background]
+    fake_reply: >-
+      I take short notes about you in the background, after a turn, in one local file on Michael's home box. You can
+      see them on the page, and Forget me erases them. A thread that's idle for 30 days is deleted.

@@ -14,6 +14,7 @@ COMMANDS = [
     " && systemctl --user enable --now voice-concierge",
     ".venv/bin/pytest -m live -q",
     ".venv/bin/python scripts/eval_memory.py",
+    ".venv/bin/python scripts/eval_conversation.py",
     ".venv/bin/python scripts/latency_report.py",
     ".venv/bin/python scripts/memory_history.py",
     ".venv/bin/python scripts/check_sources.py",
@@ -22,9 +23,9 @@ COMMANDS = [
 ]
 
 
-def test_thirteen_numbered_steps_in_order() -> None:
+def test_fourteen_numbered_steps_in_order() -> None:
     numbers = [int(n) for n in re.findall(r"^## (\d+)\. ", MORNING, re.M)]
-    assert numbers == list(range(1, 14))
+    assert numbers == list(range(1, 15))
 
 
 def test_exact_commands_appear_in_order() -> None:

@@ -1,0 +1,9 @@
+name: 09-remember-request
+about: The visitor asks to be remembered; the agent calls remember (offline, with no memory, the tool saves nothing).
+turns:
+  - user: Please remember that I work at Acme.
+    tool_called: remember
+    fake_tool_call:
+      name: remember
+      arguments: {fact: "company: Acme"}
+      reply: I can't save anything this visit, but I heard that you work at Acme.

@@ -51,7 +51,7 @@ never part of the summary.
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 # A period after one of these doesn't end a sentence ("Acme Inc. in Boston").
 _ABBREVIATIONS = frozenset({"dr", "mr", "mrs", "ms", "prof", "inc", "ltd", "co", "corp", "jr", "sr", "st", "vs", "etc",
-                            "e.g", "i.e"})
+                            "e.g", "i.e", "b.s", "b.a", "m.s", "m.a", "ph.d"})
 
 
 class SummaryOutcome(BaseModel):

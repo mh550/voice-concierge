@@ -237,7 +237,7 @@
       "after": [
         "V3"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V4-02",
@@ -252,7 +252,7 @@
         "tests/llm/test_conversation.py (new; `pytestmark = [pytest.mark.llm, pytest.mark.skipif(not os.environ.get('ANTHROPIC_API_KEY'), ...)]`) runs scripts/eval_conversation.py's run_all live and asserts exit 0; pyproject.toml markers gain 'llm: needs the LLM key; Michael runs these'; .harness/check.sh runs pytest with -m 'not live and not llm' and CLAUDE.md's suite line says so; tests/test_live_layout.py asserts `pytest -m 'not live and not llm' --collect-only` reports the llm test deselected along with the 4 live ones",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V4-03",
@@ -266,7 +266,7 @@
         "tests/test_readme.py has test_the_harness_phrase_is_absent, which asserts README.md, MORNING.md and every docstring under concierge/ and scripts/ do not contain the phrase the spec's §1 item 2 names (the test holds the phrase as a constant), and it passes",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V4-04",
@@ -281,7 +281,7 @@
         "progress.md has a V4 entry with the test counts and the exact llm-tier command for Michael",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V5-01",
