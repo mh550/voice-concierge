@@ -266,7 +266,7 @@
         "tests/test_readme.py has test_the_harness_phrase_is_absent, which asserts README.md, MORNING.md and every docstring under concierge/ and scripts/ do not contain the phrase the spec's §1 item 2 names (the test holds the phrase as a constant), and it passes",
         ".harness/check.sh exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "V4-04",

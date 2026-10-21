@@ -52,7 +52,7 @@ visit; nothing existing changes). Older code then refuses that file ("schema ver
 back to V1 code means keeping a copy of the db from before: `cp ~/.local/share/voice-concierge/concierge.db
 ~/.local/share/voice-concierge/concierge.db.v2` with the worker stopped, before the first V2 start. That copy holds
 visitor data "Forget me" and the 30-day purge can't reach: `rm` it once V2 runs fine, and within 30 days in any case.
-Until the V2 worker has started once, the scripts in §11 refuse the old file ("schema version 2; this code reads 3").
+Until the V2 worker has started once, the scripts in §12 refuse the old file ("schema version 2; this code reads 3").
 
 ## 4. Voice
 
@@ -65,7 +65,7 @@ Check: the memory panel lists the facts with channel and time, and the second vi
 
 Type a message on the page. Then ask it to leave Michael a message with your email (the `leave_message_for_michael` tool).
 
-Check: it's answered from the same memory, the new fact shows channel `text`, and step 11's `scripts/messages.py` lists
+Check: it's answered from the same memory, the new fact shows channel `text`, and step 12's `scripts/messages.py` lists
 the message. Undo: step 6.
 
 ## 6. Forget me
@@ -93,7 +93,21 @@ Check: the total row, harm 0, exit 0; note the recall. A case that shows `error`
 from the API; if every case does (or the worker log shows `extraction failed (APIStatusError)`), look first at the
 strict-schema risk (C4 plan "Risks": a 400 on the `emit_ops` schema). Undo: none.
 
-## 9. Latency report
+## 9. Conversation evals
+
+```
+( set -a; . ~/.config/voice-concierge/env; set +a; .venv/bin/python scripts/eval_conversation.py )
+```
+
+It runs the 11 scripts in `evals/conversation/` through the real prompt and LLM over the text path (no STT, TTS or
+room, no store).
+
+Check: the total row reads `| total | 12 turns | 11/11 scripts passed |  | |` and the exit code is 0. A failing script
+shows `fail` in its turn's result cell with the broken assertion beside it, and the total row's fourth cell reads
+`failed: <names>` (exit 1). The reply column shows what the agent said, so read it to see why. Exit 2 means the key
+is missing. Undo: none, there is no room and no store.
+
+## 10. Latency report
 
 ```
 .venv/bin/python scripts/latency_report.py ~/.local/share/voice-concierge/concierge.db
@@ -108,13 +122,13 @@ Check: `eou_ms`, `stt_ms`, `llm_ttft_ms`, `tts_ttfb_ms` and `total_ms` each have
 per session and `extraction_ms` one per merge, so theirs are smaller); otherwise talk more turns first. Undo:
 `git revert` the README commit.
 
-## 10. PII redaction
+## 11. PII redaction
 
 In the LiveKit Cloud project `portfolio-voice-agent`, turn on PII redaction in the observability settings (B11).
 
 Check: the setting reads on. Undo: turn it off.
 
-## 11. Your memory history
+## 12. Your memory history
 
 ```
 .venv/bin/python scripts/memory_history.py ~/.local/share/voice-concierge/concierge.db <your visitor id>
@@ -128,7 +142,7 @@ Read them within 30 days: the idle purge deletes them with the visitor's thread 
 Check: one line per fact, corrected ones with a `valid_to`, then one `visit <n>` line per visit (started, ended or `-`,
 the summary stored at its end or `-`); one line per message, newest first. Undo: none, both are read-only.
 
-## 12. Source drift check
+## 13. Source drift check
 
 ```
 .venv/bin/python scripts/check_sources.py
@@ -141,7 +155,7 @@ Check: exit 0 and `clean: 5 files match main`, or exit 1 and one `drifted: <name
 re-vendor as `docs/plans/2026-10-21-V3-knowledge-v2.md` says and rebuild the pack in a session with a review. Exit 2
 means a fetch failed or a file is missing (the reason is on stderr). Undo: none, it is read-only.
 
-## 13. Stop
+## 14. Stop
 
 - Ctrl-C, or `systemctl --user stop voice-concierge`.
 - Kill switch, no restart needed: `touch ~/.voice-concierge-off`. New jobs are declined and the page shows offline after
@@ -190,5 +204,5 @@ Each is a default the build took (details in `docs/decisions.md`); say if you wa
 - **D21** (not a default: your question, answered): describing its own design breaks none of LiveKit's docs, its
   terms or Anthropic's usage policy. LiveKit's terms (§2.6.2, §2.6.6) and Anthropic's AUP both ask that visitors be
   told they are talking to an AI; the greeting doesn't say "AI". Does the portfolio page label the concierge as an AI agent, or should the greeting say it?
-- **D22:** the vendored sources get a drift check you run (step 12), not an automatic pack rebuild. Run it weekly from
+- **D22:** the vendored sources get a drift check you run (step 13), not an automatic pack rebuild. Run it weekly from
   a systemd timer, or by hand from this list only?

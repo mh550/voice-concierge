@@ -17,6 +17,7 @@ SECTIONS = [
     "Memory design, practice by practice",
     "How it maps onto Agents 2.0",
     "Results",
+    "How it's verified",
     "Failure cases and limits",
     "Privacy",
     "How to run it",
@@ -171,7 +172,7 @@ MEASURED = re.compile(r"^Measured on \d{4}-\d{2}-\d{2}\b", re.M)
 
 def unmeasured_cells(section: str) -> list[list[str]]:
     """Rows of the Results tables with a number cell that isn't `to measure`; once the section says
-    "Measured on <date>" (MORNING step 9 adds it with the pasted tables), any filled cell is allowed."""
+    "Measured on <date>" (MORNING step 10 adds it with the pasted tables), any filled cell is allowed."""
     measured = MEASURED.search(section) is not None
     bad = []
     for row in _table_rows(section):
@@ -277,3 +278,33 @@ def test_what_it_does_describes_the_v2_body_by_kind() -> None:
     section = " ".join(_section("What it does").split())
     for phrase in ("`about_visitor`", "`about_agent`", "this session's memory events", "`concierge.get_memory`"):
         assert phrase in section, phrase
+
+
+# The phrase the spec (§1 item 2) names as wrongly read to be about the concierge; no doc or docstring may use it.
+BANNED_PHRASE = "specs in, verified milestones out"
+
+
+def test_the_harness_phrase_is_absent() -> None:
+    files = [README, ROOT / "MORNING.md", *sorted((ROOT / "concierge").rglob("*.py")),
+             *sorted((ROOT / "scripts").rglob("*.py"))]
+    for path in files:
+        text = path.read_text()
+        if path.suffix == ".py":
+            tree = ast.parse(text)
+            text = "\n".join(ast.get_docstring(n) or "" for n in ast.walk(tree)
+                             if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)))
+        assert BANNED_PHRASE not in " ".join(text.lower().split()), path
+
+
+def test_how_its_verified_names_the_tiers_and_what_exists() -> None:
+    section = _section("How it's verified")
+    rows = {row[0]: row for row in _table_rows(section)}
+    assert list(rows) == ["offline", "llm", "live"]
+    for row in rows.values():
+        assert all(cell for cell in row), row
+    for name in ("pytest -m llm", "pytest -m live", ".harness/check.sh", "scripts/eval_conversation.py",
+                 "scripts/eval_memory.py"):
+        assert name in section, name
+    pyproject = (ROOT / "pyproject.toml").read_text()
+    assert '"live:' in pyproject and '"llm:' in pyproject
+    assert (ROOT / "tests" / "llm").is_dir() and (ROOT / "tests" / "live").is_dir()

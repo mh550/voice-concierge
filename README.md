@@ -162,6 +162,14 @@ in `tests/live/test_live.py`, all on Michael's box ([`MORNING.md`](MORNING.md)).
 | harm hits (false facts, agent-said facts, stored injections, kept forgotten values) | to measure |
 | live tests passing (`pytest -m live`) | to measure |
 
+## How it's verified
+
+| Tier | Run with | What it proves | What it cannot prove |
+|---|---|---|---|
+| offline | `.harness/check.sh` (no network, no keys; anyone runs it) | The code against fakes: the fake LLM, fake rooms and recorded extractor ops. It includes the two offline eval twins, `scripts/eval_memory.py --offline` and `scripts/eval_conversation.py --offline`, which replay recorded answers. | Anything about a real model, a real voice or a real room. |
+| llm | `pytest -m llm` or `scripts/eval_conversation.py` (Michael's) | The real prompt and LLM, through the text path: the 11 scripts in `evals/conversation/` check what it says, what it refuses and that it uses its tools. | Speech: there is no STT, TTS or room, so mishearing and latency are untested. |
+| live | `pytest -m live` (Michael's) | A real LiveKit room: the worker joins, the page's RPCs and data topics work end to end. | Model quality across many conversations; it runs a few fixed cases. |
+
 ## Failure cases and limits
 
 - **The visitor id isn't auth.** It's a random id kept in the browser: clearing storage makes a stranger of a regular,

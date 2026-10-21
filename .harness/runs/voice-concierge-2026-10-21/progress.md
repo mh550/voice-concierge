@@ -13,6 +13,13 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 16:00 · V4-03 · passes
+
+- **Changed:** `MORNING.md` gains `## 9. Conversation evals` (exact command, Check, Undo) after the memory eval; later steps renumber to 14 and the cross-references (§12, steps 12 and 13) follow. `README.md` gains `## How it's verified`, one table of the offline, llm and live tiers (proves / cannot prove), before "Failure cases and limits". `tests/test_morning.py` (COMMANDS, 14 steps) and `tests/test_readme.py` (SECTIONS, `test_how_its_verified_names_the_tiers_and_what_exists`, `test_the_harness_phrase_is_absent`). Tests 1179 → 1181.
+- **Verified:** check.sh green, 1181 tests. The phrase "specs in, verified milestones out" was already absent from README, MORNING and all docstrings; the test holds it as a constant.
+- **Next session:** MORNING step numbers moved (latency is 10, PII 11, history 12, drift 13, stop 14).
+- **Questions for Michael:** none.
+
 ### 2026-10-21 15:10 · V4-02 · passes
 
 - **Changed:** new `evals/conversation/` holds the 11 required scripts, 12 turns; `03-database-experience` has a second turn asking about DBA work, which must say it doesn't know. New `scripts/eval_conversation.py` takes `[--offline] [--case NAME]... [--dir DIR]` and prints `| script | turn | result | failing assertion | reply |` plus a total row, `<k>/<m> scripts passed`. It exits 0, 1 or 2 like `eval_memory.py`. New `tests/test_conversation_evals_offline.py`, 18 tests. 7 new `eval_conversation` tests in `tests/test_scripts.py`. New `tests/llm/test_conversation.py` (marked `llm`). `pyproject.toml` registers the `llm` marker, and `.harness/check.sh` and `CLAUDE.md` now say `-m "not live and not llm"`. 3 new tests in `tests/test_live_layout.py`. The plan has "V4-02 as built" and "Review of V4-02". Tests 1151 → 1179.
