@@ -329,3 +329,24 @@ def test_live_tier_says_it_runs_on_a_fake_room() -> None:
     """V5-02 W1: tests/live/test_live.py drives start_session in-process on a FakeRoom; nothing joins LiveKit Cloud."""
     proves, cannot = {row[0]: row for row in _table_rows(_section("How it's verified"))}["live"][2:4]
     assert "the worker joins" not in proves and "fake room" in cannot
+
+
+def test_what_it_does_has_the_usher_bullet_and_the_diagram_names_navigate() -> None:
+    """V6-02: the agent sends concierge.navigate from show_page; the page follows only while Guide me is on."""
+    bullets = [b for b in re.split(r"\n(?=- )", _section("What it does")) if "show_page" in b]
+    assert len(bullets) == 1
+    bullet = " ".join(bullets[0].split())
+    assert "`concierge.navigate`" in bullet and "Guide me" in bullet and "concierge/usher.py" in bullet
+    diagram = re.findall(r"```mermaid\n(.*?)```", _section("Architecture"), re.DOTALL)[0]
+    edge = next(line for line in diagram.splitlines() if "page <-->" in line and "cloud" in line)
+    assert "concierge.navigate" in edge
+
+
+def test_decisions_has_the_v6_entry() -> None:
+    """V6-02: the V6 choices (the step calls the entry D20 *default*; D20 was taken, so it is D23)."""
+    text = (ROOT / "docs" / "decisions.md").read_text()
+    entry = text.split("## D23 *default*", 1)[1].split("\n## ", 1)[0]
+    assert '"D20 *default*"' in entry
+    flat = " ".join(entry.split())
+    for phrase in ("mirrors the page's", "path only", "carries no slug", "V6-02", "show_page once"):
+        assert phrase in flat, phrase

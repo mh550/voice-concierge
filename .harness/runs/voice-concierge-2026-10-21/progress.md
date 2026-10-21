@@ -13,6 +13,39 @@ How Michael steers: edit `.harness/runs/voice-concierge-2026-10-21/INBOX.md` on 
 
 ---
 
+### 2026-10-21 13:00 · verify V6
+
+check.sh green (1247 tests, cached); the six V6 test files re-run: 186 passed.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| V6-01 | 1 | Read the plan `docs/plans/2026-10-21-V6-usher.md` (sections: slugs, allowlist rule, NavigatePayload, rate limit, replies, instructions text, test names, V6-02 eval script); `grep Source knowledge/michael.md`; read `tests/test_knowledge.py::test_every_cited_slug_is_a_projects_ts_slug`; grep `slug: '` in projects.ts | All 6 projects.ts-backed Project sections carry `Source: projects.ts (slug: x)`, Voice Concierge has none; every cited slug appears in projects.ts; test passes | yes |
+| V6-01 | 2 | Read `concierge/contract.py`, `concierge/usher.py` | NAVIGATE_TOPIC/MAX_BYTES, NavigatePayload extra=forbid, FIXED_ROUTES, allowlist_from_pack, 8.0 s, exact reply strings, `navigate_refused` journal with path only, reason capped 120 + check_text | yes |
+| V6-01 | 3 | Read `concierge/agent.py` show_page, `concierge/session.py:201`, `tests/test_usher.py::test_the_agent_tool_without_an_usher_refuses` | Tool forwards to Usher, no usher gives 'That page is not one I can show'; session builds Usher from pack with publish and journal | yes |
+| V6-01 | 4 | `pytest tests/test_usher.py tests/test_critical_path.py`; read fixture-pack, publish+schema, refusal, 3 s rate-limit tests | 23 usher tests pass; assertions match step (two hrefs plus fixed routes, one body valid against navigate.schema.json, /admin and evil.test refused with no publish, exact strings); critical path passes | yes |
+| V6-01 | 5 | `.harness/check.sh` via lib/check.sh | green, 1247 tests | yes |
+| V6-02 | 1 | Read `concierge/prompt.py:39`, `tests/test_prompt.py:74-129` | Pages rule present with once/no-repeat/no-announce; test asserts the rule and `<= 3000` tokens; tests pass | yes |
+| V6-02 | 2 | Read `evals/conversation/12-show-the-harness.yaml`; `pytest tests/test_conversation_evals_offline.py`; `scripts/eval_conversation.py --offline` | tool_called show_page, fake_tool_call href /projects/agent-harness, then fake_reply; 12/12 scripts pass, 12-show-the-harness listed | yes |
+| V6-02 | 3 | Read README.md lines 35-38 and 68, `docs/decisions.md` D23; `pytest tests/test_readme.py` | Usher bullet and concierge.navigate on page-cloud edge; D23 *default* (named D20 in heading) covers 8 s limit, path-only journal, no slug for Voice Concierge; tests pass | yes |
+| V6-02 | 4 | `ls` of scratch `review-V6.diff` (58 KB), `git diff daa82ce..a365d48` = 1107 lines, read plan `## Review`, `wc -l concierge/*.py` | Diff written; review notes with three named properties fixed RED->GREEN (`test_a_refusal_does_not_wait_for_its_journal_row`), simplification pass named, max 250 lines, progress V6 entry exists. Opus reviewer run not independently observable; notes accepted | yes |
+| V6-02 | 5 | `.harness/check.sh` via lib/check.sh | green | yes |
+
+### 2026-10-21 12:10 · V6-02 · passes
+- **Changed:** `prompt.py` STATIC_INSTRUCTIONS gains a one-line "Pages:" rule (show_page once when a project or page topic comes up, never the same page twice in a row, don't announce it). Static plus pack is now 2,982 of the 3,000 budget, so the routes stay in the tool's description. New `evals/conversation/12-show-the-harness.yaml`: the show_page call, then a fake_reply turn ("189"). README has the usher bullet and `concierge.navigate` on the page–cloud edge. D23 gains (g)–(i); its heading already carries the step's "D20 *default*" name. Tests 1241 → 1247.
+- **V6 review:** an Opus reviewer read `review-V6.diff` (`daa82ce..a365d48`, 1107 lines) and found nothing Critical or Important. The 3 named properties hold: no off-list publish, the reason is gated, the limit is per session and on the clock. One Minor finding was fixed RED→GREEN: a refusal awaited its journal row, which can wait up to 5 s behind extraction writes. It now runs on the session's tasks (`Usher(..., tasks=)`). **Simplification pass:** removed the unreachable body-size check, defined the `Journal` alias once in `models.py`, dropped the repeated D23 paragraph. The notes are in the plan under `## Review`.
+- **Verified:** check.sh green, 1247 tests. `eval_conversation.py --offline` passes 12/12 scripts, 14 turns. Every new test was seen failing first. The largest concierge/*.py files are 250 lines (`memory_writer.py`) and 249 (`contract.py`, `session.py`).
+- **Next session:** V6 is done. `session.py` and `contract.py` are still at 249 lines.
+- **Question for Michael:** should Voice Concierge get `Source: projects.ts (slug: voice-concierge)`? It is still open from V6-01.
+- **Proposed changes:** V6-01's refusal reply would read better as "That page is not one I can show; keep talking", so the model doesn't say the refusal aloud. That needs the V6-01 step changed. Give `run_conversation` an Usher with a no-op publish, so the llm tier sees `Showing them …` and `agent.py`'s no-usher branch can go.
+
+### 2026-10-21 10:30 · V6-01 · passes
+- **Changed:** `concierge/usher.py` (new, 105 lines) has `FIXED_ROUTES`, `allowlist_from_pack` and `Usher.show_page`, the three step replies plus `That page didn't open; keep talking` (D23 (f)). `contract.py` gains `NAVIGATE_TOPIC`, `NAVIGATE_MAX_BYTES` and `NavigatePayload`; `models.py` adds `navigate_refused` to `JournalType`. `agent.py` has the `show_page` tool, and `session.py` builds the Usher from one `load_pack()` and shares the `journal_row` partial with the Compactor. In `knowledge/michael.md`, 7 project Source lines carry `(slug: …)`; Voice Concierge has none. New files: `tests/contract/navigate.schema.json`, `tests/test_usher.py` (30 tests), `docs/plans/2026-10-21-V6-usher.md`, and D23 in decisions plus MORNING. Tests 1209 → 1241.
+- **Verified:** check.sh green, 1241 tests. Each test was seen failing first. An Opus review of the 843-line diff found no Critical issues. Its Important finding was that a refused `mailto:`/`javascript:` href journaled its payload as the "path"; that is fixed test-first, along with 7 Minor ones (see the plan's `## Review (V6-01)`).
+- **Flaky test fixed:** `test_metrics.py::test_one_row_per_turn_with_the_anonymous_columns` failed once under suite load. Each turn's metrics insert is its own thread, so the `id` order of the rows can vary; the assertion now ignores order.
+- **Next session (V6-02):** `contract.py` and `session.py` are both at 249 lines, so keep the prompt rule in `prompt.py` and leave the session alone. The conversation evals run with no usher, so `show_page` answers "not one I can show" there, but `tool_called` still passes. The decision entry the V6-02 step calls "D20 *default*" is D23 (D20 was taken), and V6-02 should extend it.
+- **Question for Michael:** `projects.ts` now has a `voice-concierge` entry (line 771). The step treated that project as having none, so it gets no slug. Add `Source: projects.ts (slug: voice-concierge)` so the agent can show its own page?
+- **Proposed changes:** V6-02 step 3 should say D23, not D20, and should drop "no slug for a project without a projects.ts entry" (no such project remains).
+
 ### 2026-10-21 09:10 · verify V5
 
 | Feature | Step | What you ran or read | What you saw | Holds |

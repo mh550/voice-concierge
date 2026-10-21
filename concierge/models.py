@@ -7,6 +7,7 @@ the bytes of the JSON dump, which is what the `state` table stores.
 from __future__ import annotations
 
 import unicodedata
+from collections.abc import Awaitable, Callable
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
@@ -18,8 +19,9 @@ Channel = Literal["voice", "text"]
 JournalType = Literal[
     "session_started", "session_ended", "user_turn", "agent_turn", "memory_preloaded", "extraction_ran",
     "fact_added", "fact_invalidated", "fact_deleted", "turn_metrics", "gate_rejected", "error",
-    "summary_written", "compacted", "visitor_left",
+    "summary_written", "compacted", "visitor_left", "navigate_refused",
 ]
+Journal = Callable[[JournalType, dict[str, Any]], Awaitable[None]]  # summary_step.journal_row bound to one session
 
 SINGLE_CAP = 120
 SET_ITEM_CAP = 60

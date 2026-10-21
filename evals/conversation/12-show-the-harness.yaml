@@ -1,0 +1,13 @@
+name: 12-show-the-harness
+about: The visitor asks about the harness; the agent calls show_page for its project page, then keeps talking (offline, with no room, the tool refuses).
+turns:
+  - user: tell me about the harness
+    tool_called: show_page
+    must_mention: [harness]
+    fake_tool_call:
+      name: show_page
+      arguments: {href: /projects/agent-harness, reason: they asked about the harness}
+      reply: The Agent Harness is a Bash harness that runs Claude Code agents in isolated git worktrees and merges only verified trees.
+  - user: How many features has it passed?
+    must_mention: ["189"]
+    fake_reply: 189 features passed in 4 days, at about 3 dollars each.

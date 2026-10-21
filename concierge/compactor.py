@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,12 +30,10 @@ from concierge.compaction import (
     needs_compaction,
     rebase,
 )
-from concierge.models import JournalType
+from concierge.models import Journal, JournalType
 from concierge.tasks import track
 
 logger = logging.getLogger("concierge.compactor")
-
-Journal = Callable[[JournalType, dict[str, Any]], Awaitable[None]]
 
 
 @dataclass(frozen=True)

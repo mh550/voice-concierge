@@ -123,11 +123,11 @@ def test_fact_confidence_is_between_0_and_1(confidence: float) -> None:
 
 
 def test_journal_type_literal_matches_spec_list() -> None:
-    # Spec §4.2, the journal's "Types:" list, word for word, then the C5 plan's additions and V1's visitor_left.
+    # Spec §4.2's journal "Types:" list word for word, then C5's additions, V1's visitor_left, V6's navigate_refused.
     assert list(get_args(JournalType)) == [
         "session_started", "session_ended", "user_turn", "agent_turn", "memory_preloaded", "extraction_ran",
         "fact_added", "fact_invalidated", "fact_deleted", "turn_metrics", "gate_rejected", "error",
-        "summary_written", "compacted", "visitor_left",
+        "summary_written", "compacted", "visitor_left", "navigate_refused",
     ]
 
 

@@ -210,3 +210,7 @@ Each is a default the build took (details in `docs/decisions.md`); say if you wa
   told they are talking to an AI; the greeting doesn't say "AI". Does the portfolio page label the concierge as an AI agent, or should the greeting say it?
 - **D22:** the vendored sources get a drift check you run (step 13), not an automatic pack rebuild. Run it weekly from
   a systemd timer, or by hand from this list only?
+- **D23:** the usher's `show_page` sends only allowlisted hrefs, at most one per 8 s; a reason the write gate rejects
+  goes as `""`, and a refused href is journaled as its path only. The Voice Concierge section has no slug, though
+  `projects.ts` now has a `voice-concierge` entry. Give it `Source: projects.ts (slug: voice-concierge)` so the agent
+  can show its own project page?
