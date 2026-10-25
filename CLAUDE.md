@@ -16,7 +16,8 @@ with the portfolio site's page).
 - Small modules, type hints throughout, pydantic for anything serialized.
 
 ## How to verify
-- Suite: `.harness/check.sh`. It is offline: no network, no keys.
+- Suite: `.harness/check.sh`, which runs `pytest -m "not live and not llm" -q`, ruff if present, and `compileall`.
+  It is offline: no network, no keys.
 - Live evals (`pytest -m live`) need LiveKit keys; the llm tier (`pytest -m llm`, `scripts/eval_conversation.py`
   without `--offline`) needs the LLM key. Both spend API credit (see Off-limits); `MORNING.md` is the runbook.
 
