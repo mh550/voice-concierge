@@ -20,7 +20,7 @@ with the portfolio site's page).
 - Suite: `.harness/check.sh`, which runs `pytest -m "not live and not llm" -q`, ruff if present, and `compileall`.
   It is offline: no network, no keys.
 - Live evals (`pytest -m live`) need LiveKit keys; the llm tier (`pytest -m llm`, `scripts/eval_conversation.py`
-  without `--offline`) needs the LLM key. **Only Michael runs them**, in the morning (`MORNING.md`).
+  without `--offline`) needs the LLM key. Both spend API credit (see Off-limits); `MORNING.md` is the runbook.
 
 ## Decisions and plans
 - Spec: `docs/spec.md` (D1–D6 Michael's, B1–B12 the builder's calls). Decisions: `docs/decisions.md`. A new default is
@@ -29,11 +29,10 @@ with the portfolio site's page).
 - Plans: `docs/plans/<date>-<milestone>-<topic>.md`.
 
 ## Off-limits
-- **Secrets.** Never read, print or source `~/.config/voice-concierge/env`, any `.env`/`.env.local`, or `~/.livekit/` (the `lk` CLI config holds the API secret). Never run `lk`. The worker reads that env
-  file only when Michael runs `scripts/run-worker.sh` or the systemd unit.
-- **Build-only.** Never start the worker against LiveKit Cloud, run `pytest -m live` or `pytest -m llm`, or install,
-  enable or start the systemd unit. Write the unit file in `deploy/` only.
-- Never write outside this worktree and your scratch directory. `~/projects/portfolio_site` and the other projects are
-  not yours.
+- **Secrets.** The worker's env file (`~/.config/voice-concierge/env`) and `~/.livekit/` hold secrets: never print or
+  source them.
+- **API credit.** `pytest -m live`, `pytest -m llm`, `scripts/run-worker.sh`, the systemd unit and `lk` use LiveKit
+  Cloud or the LLM and spend API credit: run them only when the task asks. Write the unit file in `deploy/`; installing
+  or enabling it is Michael's.
 - This repo is **public**. Commit no secrets, no personal data beyond what `knowledge/sources/` already publishes, no
   internal hostnames or IPs, and no visitor data (`*.db` is gitignored).
