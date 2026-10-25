@@ -503,3 +503,11 @@ agent can show its own project page? One line in the pack; the allowlist follows
 **Decision.** The worker's health endpoint (8081 under `start`) binds 127.0.0.1: `AgentServer(host="127.0.0.1")` in
 `concierge/worker.py` (1.8.8's default `host=""` is every interface, `livekit/agents/worker.py:323`). Michael's INBOX
 answer of 2026-10-20; built in C8-01, asserted by `test_import_needs_no_keys`. MORNING.md no longer asks about it.
+
+## Idle job processes: one (Michael, 2026-10-24)
+
+**Decision.** The worker keeps one warm job process: `AgentServer(num_idle_processes=1)` in `concierge/worker.py`.
+1.8.8's production default is `min(cpu_count, 4)` (`livekit/agents/worker.py:208`), and each idle process is a full
+Python process with the plugins loaded, about 1 GB for four on the home box. One visitor at a time is the expected
+load; a second concurrent visitor waits for a process to start. Michael's handoff plan of 2026-10-24 (chunk 3);
+asserted by `test_import_needs_no_keys`.
