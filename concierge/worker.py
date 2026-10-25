@@ -62,7 +62,8 @@ async def _open_or_none(path: Path) -> Store | None:
 
 
 # host: the health endpoint (8081 under `start`) listens on loopback only; 1.8.8's default "" is every interface.
-server = AgentServer(shutdown_process_timeout=30, setup_fnc=prewarm, host="127.0.0.1")
+# num_idle_processes: one warm job process; 1.8.8's prod default is min(cpu_count, 4), each a full process.
+server = AgentServer(shutdown_process_timeout=30, setup_fnc=prewarm, host="127.0.0.1", num_idle_processes=1)
 _background: set[asyncio.Task[None]] = set()
 
 
