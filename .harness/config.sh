@@ -6,4 +6,3 @@ INIT_CMD=".harness/init.sh"            # venv + pinned deps (once pyproject.toml
 BASE_PORT=7841
 HOURS=14
 MAX_ATTEMPTS=2
-AGENT_SETTINGS=.claude/settings.json
