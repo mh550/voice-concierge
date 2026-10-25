@@ -60,7 +60,8 @@ def test_import_needs_no_keys() -> None:
         "import concierge.worker as w; "
         "s = w.server; "
         "print(type(s).__name__, s._agent_name, s._shutdown_process_timeout, "
-        "s._entrypoint_fnc is w.entrypoint, s._request_fnc is w.on_request, s.setup_fnc is w.prewarm, s._host, s._num_idle_processes)"
+        "s._entrypoint_fnc is w.entrypoint, s._request_fnc is w.on_request, s.setup_fnc is w.prewarm, s._host, "
+        "s._num_idle_processes)"
     )
     out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr
