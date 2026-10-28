@@ -10,7 +10,9 @@ Type=simple
 EnvironmentFile=%h/.config/voice-concierge/env
 WorkingDirectory=%h/projects/voice-concierge
 ExecStart=%h/projects/voice-concierge/scripts/run-worker.sh start
-Restart=on-failure
+# always, not on-failure: after 16 failed reconnects (a DNS outage, 2026-10-28) livekit-agents gives up and exits 0,
+# which on-failure treats as a clean stop. `systemctl --user stop` still stops it for good.
+Restart=always
 RestartSec=10
 # The first SIGTERM drains live sessions (livekit-agents 1.8 cli/cli.py); a session is at most 10 min (B7), plus 30 s
 # of shutdown work, so systemd waits that long before it kills the worker.

@@ -559,7 +559,7 @@ def test_systemd_unit_has_the_six_keys() -> None:
     assert unit["Service"]["EnvironmentFile"] == "%h/.config/voice-concierge/env"
     assert unit["Service"]["WorkingDirectory"] == "%h/projects/voice-concierge"
     assert unit["Service"]["ExecStart"] == "%h/projects/voice-concierge/scripts/run-worker.sh start"
-    assert unit["Service"]["Restart"] == "on-failure"
+    assert unit["Service"]["Restart"] == "always"
     assert unit["Service"]["RestartSec"] == "10"
     assert unit["Install"]["WantedBy"] == "default.target"
 

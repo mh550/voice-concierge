@@ -581,3 +581,11 @@ answer of 2026-10-20; built in C8-01, asserted by `test_import_needs_no_keys`. M
 the plugins loaded; with it the service held about 1 GB of the home box. One visitor at a time is the expected load; a
 second concurrent visitor waits for a process to start. Michael's handoff plan of 2026-10-24 (chunk 3);
 asserted by `test_import_needs_no_keys`.
+
+## Worker restart: always (Michael, 2026-10-28)
+
+**Decision.** The unit restarts the worker on any exit: `Restart=always` in `deploy/voice-concierge.service`, was
+`on-failure`. On 2026-10-28 the home box lost DNS for over half an hour; livekit-agents 1.8 gave up after 16 reconnects
+(`RuntimeError: failed to connect to livekit after 16 attempts`, `livekit/agents/worker.py:1167`) and the process exited
+0, so `on-failure` left the worker down for 11 hours. `systemctl --user stop` still stops it (systemd does not restart a
+unit it was told to stop); the kill switch is unchanged. Asserted by `test_systemd_unit_has_the_six_keys`.
